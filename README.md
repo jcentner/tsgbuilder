@@ -12,6 +12,8 @@ It uses **Azure OpenAI** to:
 
 The output is **fully markdown-compliant**, follows the template verbatim, and includes placeholders like `{{MISSING::<SECTION>::<HINT>}}` for gaps.
 
+Source for TSG template: [TSG-Template.md - ADO](https://dev.azure.com/Supportability/AzureCognitiveServices/_git/AzureML?path=/AzureML/Welcome/TSG-Template.md&version=GBmaster&_a=preview)
+
 ---
 
 ## Features
