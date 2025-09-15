@@ -86,6 +86,8 @@ The above would let you use Agents ONLY with the connected AOAI resource mention
 
 The "connected resource" mentioned in the capability host would now serve as the default aoai/aiservices connection and agents would could deployments from this connection. So once the capability host is created, the agents UI in Foundry can be used to CRUD on agents using the aoai/aiservices connection mentioned in the capability host.
 
+Also note the UI may need a hard refresh to reflect the new deployment options for the Agents.
+
 
 
 This can also be done with Bicep or Terraform (azapi) by modifying the appropriate fields with those. 

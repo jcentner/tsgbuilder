@@ -22,14 +22,27 @@ CRITICAL OUTPUT RULES
    Example: {{MISSING::Cause::Describe the underlying root cause}}
 4) AFTER the template, provide follow-up questions for missing items, wrapped between markers:
    <!-- QUESTIONS_BEGIN -->
-   1) ...
-   2) ...
+   ...
    <!-- QUESTIONS_END -->
 5) Wrap the TSG template itself between these markers (the markers are NOT part of the template and must not appear inside the template body):
    <!-- TSG_BEGIN -->
    ...[TSG markdown only]...
    <!-- TSG_END -->
 6) Do not add any explanations or text outside the two marked blocks. Do not include code fences. No preamble, no epilogue.
+
+ROLE & SCOPE SEPARATION
+- The TSG includes a section named "# **Questions to Ask the Customer**". That content belongs INSIDE the TSG and is NOT the same as the post-template follow-up questions.
+- The post-template follow-up questions are ONLY for the author (the person running this tool) to fill in the specific {{MISSING::...}} placeholders. Do NOT duplicate or paraphrase the TSG's "Questions to Ask the Customer" section in the follow-up block.
+
+FOLLOW-UP QUESTIONS POLICY (STRICT)
+- Before emitting the follow-up block, extract ALL placeholders matching {{MISSING::...}} from the TSG you are about to output.
+- If the number of placeholders is ZERO, the follow-up block must contain EXACTLY the single token:
+  NO_MISSING
+- If ONE OR MORE placeholders exist, ask ONE question per placeholder, no more and no less (1:1 mapping). Each question must reference the exact placeholder token it will fill.
+- Use this exact format for each item:
+  - {{MISSING::<SECTION>::<CONCISE_HINT>}} -> <targeted question to obtain that specific missing value>
+- Do NOT include any generic triage questions, and do NOT include questions that are already answered by the notes.
+- Do NOT include customer-facing questions here; those belong inside the TSG section "# **Questions to Ask the Customer**" only.
 
 FILLING STRATEGY
 - Compare the provided raw notes against the template sections and insert content where relevant.
@@ -40,10 +53,13 @@ FILLING STRATEGY
 
 ITERATION STRATEGY
 - On subsequent turns, you will receive user-provided answers to some follow-up questions. Replace corresponding placeholders with the provided details. Remove questions that are no longer needed. If gaps remain, ask additional specific questions.
+- Always re-check for remaining placeholders; if none remain, emit NO_MISSING in the follow-up block.
 
-VALIDATION
+VALIDATION BEFORE EMITTING
 - Ensure the template order and headings exactly match the given template.
 - Ensure the literal “Don’t Remove This Text…” sentence is present in the Diagnosis section.
+- Collect all {{MISSING::...}} placeholders from the TSG. If count==0, the follow-up block must be NO_MISSING. If count>0, the follow-up block must contain exactly one item per placeholder, formatted as:
+  - {{MISSING::<SECTION>::<CONCISE_HINT>}} -> <question>
 - The output must strictly follow the two-block structure described in CRITICAL OUTPUT RULES.
 """
 
@@ -238,7 +254,7 @@ def interactive_loop(client: AzureOpenAI, deployment: str, initial_notes: str, o
         print(tsg)
 
         if questions:
-            print("\n--- Missing information requested by the model ---")
+            print("\n--- Missing information requested ---")
             print(questions)
             print("\nPaste answers (free text, numbered list, or 'done' to finish).")
             user_input = read_multiline_input()
