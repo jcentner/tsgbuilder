@@ -46,7 +46,14 @@ Source for TSG template: [TSG-Template.md - ADO](https://dev.azure.com/Supportab
    export AZURE_OPENAI_API_VERSION="2024-02-15-preview"
    ```
 
-   Alternatively, create a .env file with the appropriate fields and source it. 
+   Alternatively, create a .env file with the appropriate fields and source it.
+
+  .env sample: 
+   ```bash
+   AZURE_OPENAI_API_KEY="<your-key>"
+   AZURE_OPENAI_ENDPOINT="https://<your-resource>.openai.azure.com/"
+   AZURE_OPENAI_API_VERSION="2024-02-15-preview"
+   ```
 
 ---
 
