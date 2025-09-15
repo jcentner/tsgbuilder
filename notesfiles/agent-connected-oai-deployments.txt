@@ -1,0 +1,137 @@
+When I try to create an Agent in my project (with the GA version in an Azure AI Foundry project, not a hub-based project), I can only use model deployments deployed in my current Azure AI Foundry resource, despite having connected Azure OpenAI resources.
+Screenshots:
+I can see the Azure OpenAI connected resource deployments when selecting an Agent for my 
+
+<screenshot of available deployments for OAI resource> 
+
+I can use them in the Chat playground:
+
+<OAI resource deployments in chat playground> 
+
+As you can see in my agent setup, I only have 1 deployment (the one from my Azure AI Foundry resource):
+
+<Agent configuration only shows the AI Foundry (AI Services) resource deployment, not OAI ones> 
+
+From <https://github.com/orgs/azure-ai-foundry/discussions/59> 
+
+
+
+ANSWER: 
+
+
+
+There is a known feature gap with Agents being able to see connected OpenAI resource model deployments.  Specifically, Currently, we lack a UX for managing capability hosts.
+ 
+The project capability host is only configured by default with the project AI Services resource by default and in the templates we publish. It can be deleted/recreated to point to an Azure OpenAI resource instead of the AI Services resource so that all Agents in the project see the OpenAI resource deployments instead. 
+ 
+
+
+
+
+
+As of now there's no easy way to do this. However, this is a way.
+
+The connected OpenAI resource should be in the same region as the AIServices resource.
+You would need to create a new capability host. This could disrupt any existing agents under the AIServices resource.
+How to create the new capability host?
+Below is python code - replace everywhere you see {something}.
+
+
+import requests
+import json
+from azure.identity import DefaultAzureCredential
+
+token = DefaultAzureCredential().get_token("https://management.azure.com/.default").token 
+ 
+ 
+ ## Create account capability host
+url = "https://management.azure.com/subscriptions/{sub-id}/resourceGroups/{res-group-name}/providers/Microsoft.CognitiveServices/accounts/{ai-services-resource}/capabilityHosts/{any-cap-host-name}/"
+
+querystring = {"api-version":"2025-04-01-preview"}
+
+payload = {"properties": {"capabilityHostKind": "Agents"}}
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Content-Type": "application/json",
+    "User-Agent": "insomnia/11.0.1"
+}
+
+response = requests.request("PUT", url, json=payload, headers=headers, params=querystring)
+
+print(response.text)
+
+
+## Create project capability host
+
+url = "https://management.azure.com/subscriptions/{sub-id}/resourceGroups/{res-group-name}/providers/Microsoft.CognitiveServices/accounts/{ai-services-resource}/projects/{project-name}/capabilityHosts/{any-proj-cap-host-name}/"
+
+querystring = {"api-version":"2025-04-01-preview"}
+
+payload = {"properties": {
+        "capabilityHostKind": "Agents",
+        "aiServicesConnections": ["{connection-name-of-aoai-resource}"]
+    }}
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Content-Type": "application/json",
+    "User-Agent": "insomnia/11.0.1"
+}
+
+response = requests.request("PUT", url, json=payload, headers=headers, params=querystring)
+
+print(response.text)
+
+
+The above would let you use Agents ONLY with the connected AOAI resource mentioned in the "aiServicesConnections" parameter. You could update or delete the capability host to be able to use deployments from other AOAI resource connection or from the parent AIServices resource.
+
+The "connected resource" mentioned in the capability host would now serve as the default aoai/aiservices connection and agents would could deployments from this connection. So once the capability host is created, the agents UI in Foundry can be used to CRUD on agents using the aoai/aiservices connection mentioned in the capability host.
+
+
+
+This can also be done with Bicep or Terraform (azapi) by modifying the appropriate fields with those. 
+Note: General Capability Host docs: https://learn.microsoft.com/en-us/azure/ai-foundry/agents/concepts/capability-hosts 
+
+Docs describing the aiServicesConnections optional property here (used to set to the oai resource): https://learn.microsoft.com/en-us/azure/ai-foundry/agents/concepts/capability-hosts#optional-property
+
+
+FOR REFERENCE: Capability hosts  background (not necessary to include in the TSG; this is the contents of the general capability host docs above)
+
+Capability hosts are sub-resources that you define at both the Azure AI Foundry Account and Foundry project scopes. They specify where the Azure AI Foundry Agent Service should store and process your agent data, including:
+
+Conversation history (threads)
+File uploads
+Vector stores
+
+Why use capability hosts?
+Capability hosts allow you to bring your own Azure resources instead of using the default Microsoft-managed platform resources. This gives you:
+
+Data sovereignty - Keep all agent data within your Azure subscription.
+Security control - Use your own storage accounts, databases, and search services.
+Compliance - Meet specific regulatory or organizational requirements.
+
+How do capability hosts work?
+Creating capability hosts is not required. However if you do want agents to use your own resources, you must create a capability host on both the account and project.
+
+Default behavior (Microsoft-managed resources)
+If you don't create an account-level and project-level capability host, the Azure AI Foundry Agent Service automatically uses Microsoft-managed Azure resources for:
+
+Thread storage (conversation history)
+File storage (uploaded documents)
+Vector search (embeddings and retrieval)
+
+Bring-your-own resources
+When you create capability hosts at both the account and project levels, all agent data is stored and processed using your own Azure resources within your subscription. This configuration is called a standard agent setup.
+
+Configuration hierarchy
+Capability hosts follow a hierarchy where more specific configurations override broader ones:
+
+Service defaults (Microsoft-managed search and storage) - Used when no capability host is configured.
+Account-level capability host - Provides shared defaults for all projects under the account.
+Project-level capability host - Overrides account-level and service defaults for that specific project.
+
+Understand capability host constraints
+When creating capability hosts, be aware of these important constraints to avoid conflicts:
+
+One capability host per scope: Each account and each project can only have one active capability host. Attempting to create a second capability host with a different name at the same scope will result in a 409 conflict.
+
+Configuration updates are not supported: If you need to change configuration, you must delete the existing capability host and recreate it.

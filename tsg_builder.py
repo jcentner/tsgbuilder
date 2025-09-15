@@ -5,6 +5,9 @@ import sys
 import argparse
 from typing import Tuple, List, Optional
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Azure OpenAI (Python openai SDK 1.x)
 # pip install openai
 from openai import AzureOpenAI
