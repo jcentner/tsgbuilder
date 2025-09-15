@@ -88,6 +88,12 @@ python tsg_builder.py --deployment gpt-4o --out my_issue_tsg.md
 - Add chunking for very large logs.
 - Build a simple web UI for broader team use.
 
+
+### Long term:
+- Explore automatic issue review and notes compiling (e.g. a spider/crawler to compile notes docs), which can be turned into TSGs automatically.
+- Could be an Agent or workflow that has visibility into all issues and catches recurring ones to suggest for TSGs. 
+- Consider an Agent that takes compiled notes for an issue that re-occurs (perhaps using the above as input) and all available solution data which drafts TSGs we can review, edit, and then publish. 
+
 ---
 
 **Quick Start Command**:
