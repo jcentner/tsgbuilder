@@ -18,6 +18,7 @@ from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.agents.models import (
     McpTool,
+    BingGroundingTool,
     AgentEventHandler,
     ThreadMessage,
     MessageDeltaChunk,
@@ -126,6 +127,60 @@ class ConsoleEvents(AgentEventHandler):
 
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"  # public, no auth required
 
+
+TSG_TEMPLATE = """[[_TOC_]]
+
+# **Title**
+_Include, ideally, Error Message/ Error code or Scenario with keywords._
+_For example_ **'message': 'ScriptExecutionException was caused by StreamAccessException.\\n StreamAccessException was caused by AuthenticationException.** OR 
+**Datareference to ADLSGen2 Datastore fails.**
+
+# **Issue Description / Symptoms**
+_Describe what the Customer/CSS Engineer would see as an issue. This would include the error message and the stack trace (if available)_
+- **What** is the issue?  
+- **Who** does this affect?  
+- **Where** does the issue occur? Where does it not occur?  
+- **When** does it occur?  
+ 
+# **When does the TSG not Apply**
+_For example the TSG might not apply to Private Endpoint workspace etc._
+
+# **Diagnosis**
+_How can I debug further and mitigate this issue? Add more details on how to diagnose this issue._  
+- [ ] _Put quick steps to check before doing any deep dives._ 
+- [ ] _This section can include Kusto queries, Acis commands or ASC actions (preferable) for getting more diagnostic information_  
+- [ ] _If is a common query link to a separate How-To Page containing the entire Kusto query, Acis Command or ASC action._  
+
+Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM.
+
+# **Questions to Ask the Customer**
+_If there is no diagnostic information available or to further drill into the issue, list down any questions you can ask the customer.-
+
+# **Cause**
+_**Why** does the issue occur? Include both internal and external details about the cause, if possible._
+
+# **Mitigation or Resolution**
+_How can I fix this issue? Add more details on how to fix this issue once it has been identified._  
+- _This should be a short step by step guide.
+- _This section can include Acis commands or scripts/ adhoc steps to perform resolution operations_  
+- _Create a script file if possible and place a link to the script file (parameterize the script to take in user specific inputs.)_ 
+- _For inline scripts, please give entire script and don’t give instructions_ 
+- _Put a link to a How-To Page that contains the above for common steps_ 
+
+# **Root Cause to be shared with Customer**
+_**Why** does the issue occur? If applicable, list a short root cause that can be shared with customer.Include both internal and external details about the cause, if possible_
+
+# **Related Information**
+_Where can I find more information about this issue? Add links to related content here._  
+_This could be links to other TSGs, ICMs, AVA threads, Bugs, Known Issues._ 
+_If there is a Public Documentation about this issue, link that here too and make sure you also update the public doc._
+
+# **Tags or Prompts**
+_Add common tags or prompts statements that can improve the searchability and copilot recommendation of this TSG._
+(E.g.: This TSG helps answer _<prompt>_)
+"""
+
+
 def main():
     # Load repo-root .env
     load_dotenv(find_dotenv())
@@ -141,28 +196,46 @@ def main():
     # Skip approval prompts
     mcp.set_approval_mode("never")
 
-    # Connect to the project and run a simple REPL
+    # Connect to the project and run a simple REPL (TODO: currently just a one-shot, revise to REPL to take feedback)
     project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
     with project:
         thread = project.agents.threads.create()
-        print("\nChat ready. Input notes.")
+        print("\nChat ready. Input all notes on the TSG issue. Include as much info as possible - TSG topic, symptoms, diagnosis steps, resolution/mitigation steps, links to other material (AVA, ICMs) and docs, etc.")
         print("Type '/exit' to quit.\n")
 
         while True:
             try:
-                user = input("> ").strip()
+                notes = input("> ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\nExiting.")
                 break
 
-            if not user:
+            if not notes:
                 continue
-            if user.lower() in {"/exit", "exit", "quit"}:
+            if notes.lower() in {"/exit", "exit", "quit"}:
                 print("Goodbye.")
                 break
+            
+            # Combine user notes with TSG construction prompt
+            initial_content_and_prompt = f"""You will transform the raw notes into the strict TSG template provided below.
+
+                === TEMPLATE (use verbatim) ===
+
+                {TSG_TEMPLATE}
+
+                === END TEMPLATE ===
+
+                === RAW NOTES ===
+
+                f"{notes}"
+
+                === END RAW NOTES ===
+
+                Remember the CRITICAL OUTPUT RULES.
+                """
 
             # Add the user message
-            project.agents.messages.create(thread_id=thread.id, role="user", content=user)
+            project.agents.messages.create(thread_id=thread.id, role="user", content=initial_content_and_prompt)
 
             # Stream the run so you can see tokens + tool calls live
             handler = ConsoleEvents()
@@ -170,11 +243,12 @@ def main():
                 thread_id=thread.id,
                 agent_id=agent_id,
                 event_handler=handler,
-                tool_resources=mcp.resources,  # runtime-only auth & headers
+                #tool_resources=mcp.resources,  # runtime-only auth & headers (TODO: re-add later)
             ) as stream:
                 handler.until_done()  # block until completion
 
             print()  # newline after streamed reply
+            break  # TODO: remove to make a REPL later
 
 
 if __name__ == "__main__":

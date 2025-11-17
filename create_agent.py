@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-create_agent.py — Minimal: create an Azure AI Foundry Agent with the Microsoft Learn MCP server.
+create_agent.py — create an Azure AI Foundry Agent with the Microsoft Learn MCP server and Bing Search that can format notes into TSGs. 
 
 - Connects to your Azure AI Foundry project using DefaultAzureCredential
-- Creates an agent with the Learn MCP tool attached
+- Creates an agent with the Learn MCP tool and Bing Search tool attached
 - Saves the new agent's id to ./.agent_id for ask_agent.py to use
 """
 
@@ -14,8 +14,10 @@ from dotenv import load_dotenv
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.agents.models import McpTool
+from azure.ai.agents.models import BingGroundingTool
 
-LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"  # public, no auth required
+#LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"  # public, no auth required
+# TODO: FOR NOW, only bing, so we can use in the Foundry UI 
 
 def main():
     load_dotenv()
@@ -23,23 +25,29 @@ def main():
     # Required config
     endpoint = os.environ["PROJECT_ENDPOINT"]
     model = os.environ["MODEL_DEPLOYMENT_NAME"]
-    agent_name = os.environ.get("AGENT_NAME", "TSG-Builder-MCP")
+    agent_name = os.environ.get("AGENT_NAME", "TSG-Builder")
+    conn_id = os.environ["BING_CONNECTION_NAME"]  # Ensure the BING_CONNECTION_NAME environment variable is set
 
     # Connect to the Azure AI Foundry project
+    # MAKE SURE there is a connection to the Bing resource in the Foundry project!
     project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
 
     # Define the Microsoft Learn MCP server
-    learn_mcp = McpTool(
-        server_label="learn",
-        server_url=LEARN_MCP_URL,
-    )
+    #learn_mcp = McpTool(
+    #    server_label="learn",
+    #    server_url=LEARN_MCP_URL,
+    #)
 
-    # Minimal instructions to nudge tool use
+
+    # Initialize the Bing Grounding tool
+    bing = BingGroundingTool(connection_id=conn_id)
+
+    # System prompt for TSG construction (TODO: edit back in Microsoft Learn MCP later)
     instructions = (
         """
         You are a senior support engineer Agent that is an expert at transforming raw troubleshooting notes into precise, production-quality Technical Support Guides (TSGs) using a strict markdown template.
 
-You have access to the Microsoft Learn MCP tools for researching the latest relevant documentation.
+You have access to Bing Search tools for researching the latest relevant documentation.
 
 CRITICAL OUTPUT RULES
 1) Output must be in markdown and must FIRST contain ONLY the filled TSG template, reproduced VERBATIM (same headings, capitalization, punctuation, underscores, checkboxes), with content inserted under each section.
@@ -96,7 +104,8 @@ VALIDATION BEFORE EMITTING
             model=model,
             name=agent_name,
             instructions=instructions,
-            tools=learn_mcp.definitions,
+            #tools=learn_mcp.definitions,
+            tools=bing.definitions,
         )
 
     Path(".agent_id").write_text(agent.id + "\n", encoding="utf-8")
