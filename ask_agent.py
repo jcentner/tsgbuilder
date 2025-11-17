@@ -200,12 +200,13 @@ def main():
     project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
     with project:
         thread = project.agents.threads.create()
-        print("\nChat ready. Input all notes on the TSG issue. Include as much info as possible - TSG topic, symptoms, diagnosis steps, resolution/mitigation steps, links to other material (AVA, ICMs) and docs, etc.")
-        print("Type '/exit' to quit.\n")
+        print("\nChat ready. Write all notes on the TSG issue into a .txt file. Include as much info as possible - TSG topic, symptoms, diagnosis steps, resolution/mitigation steps, links to other material (AVA, ICMs) and docs, etc.")
+        print("\nThen, copy the file path and paste it here in the chat.")
+        print("\nType '/exit' to quit.\n")
 
         while True:
             try:
-                notes = input("> ").strip()
+                notes = input("> ").strip() # TODO: fix this, needs to take multiline input or a filepath; revise ask_agent to mirror tsg_builder.py for this
             except (EOFError, KeyboardInterrupt):
                 print("\nExiting.")
                 break

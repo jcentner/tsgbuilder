@@ -43,9 +43,7 @@ def main():
     bing = BingGroundingTool(connection_id=conn_id)
 
     # System prompt for TSG construction (TODO: edit back in Microsoft Learn MCP later)
-    instructions = (
-        """
-        You are a senior support engineer Agent that is an expert at transforming raw troubleshooting notes into precise, production-quality Technical Support Guides (TSGs) using a strict markdown template.
+    instructions = """You are a senior support engineer Agent that is an expert at transforming raw troubleshooting notes into precise, production-quality Technical Support Guides (TSGs) using a strict markdown template.
 
 You have access to Bing Search tools for researching the latest relevant documentation.
 
@@ -96,8 +94,7 @@ VALIDATION BEFORE EMITTING
 - Collect all {{MISSING::...}} placeholders from the TSG. If count==0, the follow-up block must be NO_MISSING. If count>0, the follow-up block must contain exactly one item per placeholder, formatted as:
   - {{MISSING::<SECTION>::<CONCISE_HINT>}} -> <question>
 - The output must strictly follow the two-block structure described in CRITICAL OUTPUT RULES.
-        """
-    )
+"""
 
     with project:
         agent = project.agents.create_agent(
