@@ -10,7 +10,10 @@ Env (read from .env via python-dotenv):
 
 from __future__ import annotations
 
+import argparse
+import json
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv, find_dotenv
@@ -18,17 +21,28 @@ from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.agents.models import (
     McpTool,
-    BingGroundingTool,
     AgentEventHandler,
     ThreadMessage,
     MessageDeltaChunk,
     RunStep,
 )
 
+from tsg_constants import (
+    TSG_BEGIN,
+    TSG_END,
+    QUESTIONS_BEGIN,
+    QUESTIONS_END,
+    build_user_prompt,
+)
+
 
 # --- Event handler to show what the agent is doing in detail -----------------
 class ConsoleEvents(AgentEventHandler):
     """Print run status, token deltas, and MCP tool call details."""
+
+    def __init__(self):
+        super().__init__()
+        self._buffer: list[str] = []
 
     def on_thread_run(self, run):
         print(f"\n[run] id={run.id} status={getattr(run, 'status', None)}")
@@ -52,6 +66,7 @@ class ConsoleEvents(AgentEventHandler):
         # Stream assistant tokens live
         if getattr(delta, "text", None):
             print(delta.text, end="", flush=True)
+            self._buffer.append(delta.text)
 
     def on_run_step(self, step: RunStep):
         # Print when steps complete; include MCP tool call info if present
@@ -124,132 +139,123 @@ class ConsoleEvents(AgentEventHandler):
                 except Exception:
                     print(f"  [step_details] {details!r}")
 
+    @property
+    def content(self) -> str:
+        return "".join(self._buffer)
+
 
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"  # public, no auth required
 
 
-TSG_TEMPLATE = """[[_TOC_]]
+def load_notes(path: str | None) -> str:
+    if path:
+        if not os.path.exists(path):
+            print(f"ERROR: Notes file not found: {path}", file=sys.stderr)
+            sys.exit(1)
+        return Path(path).read_text(encoding="utf-8")
 
-# **Title**
-_Include, ideally, Error Message/ Error code or Scenario with keywords._
-_For example_ **'message': 'ScriptExecutionException was caused by StreamAccessException.\\n StreamAccessException was caused by AuthenticationException.** OR 
-**Datareference to ADLSGen2 Datastore fails.**
+    print("Paste raw notes about the issue. Press Enter twice to end.")
+    return read_multiline_input()
 
-# **Issue Description / Symptoms**
-_Describe what the Customer/CSS Engineer would see as an issue. This would include the error message and the stack trace (if available)_
-- **What** is the issue?  
-- **Who** does this affect?  
-- **Where** does the issue occur? Where does it not occur?  
-- **When** does it occur?  
- 
-# **When does the TSG not Apply**
-_For example the TSG might not apply to Private Endpoint workspace etc._
 
-# **Diagnosis**
-_How can I debug further and mitigate this issue? Add more details on how to diagnose this issue._  
-- [ ] _Put quick steps to check before doing any deep dives._ 
-- [ ] _This section can include Kusto queries, Acis commands or ASC actions (preferable) for getting more diagnostic information_  
-- [ ] _If is a common query link to a separate How-To Page containing the entire Kusto query, Acis Command or ASC action._  
+def read_multiline_input() -> str:
+    print("(End input with an empty line)")
+    lines: list[str] = []
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+        if line.strip() == "":
+            break
+        lines.append(line)
+    return "\n".join(lines)
 
-Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM.
 
-# **Questions to Ask the Customer**
-_If there is no diagnostic information available or to further drill into the issue, list down any questions you can ask the customer.-
+def extract_blocks(content: str) -> tuple[str, str]:
+    def between(s: str, start: str, end: str) -> str:
+        i = s.find(start)
+        j = s.find(end)
+        if i == -1 or j == -1 or j <= i:
+            return ""
+        return s[i + len(start) : j].strip()
 
-# **Cause**
-_**Why** does the issue occur? Include both internal and external details about the cause, if possible._
-
-# **Mitigation or Resolution**
-_How can I fix this issue? Add more details on how to fix this issue once it has been identified._  
-- _This should be a short step by step guide.
-- _This section can include Acis commands or scripts/ adhoc steps to perform resolution operations_  
-- _Create a script file if possible and place a link to the script file (parameterize the script to take in user specific inputs.)_ 
-- _For inline scripts, please give entire script and don’t give instructions_ 
-- _Put a link to a How-To Page that contains the above for common steps_ 
-
-# **Root Cause to be shared with Customer**
-_**Why** does the issue occur? If applicable, list a short root cause that can be shared with customer.Include both internal and external details about the cause, if possible_
-
-# **Related Information**
-_Where can I find more information about this issue? Add links to related content here._  
-_This could be links to other TSGs, ICMs, AVA threads, Bugs, Known Issues._ 
-_If there is a Public Documentation about this issue, link that here too and make sure you also update the public doc._
-
-# **Tags or Prompts**
-_Add common tags or prompts statements that can improve the searchability and copilot recommendation of this TSG._
-(E.g.: This TSG helps answer _<prompt>_)
-"""
+    return between(content, TSG_BEGIN, TSG_END), between(content, QUESTIONS_BEGIN, QUESTIONS_END)
 
 
 def main():
-    # Load repo-root .env
+    parser = argparse.ArgumentParser(description="Run TSG agent inference.")
+    parser.add_argument("--notes-file", help="Path to raw notes file (if omitted, you can paste interactively).")
+    parser.add_argument("--agent-id", help="Override the agent id (otherwise read from .agent_id or AGENT_ID env).")
+    parser.add_argument("--enable-learn", action="store_true", help="Attach Microsoft Learn MCP during run (if enabled in agent).")
+    args = parser.parse_args()
+
     load_dotenv(find_dotenv())
 
-    endpoint = os.environ["PROJECT_ENDPOINT"]
+    endpoint = os.getenv("PROJECT_ENDPOINT")
+    if not endpoint:
+        print("ERROR: PROJECT_ENDPOINT is required.", file=sys.stderr)
+        sys.exit(1)
 
-    # Agent id comes from .agent_id (created by create_agent.py), or env override
-    agent_id = os.getenv("AGENT_ID") or Path(".agent_id").read_text(encoding="utf-8").strip()
+    agent_id = (
+        args.agent_id
+        or os.getenv("AGENT_ID")
+        or Path(".agent_id").read_text(encoding="utf-8").strip()
+    )
 
-    # Rebuild the MCP tool, but for inference, attach auth headers AT RUN TIME (not persisted)
+    # Optional Learn MCP runtime attachment (no auth required).
     mcp = McpTool(server_label="learn", server_url=LEARN_MCP_URL)
-
-    # Skip approval prompts
     mcp.set_approval_mode("never")
 
-    # Connect to the project and run a simple REPL (TODO: currently just a one-shot, revise to REPL to take feedback)
     project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
+
+    notes = load_notes(args.notes_file)
+    if not notes.strip():
+        print("ERROR: No notes provided.", file=sys.stderr)
+        sys.exit(1)
+
     with project:
         thread = project.agents.threads.create()
-        print("\nChat ready. Write all notes on the TSG issue into a .txt file. Include as much info as possible - TSG topic, symptoms, diagnosis steps, resolution/mitigation steps, links to other material (AVA, ICMs) and docs, etc.")
-        print("\nThen, copy the file path and paste it here in the chat.")
-        print("\nType '/exit' to quit.\n")
+        prior_tsg = None
 
         while True:
-            try:
-                notes = input("> ").strip() # TODO: fix this, needs to take multiline input or a filepath; revise ask_agent to mirror tsg_builder.py for this
-            except (EOFError, KeyboardInterrupt):
-                print("\nExiting.")
-                break
+            user_content = build_user_prompt(notes, prior_tsg=prior_tsg, user_answers=None)
+            project.agents.messages.create(thread_id=thread.id, role="user", content=user_content)
 
-            if not notes:
-                continue
-            if notes.lower() in {"/exit", "exit", "quit"}:
-                print("Goodbye.")
-                break
-            
-            # Combine user notes with TSG construction prompt
-            initial_content_and_prompt = f"""You will transform the raw notes into the strict TSG template provided below.
-
-                === TEMPLATE (use verbatim) ===
-
-                {TSG_TEMPLATE}
-
-                === END TEMPLATE ===
-
-                === RAW NOTES ===
-
-                f"{notes}"
-
-                === END RAW NOTES ===
-
-                Remember the CRITICAL OUTPUT RULES.
-                """
-
-            # Add the user message
-            project.agents.messages.create(thread_id=thread.id, role="user", content=initial_content_and_prompt)
-
-            # Stream the run so you can see tokens + tool calls live
             handler = ConsoleEvents()
             with project.agents.runs.stream(
                 thread_id=thread.id,
                 agent_id=agent_id,
                 event_handler=handler,
-                #tool_resources=mcp.resources,  # runtime-only auth & headers (TODO: re-add later)
+                tool_resources=mcp.resources if args.enable_learn else None,
             ) as stream:
-                handler.until_done()  # block until completion
+                handler.until_done()
 
-            print()  # newline after streamed reply
-            break  # TODO: remove to make a REPL later
+            print()  # ensure newline after stream
+            tsg_block, questions_block = extract_blocks(handler.content)
+            if not tsg_block:
+                print("ERROR: Model output did not include a TSG block.")
+                break
+
+            print("\n--- TSG ---\n")
+            print(tsg_block)
+
+            if not questions_block or questions_block.strip() == "NO_MISSING":
+                print("\nNo missing items. Done.")
+                break
+
+            print("\n--- Follow-up questions ---\n")
+            print(questions_block)
+            print("\nPaste answers (blank line to finish, or type 'done' to exit).")
+            answers = read_multiline_input()
+            if answers.strip().lower() == "done":
+                print("Exiting.")
+                break
+
+            prior_tsg = tsg_block
+            # Loop to send answers and continue
+            notes = notes  # keep original notes
+            continue
 
 
 if __name__ == "__main__":

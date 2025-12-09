@@ -1,102 +1,44 @@
-# TSG Builder – Automated Troubleshooting Guide Generator
-
-Author: Jacob Centner - jacobcentner@microsoft.com 
+# TSG Builder – Agent-based Troubleshooting Guide Generator
 
 ## Overview
-TSG Builder is a command-line tool that converts **raw troubleshooting notes** into **structured Technical Support Guides (TSG)** in markdown format.  
-It uses **Azure OpenAI** to: 
-- Compare your notes against the TSG template, strictly.
-- Fill in known details and insert placeholders for missing information.
-- Ask targeted follow-up questions for missing pieces.
-- Iterate until the TSG is complete and ready to share.
+TSG Builder converts **raw troubleshooting notes** into **structured Technical Support Guides (TSG)** in markdown. It uses **Azure AI Foundry Agents** with a strict template to fill known details, insert `{{MISSING::<SECTION>::<HINT>}}` placeholders, and ask targeted follow-up questions until the TSG is complete.
 
-The output is **fully markdown-compliant**, follows the template verbatim, and includes placeholders like `{{MISSING::<SECTION>::<HINT>}}` for gaps.
-
-Source for TSG template: [TSG-Template.md - ADO](https://dev.azure.com/Supportability/AzureCognitiveServices/_git/AzureML?path=/AzureML/Welcome/TSG-Template.md&version=GBmaster&_a=preview)
-
----
-
-## Features
-- **Strict template adherence** – preserves headings, order, and required text.
-- **Interactive refinement** – answer follow-up questions to fill gaps.
-- **Deterministic output** – low temperature for consistent formatting.
-- **Auto-save** – latest TSG saved after each iteration.
-
----
+Source template: [TSG-Template.md - ADO](https://dev.azure.com/Supportability/AzureCognitiveServices/_git/AzureML?path=/AzureML/Welcome/TSG-Template.md&version=GBmaster&_a=preview)
 
 ## Prerequisites
-- **Python** 3.9 or later
-- **Azure OpenAI** resource with a deployed model (recommended: `gpt-4o`)
-- **Environment variables**:
-  - `AZURE_OPENAI_API_KEY` – your Azure OpenAI key
-  - `AZURE_OPENAI_ENDPOINT` – e.g., `https://<your-resource>.openai.azure.com/`
-  - `AZURE_OPENAI_API_VERSION` – e.g., `2024-02-15-preview`
-
----
+- Python 3.9+
+- Azure AI Foundry project with an Agent-compatible model deployment (e.g., `gpt-4o`)
+- Bing Search connection in the project
+- Environment variables:
+  - `PROJECT_ENDPOINT` – your Azure AI Foundry project endpoint
+  - `MODEL_DEPLOYMENT_NAME` – deployment name (e.g., `gpt-4o`)
+  - `BING_CONNECTION_NAME` – connection id for Bing Search
+  - Optional: `AGENT_NAME`, `ENABLE_LEARN_MCP` (true/false), `AGENT_ID` override
 
 ## Setup
-1. **Install dependencies**:
-   ```bash
-   pip install openai
-   ```
-2. **Set environment variables**:
-   ```bash
-   export AZURE_OPENAI_API_KEY="<your-key>"
-   export AZURE_OPENAI_ENDPOINT="https://<your-resource>.openai.azure.com/"
-   export AZURE_OPENAI_API_VERSION="2024-02-15-preview"
-   ```
-   Alternatively, create a .env file with the appropriate fields and source it.
-   .env sample: 
-   ```bash
-   AZURE_OPENAI_API_KEY="<your-key>"
-   AZURE_OPENAI_ENDPOINT="https://<your-resource>.openai.azure.com/"
-   AZURE_OPENAI_API_VERSION="2024-02-15-preview"
-   ```
-
----
+```bash
+pip install -r requirements.txt
+```
+Create a `.env` with the required variables or export them in your shell.
 
 ## Usage
-Run the script from your terminal:
-
+1) Create the agent (once):
 ```bash
-python tsg_builder.py --deployment gpt-4o --out my_issue_tsg.md
+python create_agent.py
 ```
+- Writes the new agent id to `.agent_id` for reuse.
 
-- `--deployment` : Name of your Azure OpenAI deployment (e.g., `gpt-4o`)
-- `--out` : Output markdown file (default: `tsg_output.md`)
-- `--notes-file` : Optional path to a text file with raw notes (otherwise, paste interactively)
-
-### Example Workflow
-1. Paste raw notes when prompted.
-2. Review the generated TSG and any follow-up questions.
-3. Provide answers or type `done` to finish.
-4. The final TSG is saved to the specified output file.
-
----
+2) Run inference with your notes:
+```bash
+python ask_agent.py --notes-file input.txt
+# or paste interactively if --notes-file is omitted
+```
+- The script streams the TSG, shows missing placeholders, and prompts you to answer follow-up questions until none remain.
 
 ## Template Compliance
-- The script enforces:
-  - Required headings and sections.
-  - Mandatory line in Diagnosis:  
-    `Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM.`
-- Missing details are clearly marked with placeholders for easy follow-up.
+- Strict headings/order and required Diagnosis line: `Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM.`
+- Output wrapped in markers: `<!-- TSG_BEGIN --> ... <!-- TSG_END -->` and `<!-- QUESTIONS_BEGIN --> ... <!-- QUESTIONS_END -->`.
+- Follow-up block is `NO_MISSING` when all placeholders are filled.
 
----
-
-## Next Steps
-- Integrate with Teams or SharePoint for sharing.
-- Add chunking for very large logs.
-- Build a simple web UI for broader team use.
-
-
-### Long term:
-- Explore automatic issue review and notes compiling (e.g. a spider/crawler to compile notes docs), which can be turned into TSGs automatically.
-- Could be an Agent or workflow that has visibility into all issues and catches recurring ones to suggest for TSGs. 
-- Consider an Agent that takes compiled notes for an issue that re-occurs (perhaps using the above as input) and all available solution data which drafts TSGs we can review, edit, and then publish. 
-
----
-
-**Quick Start Command**:
-```bash
-python tsg_builder.py --deployment gpt-4o
-```
+## Legacy (optional)
+`old/tsg_builder.py` contains a prior flow using the Azure OpenAI SDK directly. It remains for reference but the recommended path is the agent-based flow above.
