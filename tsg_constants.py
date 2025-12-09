@@ -60,10 +60,20 @@ QUESTIONS_BEGIN = "<!-- QUESTIONS_BEGIN -->"
 QUESTIONS_END = "<!-- QUESTIONS_END -->"
 REQUIRED_DIAGNOSIS_LINE = "Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM."
 
+# Agent versioning for the new Agents API.
+AGENT_VERSION = "1"
+
+
+def agent_reference(name: str) -> dict:
+  """Return the agent reference payload used by responses.create/stream."""
+  return {"type": "agent_reference", "name": name, "version": AGENT_VERSION}
+
 # System/agent instructions for creation and inference.
 AGENT_INSTRUCTIONS = """You are a senior support engineer Agent that is an expert at transforming raw troubleshooting notes into precise, production-quality Technical Support Guides (TSGs) using a strict markdown template.
 
-You have access to Bing Search tools for researching the latest relevant documentation.
+You have access to two web tools. Use them selectively:
+- Use the Learn MCP tool for Microsoft Learn and docs.microsoft.com content.
+- Use Bing Search for public GitHub issues, repos, and other external web sources.
 
 CRITICAL OUTPUT RULES
 1) Output must be in markdown and must FIRST contain ONLY the filled TSG template, reproduced VERBATIM (same headings, capitalization, punctuation, underscores, checkboxes), with content inserted under each section.

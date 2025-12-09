@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-create_agent.py — create an Azure AI Foundry Agent that formats notes into TSGs.
+create_agent.py — create a new-style Azure AI Foundry Agent that formats notes into TSGs.
 
 Steps:
 - Connects to your Azure AI Foundry project using DefaultAzureCredential
-- Creates an agent with Bing Search (and optionally the Learn MCP server) attached
-- Saves the new agent's id to ./.agent_id for ask_agent.py to use
+- Creates a versioned agent with Bing Search and the Learn MCP server attached
+- Saves the agent reference (name:version) and id for ask_agent.py to use
 """
 
 import os
@@ -17,7 +17,7 @@ from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.agents.models import McpTool, BingGroundingTool
 
-from tsg_constants import AGENT_INSTRUCTIONS
+from tsg_constants import AGENT_INSTRUCTIONS, AGENT_VERSION
 
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"  # public, no auth required
 
@@ -36,31 +36,28 @@ def main():
   endpoint = require_env("PROJECT_ENDPOINT")
   model = require_env("MODEL_DEPLOYMENT_NAME")
   conn_id = require_env("BING_CONNECTION_NAME")
-  agent_name = os.getenv("AGENT_NAME", "TSG-Builder")
-  enable_learn = os.getenv("ENABLE_LEARN_MCP", "false").lower() in {"1", "true", "yes"}
+  agent_name = os.getenv("AGENT_NAME", "tsg-agent")
 
   project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
 
   tools = []
-  # Always attach Bing grounding for doc lookup.
+  # Always attach Bing grounding for doc lookup and Learn MCP for Microsoft docs.
   tools.extend(BingGroundingTool(connection_id=conn_id).definitions)
-
-  # Optionally attach Learn MCP (no auth required).
-  if enable_learn:
-    tools.extend(
-      McpTool(server_label="learn", server_url=LEARN_MCP_URL).definitions
-    )
+  tools.extend(McpTool(server_label="learn", server_url=LEARN_MCP_URL).definitions)
 
   with project:
-    agent = project.agents.create_agent(
+    agent = project.agents.create(
       model=model,
       name=agent_name,
       instructions=AGENT_INSTRUCTIONS,
       tools=tools,
+      version=AGENT_VERSION,
     )
 
+  # Persist both id and name:version reference for inference.
   Path(".agent_id").write_text(agent.id + "\n", encoding="utf-8")
-  print(f"Created agent: {agent.id} (name='{agent_name}'). Wrote .agent_id")
+  Path(".agent_ref").write_text(f"{agent_name}:{AGENT_VERSION}\n", encoding="utf-8")
+  print(f"Created agent: id={agent.id} ref={agent_name}:{AGENT_VERSION}")
 
 
 if __name__ == "__main__":
