@@ -46,12 +46,11 @@ def main():
   tools.extend(McpTool(server_label="learn", server_url=LEARN_MCP_URL).definitions)
 
   with project:
-    agent = project.agents.create(
+    agent = project.agents.create_agent(
       model=model,
       name=agent_name,
       instructions=AGENT_INSTRUCTIONS,
       tools=tools,
-      version=AGENT_VERSION,
     )
 
   # Persist both id and name:version reference for inference.
