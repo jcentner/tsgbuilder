@@ -34,6 +34,7 @@ help:
 	@echo "  make setup                           # First-time setup"
 	@echo "  make run NOTES_FILE=my-notes.txt     # Run with custom notes"
 	@echo "  make run-example                     # Run with input-example.txt"
+	@echo "  make run-save NOTES_FILE=my-notes.txt # Run and save output to output.md"
 
 setup: .venv install env-file
 	@echo ""
