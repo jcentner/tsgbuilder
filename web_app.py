@@ -7,18 +7,30 @@ Provides an easy-to-use web interface for generating TSGs from notes.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
 import threading
+import queue
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Generator
+from typing import Any, Generator, Optional
 
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from dotenv import load_dotenv, find_dotenv
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
+from azure.ai.agents.models import (
+    AgentEventHandler,
+    MessageDeltaChunk,
+    ThreadMessage,
+    ThreadRun,
+    RunStep,
+    RunStepToolCallDetails,
+    RunStepMcpToolCall,
+    RunStepBingGroundingToolCall,
+)
 
 from tsg_constants import (
     TSG_BEGIN,
@@ -37,15 +49,112 @@ app = Flask(__name__)
 sessions: dict[str, dict] = {}
 
 
-@dataclass
-class SessionState:
-    """Track state for a TSG generation session."""
-    thread_id: str
-    notes: str
-    current_tsg: str | None = None
-    questions: str | None = None
-    status: str = "idle"  # idle, running, waiting_for_answers, complete, error
-    error_message: str | None = None
+class SSEEventHandler(AgentEventHandler):
+    """Event handler that queues events for SSE streaming."""
+    
+    def __init__(self, event_queue: queue.Queue):
+        super().__init__()
+        self.event_queue = event_queue
+        self.response_text = ""
+        self._current_status = ""
+    
+    def _send_event(self, event_type: str, data: dict):
+        """Queue an event for SSE streaming."""
+        self.event_queue.put({"type": event_type, "data": data})
+    
+    def on_thread_run(self, run: ThreadRun) -> None:
+        """Called when the run status changes."""
+        if run.status != self._current_status:
+            self._current_status = run.status
+            self._send_event("status", {
+                "status": run.status,
+                "message": self._get_status_message(run.status)
+            })
+        
+        if run.status == "failed":
+            self._send_event("error", {"message": str(run.last_error)})
+    
+    def _get_status_message(self, status: str) -> str:
+        """Get a user-friendly status message."""
+        messages = {
+            "queued": "Request queued...",
+            "in_progress": "Agent is working...",
+            "requires_action": "Processing tool results...",
+            "completed": "Generation complete",
+            "failed": "Generation failed",
+            "cancelled": "Generation cancelled",
+            "expired": "Request expired",
+        }
+        return messages.get(status, status)
+    
+    def on_run_step(self, step: RunStep) -> None:
+        """Called when a run step is created or updated."""
+        if step.type == "tool_calls" and hasattr(step, "step_details"):
+            self._handle_tool_calls(step)
+        elif step.type == "message_creation":
+            if step.status == "in_progress":
+                self._send_event("activity", {
+                    "activity": "generating",
+                    "message": "Generating response..."
+                })
+    
+    def _handle_tool_calls(self, step: RunStep) -> None:
+        """Extract and display tool call information."""
+        if not isinstance(step.step_details, RunStepToolCallDetails):
+            return
+        
+        for tool_call in step.step_details.tool_calls:
+            tool_name = None
+            tool_icon = "🔧"
+            
+            if isinstance(tool_call, RunStepMcpToolCall):
+                tool_name = "Microsoft Learn"
+                tool_icon = "📚"
+            elif isinstance(tool_call, RunStepBingGroundingToolCall):
+                tool_name = "Bing Search"
+                tool_icon = "🔍"
+            elif hasattr(tool_call, "type"):
+                tool_name = str(tool_call.type).replace("_", " ").title()
+            
+            if tool_name:
+                if step.status == "in_progress":
+                    self._send_event("tool", {
+                        "tool": tool_name,
+                        "icon": tool_icon,
+                        "status": "running",
+                        "message": f"Using {tool_name}..."
+                    })
+                elif step.status == "completed":
+                    self._send_event("tool", {
+                        "tool": tool_name,
+                        "icon": "✓",
+                        "status": "completed",
+                        "message": f"{tool_name} completed"
+                    })
+    
+    def on_message_delta(self, delta: MessageDeltaChunk) -> None:
+        """Called when message content is streamed."""
+        if delta.text:
+            self.response_text += delta.text
+    
+    def on_thread_message(self, message: ThreadMessage) -> None:
+        """Called when a complete message is available."""
+        if message.role == "assistant" and message.content:
+            for content_item in message.content:
+                if hasattr(content_item, "text") and content_item.text:
+                    self.response_text = content_item.text.value
+    
+    def on_error(self, data: str) -> None:
+        """Called when an error occurs."""
+        self._send_event("error", {"message": data})
+    
+    def on_done(self) -> None:
+        """Called when the stream is complete."""
+        self._send_event("done", {"message": "Agent completed"})
+    
+    def on_unhandled_event(self, event_type: str, event_data: Any) -> None:
+        """Handle any events not covered by other methods."""
+        pass
 
 
 def get_project_client() -> AIProjectClient:
@@ -81,8 +190,27 @@ def extract_blocks(content: str) -> tuple[str, str]:
     return between(content, TSG_BEGIN, TSG_END), between(content, QUESTIONS_BEGIN, QUESTIONS_END)
 
 
+def run_agent_with_streaming(
+    project: AIProjectClient, 
+    thread_id: str, 
+    agent_id: str,
+    event_queue: queue.Queue
+) -> str:
+    """Run the agent with streaming and queue events for SSE."""
+    handler = SSEEventHandler(event_queue)
+    
+    with project.agents.runs.stream(
+        thread_id=thread_id,
+        agent_id=agent_id,
+        event_handler=handler
+    ) as stream:
+        stream.until_done()
+    
+    return handler.response_text
+
+
 def run_agent_and_get_response(project: AIProjectClient, thread_id: str, agent_id: str) -> str:
-    """Create a run, poll until complete, and return the assistant's response text."""
+    """Create a run, poll until complete, and return the assistant's response text (fallback)."""
     run = project.agents.runs.create(thread_id=thread_id, agent_id=agent_id)
     
     while run.status in ("queued", "in_progress", "requires_action"):
@@ -133,6 +261,141 @@ def api_status():
             "ready": False,
             "error": str(e)
         })
+
+
+def generate_sse_events(notes: str, thread_id: str | None = None, answers: str | None = None) -> Generator[str, None, None]:
+    """Generator that yields SSE events during agent execution."""
+    event_queue: queue.Queue = queue.Queue()
+    result_holder = {"response": "", "error": None}
+    
+    def run_agent_thread():
+        try:
+            agent_id = get_agent_id()
+            project = get_project_client()
+            
+            with project:
+                if thread_id is None:
+                    # New generation - create thread
+                    thread = project.agents.threads.create()
+                    current_thread_id = thread.id
+                    
+                    # Send thread ID to client
+                    event_queue.put({
+                        "type": "thread_created",
+                        "data": {"thread_id": current_thread_id}
+                    })
+                    
+                    # Build and send the initial prompt
+                    user_content = build_user_prompt(notes, prior_tsg=None, user_answers=None)
+                else:
+                    current_thread_id = thread_id
+                    user_content = answers
+                
+                project.agents.messages.create(
+                    thread_id=current_thread_id,
+                    role="user",
+                    content=user_content,
+                )
+                
+                # Run with streaming
+                response_text = run_agent_with_streaming(
+                    project, current_thread_id, agent_id, event_queue
+                )
+                
+                result_holder["response"] = response_text
+                result_holder["thread_id"] = current_thread_id
+                
+        except Exception as e:
+            result_holder["error"] = str(e)
+            event_queue.put({"type": "error", "data": {"message": str(e)}})
+        finally:
+            event_queue.put(None)  # Signal end of events
+    
+    # Start agent in background thread
+    agent_thread = threading.Thread(target=run_agent_thread)
+    agent_thread.start()
+    
+    # Yield SSE events as they arrive
+    while True:
+        try:
+            event = event_queue.get(timeout=120)  # 2 minute timeout
+            if event is None:
+                break
+            
+            yield f"data: {json.dumps(event)}\n\n"
+            
+        except queue.Empty:
+            # Send keepalive
+            yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
+    
+    agent_thread.join()
+    
+    # Send final result
+    if result_holder["error"]:
+        yield f"data: {json.dumps({'type': 'error', 'data': {'message': result_holder['error']}})}\n\n"
+    else:
+        response_text = result_holder["response"]
+        tsg_block, questions_block = extract_blocks(response_text)
+        
+        if not tsg_block:
+            yield f"data: {json.dumps({'type': 'error', 'data': {'message': 'Agent did not produce a valid TSG', 'raw_response': response_text[:500]}})}\n\n"
+        else:
+            has_questions = questions_block and questions_block.strip() != "NO_MISSING"
+            
+            # Store session
+            final_thread_id = result_holder.get("thread_id", thread_id)
+            if final_thread_id:
+                sessions[final_thread_id] = {
+                    "notes": notes,
+                    "current_tsg": tsg_block,
+                    "questions": questions_block if has_questions else None,
+                }
+            
+            yield f"data: {json.dumps({'type': 'result', 'data': {'thread_id': final_thread_id, 'tsg': tsg_block, 'questions': questions_block if has_questions else None, 'complete': not has_questions}})}\n\n"
+
+
+@app.route("/api/generate/stream", methods=["POST"])
+def api_generate_stream():
+    """Start TSG generation with SSE streaming for real-time updates."""
+    data = request.get_json()
+    notes = data.get("notes", "").strip()
+    
+    if not notes:
+        return jsonify({"error": "No notes provided"}), 400
+    
+    return Response(
+        stream_with_context(generate_sse_events(notes)),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.route("/api/answer/stream", methods=["POST"])
+def api_answer_stream():
+    """Submit answers with SSE streaming for real-time updates."""
+    data = request.get_json()
+    thread_id = data.get("thread_id")
+    answers = data.get("answers", "").strip()
+    
+    if not thread_id or thread_id not in sessions:
+        return jsonify({"error": "Invalid or expired session"}), 400
+    
+    if not answers:
+        return jsonify({"error": "No answers provided"}), 400
+    
+    notes = sessions[thread_id].get("notes", "")
+    
+    return Response(
+        stream_with_context(generate_sse_events(notes, thread_id, answers)),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @app.route("/api/generate", methods=["POST"])

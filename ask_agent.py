@@ -15,10 +15,21 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Any, Optional
 
 from dotenv import load_dotenv, find_dotenv
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
+from azure.ai.agents.models import (
+    AgentEventHandler,
+    MessageDeltaChunk,
+    ThreadMessage,
+    ThreadRun,
+    RunStep,
+    RunStepToolCallDetails,
+    RunStepMcpToolCall,
+    RunStepBingGroundingToolCall,
+)
 
 from tsg_constants import (
     TSG_BEGIN,
@@ -27,6 +38,120 @@ from tsg_constants import (
     QUESTIONS_END,
     build_user_prompt,
 )
+
+
+# ANSI color codes for terminal output
+class Colors:
+    BLUE = "\033[94m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    CYAN = "\033[96m"
+    DIM = "\033[2m"
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+
+
+class TSGEventHandler(AgentEventHandler):
+    """Event handler that provides real-time feedback on agent activities."""
+    
+    def __init__(self):
+        super().__init__()
+        self.response_text = ""
+        self._current_status = ""
+    
+    def on_thread_run(self, run: ThreadRun) -> None:
+        """Called when the run status changes."""
+        status_icons = {
+            "queued": "⏳",
+            "in_progress": "🔄",
+            "requires_action": "⚡",
+            "completed": "✅",
+            "failed": "❌",
+            "cancelled": "🚫",
+            "expired": "⏰",
+        }
+        icon = status_icons.get(run.status, "•")
+        
+        if run.status != self._current_status:
+            self._current_status = run.status
+            print(f"\n{Colors.CYAN}{icon} Run status: {run.status}{Colors.RESET}", flush=True)
+        
+        if run.status == "failed":
+            print(f"{Colors.YELLOW}   Error: {run.last_error}{Colors.RESET}", file=sys.stderr)
+    
+    def on_run_step(self, step: RunStep) -> None:
+        """Called when a run step is created or updated."""
+        if step.type == "tool_calls" and hasattr(step, "step_details"):
+            self._handle_tool_calls(step)
+        elif step.type == "message_creation":
+            if step.status == "in_progress":
+                print(f"{Colors.BLUE}📝 Generating response...{Colors.RESET}", flush=True)
+    
+    def _handle_tool_calls(self, step: RunStep) -> None:
+        """Extract and display tool call information."""
+        if not isinstance(step.step_details, RunStepToolCallDetails):
+            return
+        
+        for tool_call in step.step_details.tool_calls:
+            tool_name = None
+            tool_detail = ""
+            
+            if isinstance(tool_call, RunStepMcpToolCall):
+                tool_name = "Microsoft Learn MCP"
+                if hasattr(tool_call, "mcp") and tool_call.mcp:
+                    server = getattr(tool_call.mcp, "server_label", "learn")
+                    tool_detail = f" ({server})"
+            elif isinstance(tool_call, RunStepBingGroundingToolCall):
+                tool_name = "Bing Search"
+                if hasattr(tool_call, "bing_grounding") and tool_call.bing_grounding:
+                    # Try to get search query if available
+                    pass
+            elif hasattr(tool_call, "type"):
+                tool_name = str(tool_call.type).replace("_", " ").title()
+            
+            if tool_name and step.status == "in_progress":
+                print(f"{Colors.GREEN}🔧 Using tool: {tool_name}{tool_detail}{Colors.RESET}", flush=True)
+            elif tool_name and step.status == "completed":
+                print(f"{Colors.DIM}   ✓ {tool_name} completed{Colors.RESET}", flush=True)
+    
+    def on_message_delta(self, delta: MessageDeltaChunk) -> None:
+        """Called when message content is streamed."""
+        if delta.text:
+            self.response_text += delta.text
+    
+    def on_thread_message(self, message: ThreadMessage) -> None:
+        """Called when a complete message is available."""
+        if message.role == "assistant" and message.content:
+            # Extract final text from message
+            for content_item in message.content:
+                if hasattr(content_item, "text") and content_item.text:
+                    self.response_text = content_item.text.value
+    
+    def on_error(self, data: str) -> None:
+        """Called when an error occurs."""
+        print(f"\n{Colors.YELLOW}⚠️  Error: {data}{Colors.RESET}", file=sys.stderr)
+    
+    def on_done(self) -> None:
+        """Called when the stream is complete."""
+        print(f"{Colors.CYAN}✓ Agent completed{Colors.RESET}\n", flush=True)
+    
+    def on_unhandled_event(self, event_type: str, event_data: Any) -> None:
+        """Handle any events not covered by other methods."""
+        pass  # Silently ignore unhandled events
+
+
+def run_agent_with_streaming(project: AIProjectClient, thread_id: str, agent_id: str) -> str:
+    """Run the agent with streaming to get real-time feedback."""
+    handler = TSGEventHandler()
+    
+    with project.agents.runs.stream(
+        thread_id=thread_id,
+        agent_id=agent_id,
+        event_handler=handler
+    ) as stream:
+        stream.until_done()
+    
+    return handler.response_text
 
 
 def run_agent_and_get_response(project: AIProjectClient, thread_id: str, agent_id: str) -> str:
@@ -128,7 +253,7 @@ def main():
     with project:
         # Create a thread for the conversation
         thread = project.agents.threads.create()
-        print(f"Created thread: {thread.id}")
+        print(f"{Colors.DIM}Created thread: {thread.id}{Colors.RESET}")
 
         prior_tsg = None
         final_tsg = None
@@ -143,27 +268,27 @@ def main():
                 content=user_content,
             )
 
-            print("Running agent", end="", flush=True)
-            assistant_text = run_agent_and_get_response(project, thread.id, agent_id)
+            print(f"\n{Colors.BOLD}🚀 Starting agent...{Colors.RESET}")
+            assistant_text = run_agent_with_streaming(project, thread.id, agent_id)
             
             tsg_block, questions_block = extract_blocks(assistant_text)
             if not tsg_block:
-                print("ERROR: Model output did not include a TSG block.")
+                print(f"{Colors.YELLOW}ERROR: Model output did not include a TSG block.{Colors.RESET}")
                 print("Full response:")
                 print(assistant_text)
                 break
 
             final_tsg = tsg_block
-            print("\n--- TSG ---\n")
+            print(f"\n{Colors.BOLD}--- TSG ---{Colors.RESET}\n")
             print(tsg_block)
 
             if not questions_block or questions_block.strip() == "NO_MISSING":
-                print("\nNo missing items. Done.")
+                print(f"\n{Colors.GREEN}✓ No missing items. Done.{Colors.RESET}")
                 break
 
-            print("\n--- Follow-up questions ---\n")
+            print(f"\n{Colors.BOLD}--- Follow-up questions ---{Colors.RESET}\n")
             print(questions_block)
-            print("\nPaste answers (blank line to finish, or type 'done' to exit).")
+            print(f"\n{Colors.CYAN}Paste answers (blank line to finish, or type 'done' to exit).{Colors.RESET}")
             answers = read_multiline_input()
             if answers.strip().lower() == "done":
                 print("Exiting.")
@@ -178,18 +303,18 @@ def main():
                 content=answers,
             )
 
-            print("Running agent", end="", flush=True)
-            assistant_text = run_agent_and_get_response(project, thread.id, agent_id)
+            print(f"\n{Colors.BOLD}🚀 Refining TSG...{Colors.RESET}")
+            assistant_text = run_agent_with_streaming(project, thread.id, agent_id)
             
             tsg_block, questions_block = extract_blocks(assistant_text)
             if not tsg_block:
-                print("ERROR: Model output did not include a TSG block on refinement.")
+                print(f"{Colors.YELLOW}ERROR: Model output did not include a TSG block on refinement.{Colors.RESET}")
                 break
             final_tsg = tsg_block
-            print("\n--- TSG (updated) ---\n")
+            print(f"\n{Colors.BOLD}--- TSG (updated) ---{Colors.RESET}\n")
             print(tsg_block)
             if not questions_block or questions_block.strip() == "NO_MISSING":
-                print("\nNo missing items. Done.")
+                print(f"\n{Colors.GREEN}✓ No missing items. Done.{Colors.RESET}")
                 break
             prior_tsg = tsg_block
             continue
@@ -198,7 +323,7 @@ def main():
         if args.output and final_tsg:
             output_path = Path(args.output)
             output_path.write_text(final_tsg, encoding="utf-8")
-            print(f"\nTSG saved to: {output_path.resolve()}")
+            print(f"\n{Colors.GREEN}TSG saved to: {output_path.resolve()}{Colors.RESET}")
 
 
 if __name__ == "__main__":
