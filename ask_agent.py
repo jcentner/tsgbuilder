@@ -19,7 +19,6 @@ from pathlib import Path
 from dotenv import load_dotenv, find_dotenv
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
-from azure.ai.agents.models import McpTool
 
 from tsg_constants import (
     TSG_BEGIN,
