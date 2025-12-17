@@ -20,3 +20,6 @@ output.md
 # IDE
 .vscode/
 .idea/
+
+# TODO file
+.TODO
