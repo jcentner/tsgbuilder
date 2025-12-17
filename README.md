@@ -2,6 +2,33 @@
 
 Transform raw troubleshooting notes into structured **Technical Support Guides (TSGs)** using an Azure AI Foundry Agent with Bing Search and Microsoft Learn MCP integration.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Quick Start](#quick-start)
+- [Web UI](#web-ui)
+- [Prerequisites](#prerequisites)
+  - [Azure Resources Required](#azure-resources-required)
+  - [Local Requirements](#local-requirements)
+- [Installation](#installation)
+- [Configuration](#configuration)
+  - [Finding Your Configuration Values](#finding-your-configuration-values)
+- [Usage](#usage)
+  - [Validate Setup First](#validate-setup-first)
+  - [Create the Agent (One-Time)](#create-the-agent-one-time)
+  - [Generate a TSG](#generate-a-tsg)
+  - [Input Format](#input-format)
+- [Makefile Commands](#makefile-commands)
+- [How It Works](#how-it-works)
+  - [Agent Research Phase](#agent-research-phase)
+  - [Output Format](#output-format)
+  - [Iteration](#iteration)
+- [Troubleshooting](#troubleshooting)
+- [Architecture](#architecture)
+- [Files](#files)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Overview
 
 TSG Builder uses an Azure AI Foundry Agent (classic API) to:
