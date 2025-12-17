@@ -324,4 +324,4 @@ If information is missing, the agent:
 
 ## License
 
-Internal use only.
+MIT
