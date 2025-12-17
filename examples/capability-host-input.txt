@@ -30,7 +30,7 @@ The project capability host is only configured by default with the project AI Se
 
 Workaround: 
 
-Create new capability host that points at an OpenAI resource instead of the AI Services resource using the aiServicesConnections property: Learn what is a capability host - Azure AI Foundry | Microsoft Learn
+Create new capability host that points at an OpenAI resource instead of the AI Services resource using the aiServicesConnections property:
 https://github.com/orgs/azure-ai-foundry/discussions/59
 
 As of now there's no easy way to do this. However, this is a way.
@@ -73,3 +73,6 @@ print(response.text)
 The above would let you use Agents ONLY with the connected AOAI resource mentioned in the "aiServicesConnections" parameter. You could update or delete the capability host to be able to use deployments from other AOAI resource connection or from the parent AIServices resource.
 
 From <https://github.com/orgs/azure-ai-foundry/discussions/59>
+
+
+NOTE: you cannot update a capability host, only delete and recreate. 

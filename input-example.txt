@@ -74,3 +74,4 @@ The above would let you use Agents ONLY with the connected AOAI resource mention
 
 From <https://github.com/orgs/azure-ai-foundry/discussions/59> 
 
+NOTE: you cannot update a capability host, only delete and recreate. 

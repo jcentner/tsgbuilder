@@ -2,3 +2,6 @@ azure-ai-projects==1.0.0
 azure-ai-agents>=1.2.0b6
 azure-identity==1.19.0
 python-dotenv==1.0.1
+
+# Web UI
+flask>=3.0.0

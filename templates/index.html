@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TSG Builder</title>
+    <style>
+        :root {
+            --primary: #0078d4;
+            --primary-dark: #106ebe;
+            --success: #107c10;
+            --warning: #ff8c00;
+            --error: #d13438;
+            --bg: #f5f5f5;
+            --card-bg: #ffffff;
+            --text: #323130;
+            --text-secondary: #605e5c;
+            --border: #e1dfdd;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: var(--primary);
+            color: white;
+            padding: 16px 0;
+            margin-bottom: 24px;
+        }
+
+        header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        header .subtitle {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            background: var(--card-bg);
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--text-secondary);
+        }
+
+        .status-indicator.ready {
+            background: var(--success);
+        }
+
+        .status-indicator.error {
+            background: var(--error);
+        }
+
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            .main-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-header h2 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .card-body {
+            padding: 20px;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 300px;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            resize: vertical;
+            line-height: 1.6;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-primary:disabled {
+            background: var(--text-secondary);
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .output-area {
+            min-height: 300px;
+            max-height: 600px;
+            overflow-y: auto;
+            padding: 16px;
+            background: #fafafa;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .questions-panel {
+            margin-top: 20px;
+            padding: 16px;
+            background: #fff8e5;
+            border: 1px solid var(--warning);
+            border-radius: 6px;
+        }
+
+        .questions-panel h3 {
+            color: var(--warning);
+            margin-bottom: 12px;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .questions-panel pre {
+            font-family: inherit;
+            white-space: pre-wrap;
+            margin-bottom: 12px;
+            color: var(--text);
+        }
+
+        .questions-panel textarea {
+            min-height: 100px;
+            margin-bottom: 12px;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 20px;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            padding: 12px 16px;
+            background: #fde7e9;
+            border: 1px solid var(--error);
+            border-radius: 6px;
+            color: var(--error);
+            margin-bottom: 16px;
+        }
+
+        .success-message {
+            padding: 12px 16px;
+            background: #dff6dd;
+            border: 1px solid var(--success);
+            border-radius: 6px;
+            color: var(--success);
+            margin-bottom: 16px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .example-link {
+            color: var(--primary);
+            cursor: pointer;
+            text-decoration: underline;
+            font-size: 13px;
+        }
+
+        .example-link:hover {
+            color: var(--primary-dark);
+        }
+
+        .copy-btn {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>🔧 TSG Builder</h1>
+            <p class="subtitle">Transform troubleshooting notes into production-quality Technical Support Guides</p>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="status-bar">
+            <div class="status-indicator" id="statusIndicator"></div>
+            <span id="statusText">Checking agent status...</span>
+        </div>
+
+        <div class="main-layout">
+            <!-- Input Panel -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>📝 Input Notes</h2>
+                    <a class="example-link" onclick="loadExample()">Load example</a>
+                </div>
+                <div class="card-body">
+                    <textarea 
+                        id="notesInput" 
+                        placeholder="Paste your raw troubleshooting notes here...
+
+Include:
+- Problem description
+- Error messages
+- Steps to reproduce
+- Known workarounds
+- Related documentation links"
+                    ></textarea>
+                    <div class="actions">
+                        <button class="btn btn-primary" id="generateBtn" onclick="generateTSG()">
+                            <span>🚀</span> Generate TSG
+                        </button>
+                        <button class="btn btn-secondary" onclick="clearInput()">
+                            Clear
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Output Panel -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>📄 Generated TSG</h2>
+                    <button class="btn btn-secondary copy-btn" onclick="copyTSG()" id="copyBtn" disabled>
+                        📋 Copy
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div id="errorMessage" class="error-message hidden"></div>
+                    <div id="successMessage" class="success-message hidden"></div>
+                    
+                    <div id="loadingIndicator" class="loading hidden">
+                        <div class="spinner"></div>
+                        <span>Generating TSG... This may take a minute.</span>
+                    </div>
+                    
+                    <div class="output-area" id="tsgOutput">
+                        <span style="color: var(--text-secondary);">Your generated TSG will appear here...</span>
+                    </div>
+
+                    <!-- Follow-up Questions Panel -->
+                    <div id="questionsPanel" class="questions-panel hidden">
+                        <h3>⚠️ Follow-up Questions</h3>
+                        <p style="font-size: 13px; margin-bottom: 12px;">
+                            The agent needs more information to complete the TSG. Please answer the questions below:
+                        </p>
+                        <pre id="questionsText"></pre>
+                        <textarea 
+                            id="answersInput" 
+                            placeholder="Enter your answers here..."
+                        ></textarea>
+                        <div class="actions">
+                            <button class="btn btn-primary" onclick="submitAnswers()">
+                                Submit Answers
+                            </button>
+                            <button class="btn btn-secondary" onclick="skipQuestions()">
+                                Skip (Use current TSG)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentThreadId = null;
+        let currentTSG = '';
+
+        // Check agent status on load
+        document.addEventListener('DOMContentLoaded', checkStatus);
+
+        async function checkStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                const indicator = document.getElementById('statusIndicator');
+                const text = document.getElementById('statusText');
+                const btn = document.getElementById('generateBtn');
+                
+                if (data.ready) {
+                    indicator.className = 'status-indicator ready';
+                    text.textContent = `Agent ready (${data.agent_id})`;
+                    btn.disabled = false;
+                } else {
+                    indicator.className = 'status-indicator error';
+                    text.textContent = data.error || 'Agent not configured';
+                    btn.disabled = true;
+                }
+            } catch (error) {
+                document.getElementById('statusIndicator').className = 'status-indicator error';
+                document.getElementById('statusText').textContent = 'Failed to check status';
+            }
+        }
+
+        async function generateTSG() {
+            const notes = document.getElementById('notesInput').value.trim();
+            if (!notes) {
+                showError('Please enter some notes first.');
+                return;
+            }
+
+            showLoading(true);
+            hideMessages();
+            document.getElementById('questionsPanel').classList.add('hidden');
+
+            try {
+                const response = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notes })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Generation failed');
+                }
+
+                currentThreadId = data.thread_id;
+                currentTSG = data.tsg;
+                displayTSG(data.tsg);
+
+                if (data.questions && !data.complete) {
+                    showQuestions(data.questions);
+                } else {
+                    showSuccess('TSG generated successfully!');
+                }
+
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function submitAnswers() {
+            const answers = document.getElementById('answersInput').value.trim();
+            if (!answers) {
+                showError('Please provide answers to the questions.');
+                return;
+            }
+
+            showLoading(true);
+            hideMessages();
+
+            try {
+                const response = await fetch('/api/answer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        thread_id: currentThreadId,
+                        answers 
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to process answers');
+                }
+
+                currentTSG = data.tsg;
+                displayTSG(data.tsg);
+
+                if (data.questions && !data.complete) {
+                    showQuestions(data.questions);
+                    document.getElementById('answersInput').value = '';
+                } else {
+                    document.getElementById('questionsPanel').classList.add('hidden');
+                    showSuccess('TSG updated and complete!');
+                }
+
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function skipQuestions() {
+            document.getElementById('questionsPanel').classList.add('hidden');
+            showSuccess('TSG saved with current content.');
+        }
+
+        function displayTSG(tsg) {
+            document.getElementById('tsgOutput').textContent = tsg;
+            document.getElementById('copyBtn').disabled = false;
+        }
+
+        function showQuestions(questions) {
+            document.getElementById('questionsText').textContent = questions;
+            document.getElementById('questionsPanel').classList.remove('hidden');
+        }
+
+        function showLoading(show) {
+            const loading = document.getElementById('loadingIndicator');
+            const btn = document.getElementById('generateBtn');
+            
+            if (show) {
+                loading.classList.remove('hidden');
+                btn.disabled = true;
+            } else {
+                loading.classList.add('hidden');
+                btn.disabled = false;
+            }
+        }
+
+        function showError(message) {
+            const el = document.getElementById('errorMessage');
+            el.textContent = message;
+            el.classList.remove('hidden');
+        }
+
+        function showSuccess(message) {
+            const el = document.getElementById('successMessage');
+            el.textContent = message;
+            el.classList.remove('hidden');
+        }
+
+        function hideMessages() {
+            document.getElementById('errorMessage').classList.add('hidden');
+            document.getElementById('successMessage').classList.add('hidden');
+        }
+
+        function clearInput() {
+            document.getElementById('notesInput').value = '';
+            document.getElementById('tsgOutput').innerHTML = 
+                '<span style="color: var(--text-secondary);">Your generated TSG will appear here...</span>';
+            document.getElementById('questionsPanel').classList.add('hidden');
+            document.getElementById('copyBtn').disabled = true;
+            hideMessages();
+            currentThreadId = null;
+            currentTSG = '';
+        }
+
+        async function copyTSG() {
+            if (!currentTSG) return;
+            
+            try {
+                await navigator.clipboard.writeText(currentTSG);
+                const btn = document.getElementById('copyBtn');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '✓ Copied!';
+                setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+            } catch (error) {
+                showError('Failed to copy to clipboard');
+            }
+        }
+
+        function loadExample() {
+            document.getElementById('notesInput').value = `Problem/questions:
+
+When I try to create an Agent in my project (with the GA version in an Azure AI Foundry project, not a hub-based project), I can only use model deployments deployed in my current Azure AI Foundry resource, despite having connected Azure OpenAI resources.
+
+1. When the OAI model is deployed on project level, the option to select a model is available when trying to create an agent from the studio. But the models deployed on the connected OpenAI resource does not show up. Is this a limitation?
+2. Even if we create the agent via SDK using a model deployment from the connected OpenAI resource, there is no option to select the deployments from the OpenAI resource.
+
+Generally: "When using an Agent in my project, why can't I use it/see it with a model deployment in a connected Azure OpenAI resource?"
+
+Background:
+https://learn.microsoft.com/en-us/azure/ai-foundry/agents/environment-setup
+https://learn.microsoft.com/en-us/azure/ai-foundry/agents/concepts/capability-hosts
+
+Limitation:
+Known issue with Agents seeing connected OpenAI resource deployments in the UI. The project capability host is only configured by default with the project AI Services resource.
+
+Workaround:
+Create new capability host that points at an OpenAI resource instead of the AI Services resource using the aiServicesConnections property.`;
+        }
+    </script>
+</body>
+</html>

@@ -29,12 +29,34 @@ make validate
 # 4. Create the agent (one-time)
 make create-agent
 
-# 5. Generate a TSG
+# 5a. Generate a TSG (command line)
 make run NOTES_FILE=your-notes.txt
 
-# Or save output to file
-python ask_agent.py --notes-file your-notes.txt --output my-tsg.md
+# 5b. Or use the Web UI (recommended for easier interaction)
+make ui
+# Then open http://localhost:5000 in your browser
 ```
+
+## Web UI
+
+The easiest way to use TSG Builder is through the web interface:
+
+```bash
+make ui
+```
+
+Then open **http://localhost:5000** in your browser.
+
+**Features:**
+- 📝 Paste notes directly in the browser
+- 🔄 Interactive follow-up questions
+- 📋 One-click copy to clipboard
+- 📊 Real-time status indicator
+- 💡 Load example input with one click
+
+![TSG Builder UI](docs/ui-screenshot.png)
+
+## Command Line Usage
 
 ## Prerequisites
 
@@ -120,6 +142,8 @@ AGENT_NAME=TSG-Builder
 
 ## Usage
 
+## Command Line Usage
+
 ### Validate Setup First
 
 ```bash
@@ -185,6 +209,7 @@ See `input-example.txt` for a sample input.
 | `make run NOTES_FILE=x.txt` | Run with custom notes file |
 | `make run-example` | Run with `input-example.txt` |
 | `make run-save` | Run and save output to `output.md` |
+| `make ui` | Start the web UI at http://localhost:5000 |
 | `make clean` | Remove venv and generated files |
 | `make help` | Show all commands |
 

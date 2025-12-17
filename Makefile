@@ -1,7 +1,7 @@
 # TSG Builder Makefile
 # Common operations for the TSG Builder project
 
-.PHONY: setup install validate create-agent run run-example clean help
+.PHONY: setup install validate create-agent run run-example clean help ui
 
 # Default Python interpreter
 PYTHON ?= python3
@@ -22,6 +22,7 @@ help:
 	@echo "  make create-agent - Create the Azure AI Foundry agent"
 	@echo "  make run          - Run inference with default notes file (input.txt)"
 	@echo "  make run-example  - Run inference with example input"
+	@echo "  make ui           - Start the web UI (http://localhost:5000)"
 	@echo ""
 	@echo "Utility commands:"
 	@echo "  make clean        - Remove generated files and virtual environment"
@@ -35,6 +36,7 @@ help:
 	@echo "  make run NOTES_FILE=my-notes.txt     # Run with custom notes"
 	@echo "  make run-example                     # Run with input-example.txt"
 	@echo "  make run-save NOTES_FILE=my-notes.txt # Run and save output to output.md"
+	@echo "  make ui                              # Start web UI at localhost:5000"
 
 setup: .venv install env-file
 	@echo ""
@@ -108,6 +110,14 @@ run-save:
 		.venv/bin/python ask_agent.py --notes-file $(NOTES_FILE) --output output.md; \
 	else \
 		$(PYTHON) ask_agent.py --notes-file $(NOTES_FILE) --output output.md; \
+	fi
+
+ui:
+	@echo "Starting TSG Builder web UI..."
+	@if [ -d ".venv" ]; then \
+		.venv/bin/python web_app.py; \
+	else \
+		$(PYTHON) web_app.py; \
 	fi
 
 clean:
