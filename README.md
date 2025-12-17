@@ -262,14 +262,9 @@ If information is missing, the agent:
 ┌─────────────────┐     ┌──────────────────────────────────────────┐
 │  Raw Notes      │────▶│         Azure AI Foundry Agent           │
 │  (input.txt)    │     │  ┌─────────────────────────────────────┐ │
-└─────────────────┘     │  │  Phase 1: MANDATORY RESEARCH        │ │
-                        │  │    - Learn MCP (Microsoft docs)     │ │
-                        │  │    - Bing Search (GitHub, etc.)     │ │
-                        │  │                                     │ │
-                        │  │  Phase 2: TSG GENERATION            │ │
-                        │  │    - Fill template with findings    │ │
-                        │  │    - Mark missing info              │ │
-                        │  │    - Ask follow-up questions        │ │
+└─────────────────┘     │  │  1. Research (Learn MCP + Bing)     │ │
+                        │  │  2. Generate TSG from template      │ │
+                        │  │  3. Mark gaps with placeholders     │ │
                         │  └─────────────────────────────────────┘ │
                         └──────────────────┬───────────────────────┘
                                            │
