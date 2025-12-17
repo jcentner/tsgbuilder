@@ -2,9 +2,6 @@
 Shared TSG template, markers, and instruction text.
 """
 
-# Agent versioning for the new Agents API.
-AGENT_VERSION = "2"
-
 TSG_TEMPLATE = """[[_TOC_]]
 
 # **Title**
@@ -62,11 +59,6 @@ TSG_END = "<!-- TSG_END -->"
 QUESTIONS_BEGIN = "<!-- QUESTIONS_BEGIN -->"
 QUESTIONS_END = "<!-- QUESTIONS_END -->"
 REQUIRED_DIAGNOSIS_LINE = "Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM."
-
-
-def agent_reference(name: str) -> dict:
-    """Return the agent reference payload used by responses.create/stream."""
-    return {"type": "agent_reference", "name": name, "version": AGENT_VERSION}
 
 
 # System/agent instructions for creation and inference.

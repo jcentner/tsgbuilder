@@ -1,10 +1,10 @@
 # TSG Builder – Agent-based Troubleshooting Guide Generator
 
-Transform raw troubleshooting notes into structured **Technical Support Guides (TSGs)** using an Azure AI Foundry Agent with Bing Search and Microsoft Learn integration.
+Transform raw troubleshooting notes into structured **Technical Support Guides (TSGs)** using an Azure AI Foundry Agent with Bing Search and Microsoft Learn MCP integration.
 
 ## Overview
 
-TSG Builder uses an Azure AI Foundry Agent to:
+TSG Builder uses an Azure AI Foundry Agent (classic API) to:
 1. **Research** the issue using Bing Search and Microsoft Learn MCP
 2. **Generate** a structured TSG following your team's template
 3. **Iterate** by asking follow-up questions for missing information
@@ -142,9 +142,9 @@ make create-agent
 python create_agent.py
 ```
 
-This creates a versioned agent with:
+This creates an agent with:
 - Bing Search tool for web research
-- Microsoft Learn MCP for documentation lookup
+- Microsoft Learn MCP for official documentation
 - TSG generation instructions
 
 ### Generate a TSG
@@ -246,7 +246,7 @@ If information is missing, the agent:
 
 ### "Agent not found"
 - Run `python create_agent.py` to create the agent
-- Check `.agent_ref` file exists
+- Check `.agent_id` file exists
 
 ### Agent doesn't use tools / research
 - The agent instructions mandate research before output
@@ -260,7 +260,7 @@ If information is missing, the agent:
 
 ```
 ┌─────────────────┐     ┌──────────────────────────────────────────┐
-│  Raw Notes      │────▶│         Azure AI Foundry Agent           │
+│  Raw Notes      │────▶│    Azure AI Foundry Agent (Classic)      │
 │  (input.txt)    │     │  ┌─────────────────────────────────────┐ │
 └─────────────────┘     │  │  1. Research (Learn MCP + Bing)     │ │
                         │  │  2. Generate TSG from template      │ │
@@ -286,7 +286,7 @@ If information is missing, the agent:
 | `Makefile` | Common operations |
 | `.env` | Your configuration (git-ignored) |
 | `.env-sample` | Configuration template |
-| `.agent_ref` | Agent reference after creation |
+| `.agent_id` | Agent ID after creation |
 | `input-example.txt` | Example input notes |
 
 ## Contributing

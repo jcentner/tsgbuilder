@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-create_agent.py — create a new-style Azure AI Foundry Agent that formats notes into TSGs.
+create_agent.py — create a classic Azure AI Foundry Agent that formats notes into TSGs.
 
 Steps:
 - Connects to your Azure AI Foundry project using DefaultAzureCredential
-- Creates a versioned agent with Bing Search and the Learn MCP server attached
-- Saves the agent reference (name:version) and id for ask_agent.py to use
+- Creates an agent with Bing Search and Microsoft Learn MCP attached (classic Agents API)
+- Saves the agent id for ask_agent.py to use
 """
 
 import os
@@ -15,9 +15,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
-from azure.ai.agents.models import McpTool, BingGroundingTool
+from azure.ai.agents.models import BingGroundingTool, McpTool
 
-from tsg_constants import AGENT_INSTRUCTIONS, AGENT_VERSION
+from tsg_constants import AGENT_INSTRUCTIONS
 
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"  # public, no auth required
 
@@ -40,10 +40,16 @@ def main():
 
   project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
 
+  # Build tools list: Bing grounding + Microsoft Learn MCP
   tools = []
-  # Always attach Bing grounding for doc lookup and Learn MCP for Microsoft docs.
-  tools.extend(BingGroundingTool(connection_id=conn_id).definitions)
-  tools.extend(McpTool(server_label="learn", server_url=LEARN_MCP_URL).definitions)
+  
+  # Bing grounding for web/doc lookup
+  bing_tool = BingGroundingTool(connection_id=conn_id)
+  tools.extend(bing_tool.definitions)
+  
+  # Microsoft Learn MCP for official documentation
+  mcp_tool = McpTool(server_label="learn", server_url=LEARN_MCP_URL)
+  tools.extend(mcp_tool.definitions)
 
   with project:
     agent = project.agents.create_agent(
@@ -53,10 +59,9 @@ def main():
       tools=tools,
     )
 
-  # Persist both id and name:version reference for inference.
+  # Persist agent id for inference.
   Path(".agent_id").write_text(agent.id + "\n", encoding="utf-8")
-  Path(".agent_ref").write_text(f"{agent_name}:{AGENT_VERSION}\n", encoding="utf-8")
-  print(f"Created agent: id={agent.id} ref={agent_name}:{AGENT_VERSION}")
+  print(f"Created agent: id={agent.id} name={agent_name}")
 
 
 if __name__ == "__main__":

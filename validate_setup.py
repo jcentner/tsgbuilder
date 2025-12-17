@@ -34,7 +34,7 @@ def check_env_vars() -> tuple[bool, dict[str, str]]:
     print("\n[1/5] Checking environment variables...")
     
     required = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME", "BING_CONNECTION_NAME"]
-    optional = ["AGENT_NAME", "AGENT_REF"]
+    optional = ["AGENT_NAME", "AGENT_ID"]
     
     env_vars = {}
     all_ok = True
@@ -120,18 +120,14 @@ def check_project_connection(endpoint: str) -> bool:
 
 
 def check_agent_ref() -> bool:
-    """Check if agent reference file exists."""
-    print("\n[4/5] Checking agent reference...")
+    """Check if agent ID file exists."""
+    print("\n[4/5] Checking agent ID...")
     
-    agent_ref_file = Path(".agent_ref")
     agent_id_file = Path(".agent_id")
     
-    if agent_ref_file.exists():
-        ref = agent_ref_file.read_text(encoding="utf-8").strip()
-        print_ok(f"Agent reference found: {ref}")
-        if agent_id_file.exists():
-            agent_id = agent_id_file.read_text(encoding="utf-8").strip()
-            print_ok(f"Agent ID found: {agent_id}")
+    if agent_id_file.exists():
+        agent_id = agent_id_file.read_text(encoding="utf-8").strip()
+        print_ok(f"Agent ID found: {agent_id}")
         return True
     else:
         print_warn("No agent created yet. Run 'python create_agent.py' first.")
@@ -184,7 +180,7 @@ def main():
         if "PROJECT_ENDPOINT" in env_vars:
             results.append(("Project connection", check_project_connection(env_vars["PROJECT_ENDPOINT"])))
     
-    results.append(("Agent reference", check_agent_ref()))
+    results.append(("Agent ID", check_agent_ref()))
     
     # Summary
     print("\n" + "=" * 60)
@@ -202,7 +198,7 @@ def main():
     if all_passed:
         print("All checks passed! You're ready to run the TSG Builder.")
         print("\nNext steps:")
-        if not Path(".agent_ref").exists():
+        if not Path(".agent_id").exists():
             print("  1. Create the agent:  python create_agent.py")
             print("  2. Run inference:     python ask_agent.py --notes-file input.txt")
         else:

@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 # agent/ask_agent.py
 """
-ask_agent.py — interactive chat loop using the new Agents API (conversations + responses).
+ask_agent.py — interactive chat loop using the classic Agents API (threads + runs).
 
 Env (read from .env via python-dotenv):
 - PROJECT_ENDPOINT          (required)
-- AGENT_REF                 (optional; else read from ./.agent_ref as name:version)
+- AGENT_ID                  (optional; else read from ./.agent_id)
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv, find_dotenv
@@ -25,37 +25,41 @@ from tsg_constants import (
     TSG_END,
     QUESTIONS_BEGIN,
     QUESTIONS_END,
-    agent_reference,
     build_user_prompt,
 )
 
 
-LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"  # public, no auth required
-
-
-def stream_response(project: AIProjectClient, conversation_id: str, agent_name: str) -> str:
-    """Stream a response and return full assistant text."""
-    buffer: list[str] = []
-    stream = project.responses.create_stream(
-        conversation=conversation_id,
-        input=None,
-        extra_body={"agent": agent_reference(agent_name)},
-    )
-    for event in stream:
-        outputs = getattr(event, "output", None) or []
-        for item in outputs:
-            item_type = getattr(item, "type", None)
-            if item_type == "message_delta":
-                text = getattr(item, "text", None) or ""
-                if text:
-                    print(text, end="", flush=True)
-                    buffer.append(text)
-            elif item_type == "message":
-                content = getattr(item, "content", None) or ""
-                if content:
-                    buffer.append(str(content))
-    print()  # newline after stream
-    return "".join(buffer)
+def run_agent_and_get_response(project: AIProjectClient, thread_id: str, agent_id: str) -> str:
+    """Create a run, poll until complete, and return the assistant's response text."""
+    run = project.agents.runs.create(thread_id=thread_id, agent_id=agent_id)
+    
+    # Poll until run completes
+    while run.status in ("queued", "in_progress", "requires_action"):
+        time.sleep(1)
+        run = project.agents.runs.get(thread_id=thread_id, run_id=run.id)
+        print(".", end="", flush=True)
+    
+    print()  # newline after polling dots
+    
+    if run.status == "failed":
+        error_msg = getattr(run, "last_error", None)
+        print(f"Run failed: {error_msg}", file=sys.stderr)
+        return ""
+    
+    # Get messages from the thread (newest first)
+    messages = project.agents.messages.list(thread_id=thread_id)
+    
+    # Find the most recent assistant message
+    for message in messages:
+        if message.role == "assistant":
+            # Extract text content from the message
+            text_parts = []
+            for content_item in message.content:
+                if hasattr(content_item, "text") and content_item.text:
+                    text_parts.append(content_item.text.value)
+            return "\n".join(text_parts)
+    
+    return ""
 
 
 def load_notes(path: str | None) -> str:
@@ -97,7 +101,7 @@ def extract_blocks(content: str) -> tuple[str, str]:
 def main():
     parser = argparse.ArgumentParser(description="Run TSG agent inference.")
     parser.add_argument("--notes-file", help="Path to raw notes file (if omitted, you can paste interactively).")
-    parser.add_argument("--agent-ref", help="Override the agent reference (name:version) otherwise read from .agent_ref or AGENT_REF env.")
+    parser.add_argument("--agent-id", help="Override the agent ID, otherwise read from .agent_id or AGENT_ID env.")
     parser.add_argument("--output", "-o", help="Path to save the final TSG markdown file.")
     args = parser.parse_args()
 
@@ -108,13 +112,11 @@ def main():
         print("ERROR: PROJECT_ENDPOINT is required.", file=sys.stderr)
         sys.exit(1)
 
-    agent_ref = (
-        args.agent_ref
-        or os.getenv("AGENT_REF")
-        or Path(".agent_ref").read_text(encoding="utf-8").strip()
+    agent_id = (
+        args.agent_id
+        or os.getenv("AGENT_ID")
+        or Path(".agent_id").read_text(encoding="utf-8").strip()
     )
-    # agent_ref is name:version
-    agent_name = agent_ref.split(":")[0]
 
     project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
 
@@ -124,19 +126,31 @@ def main():
         sys.exit(1)
 
     with project:
+        # Create a thread for the conversation
+        thread = project.agents.threads.create()
+        print(f"Created thread: {thread.id}")
+
         prior_tsg = None
         final_tsg = None
+        
         while True:
             user_content = build_user_prompt(notes, prior_tsg=prior_tsg, user_answers=None)
-            conversation = project.conversations.create(
-                items=[{"type": "message", "role": "user", "content": user_content}],
-                store=True,
+            
+            # Add user message to thread
+            project.agents.messages.create(
+                thread_id=thread.id,
+                role="user",
+                content=user_content,
             )
 
-            assistant_text = stream_response(project, conversation.id, agent_name)
+            print("Running agent", end="", flush=True)
+            assistant_text = run_agent_and_get_response(project, thread.id, agent_id)
+            
             tsg_block, questions_block = extract_blocks(assistant_text)
             if not tsg_block:
                 print("ERROR: Model output did not include a TSG block.")
+                print("Full response:")
+                print(assistant_text)
                 break
 
             final_tsg = tsg_block
@@ -156,14 +170,17 @@ def main():
                 break
 
             prior_tsg = tsg_block
-            notes = notes
-            # Append answers as next turn and continue
-            conversation = project.conversations.create(
-                items=[{"type": "message", "role": "user", "content": answers}],
-                store=True,
+            
+            # Add answers as next message in the same thread
+            project.agents.messages.create(
+                thread_id=thread.id,
+                role="user",
+                content=answers,
             )
-            assistant_text = stream_response(project, conversation.id, agent_name)
-            notes = notes  # keep original
+
+            print("Running agent", end="", flush=True)
+            assistant_text = run_agent_and_get_response(project, thread.id, agent_id)
+            
             tsg_block, questions_block = extract_blocks(assistant_text)
             if not tsg_block:
                 print("ERROR: Model output did not include a TSG block on refinement.")
