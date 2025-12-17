@@ -92,8 +92,8 @@ PROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-p
 # Found in: AI Foundry Portal > Management Center > Connected Resources
 BING_CONNECTION_NAME=/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/projects/<project>/connections/<bing-connection>
 
-# Required: Name of your model deployment
-MODEL_DEPLOYMENT_NAME=gpt-4o
+# Required: Name of your model deployment (recommended: GPT 5.2)
+MODEL_DEPLOYMENT_NAME=gpt-5.2
 
 # Optional: Custom name for your agent (default: tsg-agent)
 AGENT_NAME=TSG-Builder
