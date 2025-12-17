@@ -1,3 +1,22 @@
+# Environment and secrets
 .env
-.venv
+
+# Virtual environment
+.venv/
+
+# Agent state (created per-deployment)
 .agent_id
+.agent_ref
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Output files
+output.md
+*.bak
+
+# IDE
+.vscode/
+.idea/

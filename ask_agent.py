@@ -99,6 +99,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run TSG agent inference.")
     parser.add_argument("--notes-file", help="Path to raw notes file (if omitted, you can paste interactively).")
     parser.add_argument("--agent-ref", help="Override the agent reference (name:version) otherwise read from .agent_ref or AGENT_REF env.")
+    parser.add_argument("--output", "-o", help="Path to save the final TSG markdown file.")
     args = parser.parse_args()
 
     load_dotenv(find_dotenv())
@@ -125,6 +126,7 @@ def main():
 
     with project:
         prior_tsg = None
+        final_tsg = None
         while True:
             user_content = build_user_prompt(notes, prior_tsg=prior_tsg, user_answers=None)
             conversation = project.conversations.create(
@@ -138,6 +140,7 @@ def main():
                 print("ERROR: Model output did not include a TSG block.")
                 break
 
+            final_tsg = tsg_block
             print("\n--- TSG ---\n")
             print(tsg_block)
 
@@ -166,6 +169,7 @@ def main():
             if not tsg_block:
                 print("ERROR: Model output did not include a TSG block on refinement.")
                 break
+            final_tsg = tsg_block
             print("\n--- TSG (updated) ---\n")
             print(tsg_block)
             if not questions_block or questions_block.strip() == "NO_MISSING":
@@ -173,6 +177,12 @@ def main():
                 break
             prior_tsg = tsg_block
             continue
+
+        # Save output if --output was specified
+        if args.output and final_tsg:
+            output_path = Path(args.output)
+            output_path.write_text(final_tsg, encoding="utf-8")
+            print(f"\nTSG saved to: {output_path.resolve()}")
 
 
 if __name__ == "__main__":
