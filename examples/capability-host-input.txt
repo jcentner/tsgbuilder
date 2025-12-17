@@ -5,8 +5,6 @@ When I try to create an Agent in my project (with the GA version in an Azure AI 
 
 	1. When the OAI model is deployed on project level, the option to select a model is available when trying to create an agent from the studio. But the models deployed on the connected OpenAI resource does not show up. Is this a limitation?
 	2. Even if we create the agent via SDK using a model deployment from the connected OpenAI resource, there is no option to select the deployments from the OpenAI resource. The only model available in the dropdown are the models deployed on the project level and not on the connect OAI resource level. 
-Both from: https://teams.microsoft.com/l/message/19:f12ac32cb14e42ad91c09680dde7c702@thread.tacv2/1751033084491?tenantId=72f988bf-86f1-41af-91ab-2d7cd011db47&groupId=2f5662a6-3e4e-498d-b98f-2140f5638211&parentMessageId=1751033084491&teamName=AI%20Foundry%20Support&channelName=OpenAI%20-%20General&createdTime=1751033084491 
-
 
 Generally: "When using an Agent in my project, why can't I use it/see it with a model deployment in a connected Azure OpenAI resource?" 
 

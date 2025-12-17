@@ -65,7 +65,7 @@ Then open **http://localhost:5000** in your browser.
 | Resource | Purpose | How to Get |
 |----------|---------|------------|
 | **Azure AI Foundry Project** | Hosts the agent | [Create a project](https://learn.microsoft.com/azure/ai-foundry/how-to/create-projects) |
-| **Model Deployment** | LLM for the agent (e.g., `gpt-4o`, `gpt-4.1`) | Deploy in your project |
+| **Model Deployment** | LLM for the agent (e.g., `gpt-4.1` or `gpt-5.2`) | Deploy in your project |
 | **Bing Search Connection** | Web research capability | [Connect Bing Search](https://learn.microsoft.com/azure/ai-foundry/how-to/connections-add) |
 
 ### Local Requirements
