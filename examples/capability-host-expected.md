@@ -46,7 +46,7 @@ The capability host determines which Azure resources the Agent Service can use f
 
 **Prerequisites:**
 - The connected OpenAI resource must be in the **same region** as the AI Services resource
-- Creating/modifying capability hosts may disrupt existing agents under the AI Services resource
+- Changing capability hosts may disrupt existing agents under the AI Services resource
 
 **Steps:**
 
@@ -89,7 +89,7 @@ response = requests.put(url, json=payload, headers=headers, params=querystring)
 print(response.text)
 ```
 
-**Important:** After this configuration, agents will ONLY see deployments from the specified Azure OpenAI resource in `aiServicesConnections`. To use deployments from the parent AI Services resource again, you would need to update or delete the capability host.
+**Important:** After this configuration, agents will ONLY see deployments from the specified Azure OpenAI resource in `aiServicesConnections`. To use deployments from the parent AI Services resource again, you would need to delete and recreate the capability host with an edited `aiServicesConnections` (UPDATE is not supported for capability hosts). 
 
 For a Bicep-based approach, see the [Use your own resources documentation](https://learn.microsoft.com/en-us/azure/ai-foundry/agents/how-to/use-your-own-resources?view=foundry-classic#basic-agent-setup-use-an-existing-azure-openai-resource).
 
