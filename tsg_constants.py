@@ -106,175 +106,55 @@ Example: `{{MISSING::Cause::Describe the underlying root cause}}`
 When given answers to follow-up questions, replace the corresponding placeholders and regenerate. Perform additional research if answers suggest new areas to explore.
 """
 
-# GPT-4.1 optimized instructions following OpenAI's GPT-4.1 Prompting Guide best practices:
-# - Literal instruction following (be extremely specific)
-# - Clear delimiters and structure
-# - Concrete examples demonstrating exact output format
-# - Instructions placed at both beginning and end for emphasis
-# - "Double down" on critical rules
-# - Research instruction placed FIRST to ensure tool usage
-AGENT_INSTRUCTIONS_GPT41 = """# Role and Objective
-You are a senior support engineer Agent. Your task is to transform raw troubleshooting notes into a production-quality Technical Support Guide (TSG) using a strict markdown template.
+# GPT-4.1 optimized instructions - concise with clear structure
+AGENT_INSTRUCTIONS_GPT41 = """# Role
+Senior support engineer transforming troubleshooting notes into TSGs.
 
-# CRITICAL RULE: MISSING PLACEHOLDERS ARE MANDATORY
-You MUST insert {{MISSING::<SECTION>::<HINT>}} placeholders for ANY information that is:
-- Not explicitly provided in the user's notes
-- Cannot be verified through your research tools
-- Is speculative or would require guessing
+# Checklist (Follow in Order)
+- [ ] 1. Call Learn MCP tool to search Microsoft Learn docs
+- [ ] 2. Call Bing Search tool for GitHub/community discussions  
+- [ ] 3. Generate TSG between <!-- TSG_BEGIN --> and <!-- TSG_END -->
+- [ ] 4. Insert `{{MISSING::<Section>::<Hint>}}` for ANY info not in user's notes
+- [ ] 5. Generate questions between <!-- QUESTIONS_BEGIN --> and <!-- QUESTIONS_END -->
 
-This is NON-NEGOTIABLE. Never fabricate, assume, or fill in information you don't have. A TSG with placeholders is BETTER than a TSG with fabricated content.
-
-# MANDATORY FIRST STEP: Research (DO THIS BEFORE ANYTHING ELSE)
-You MUST perform research using your tools BEFORE generating any TSG content. This is non-negotiable.
-
-Required research actions:
-1. **Use Learn MCP tool** - Search Microsoft Learn for relevant documentation (at least 2 queries)
-2. **Use Bing Search tool** - Search for GitHub issues, Stack Overflow posts, or community discussions (at least 1 query)
-3. Collect all relevant URLs from your research for the "Related Information" section
-
-DO NOT proceed to TSG generation until you have completed tool-based research. The TSG quality depends on this research.
-
-# Tools Available
-- **Learn MCP tool**: Search Microsoft Learn documentation (learn.microsoft.com) - USE THIS FIRST
-- **Bing Search**: Search GitHub issues, Stack Overflow, community discussions - USE THIS SECOND
-
-# Output Format
-After completing research, your response MUST contain exactly two blocks and nothing else. No preamble, no explanation, no commentary.
-
-Block 1 - TSG content wrapped in markers:
+# Output Format (EXACT - no other text)
+```
 <!-- TSG_BEGIN -->
-[Your complete TSG markdown here]
-<!-- TSG_END -->
-
-Block 2 - Follow-up questions wrapped in markers:
-<!-- QUESTIONS_BEGIN -->
-[Either "NO_MISSING" or your follow-up questions - one per placeholder]
-<!-- QUESTIONS_END -->
-
-# Workflow (Follow This Order)
-
-## Step 1: Research (REQUIRED - You must call tools)
-Call your tools now to gather information:
-- Search Microsoft Learn for the topic in the notes
-- Search Bing for GitHub issues or community discussions
-- Note URLs found for "Related Information"
-
-## Step 2: Generate TSG (Only after research)
-- Fill the template provided in the user message with content from notes AND your research findings
-- Preserve ALL template headings exactly as given (same capitalization, formatting)
-- Keep this exact line in Diagnosis: "Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM."
-- **FOR ANY MISSING INFORMATION: Insert {{MISSING::<SECTION>::<HINT>}} placeholders**
-- Include discovered URLs in "Related Information"
-
-### Placeholder Format (MUST USE THIS EXACT FORMAT)
-```
-{{MISSING::<SECTION_NAME>::<What information is needed>}}
-```
-
-Examples of when to use placeholders:
-- No specific error message provided: `{{MISSING::Issue Description::Exact error message or code}}`
-- Root cause unknown: `{{MISSING::Cause::Technical root cause of this behavior}}`
-- No reproduction steps: `{{MISSING::Diagnosis::Steps to reproduce the issue}}`
-- Workaround not verified: `{{MISSING::Mitigation or Resolution::Verified workaround steps}}`
-
-## Step 3: Generate Follow-up Questions (REQUIRED)
-After generating the TSG, you MUST:
-1. Scan your TSG for ALL {{MISSING::...}} placeholders
-2. For EACH placeholder, generate a corresponding follow-up question
-
-Format for questions block:
-- If you have placeholders: List each one with an arrow pointing to the question
-- If NO placeholders exist: Output exactly the text "NO_MISSING"
-
-Example:
-```
-- {{MISSING::Cause::Technical root cause}} -> What is the underlying technical reason this issue occurs?
-- {{MISSING::Diagnosis::Reproduction steps}} -> Can you provide step-by-step instructions to reproduce this issue?
-```
-
-# Important Rules
-- The TSG section "Questions to Ask the Customer" is INSIDE the TSG for customers. The follow-up questions block is SEPARATE and for the TSG author only.
-- **NEVER fabricate information. ALWAYS use placeholders for unknowns.**
-- If a section is not applicable, keep the heading with a brief rationale.
-- If the input notes are sparse, your TSG should have MANY placeholders. This is correct behavior.
-
-# Example Output with Sparse Input
-
-When given minimal input like "User has connection issues with Azure", your output should look like:
-
-<!-- TSG_BEGIN -->
-[[_TOC_]]
-
-# **{{MISSING::Title::Specific error message or scenario with keywords}}**
-
-# **Issue Description / Symptoms**
-- **What** is the issue?
-  {{MISSING::Issue Description::Detailed description of what the user experiences}}
-- **Who** does this affect?
-  {{MISSING::Issue Description::Which users or scenarios are affected}}
-- **Where** does the issue occur? Where does it not occur?
-  {{MISSING::Issue Description::Specific service, region, or component}}
-- **When** does it occur?
-  {{MISSING::Issue Description::Timing, frequency, or triggering conditions}}
-
-# **When does the TSG not Apply**
-{{MISSING::When does the TSG not Apply::Scenarios where this TSG should not be used}}
-
-# **Diagnosis**
-- [ ] {{MISSING::Diagnosis::First diagnostic step}}
-- [ ] {{MISSING::Diagnosis::Second diagnostic step}}
-
-Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM.
-
-# **Questions to Ask the Customer**
-- {{MISSING::Questions to Ask::Relevant questions to gather more information}}
-
-# **Cause**
-{{MISSING::Cause::Root cause of the issue}}
-
-# **Mitigation or Resolution**
-{{MISSING::Mitigation or Resolution::Steps to resolve the issue}}
-
-# **Root Cause to be shared with Customer**
-{{MISSING::Root Cause to be shared with Customer::Customer-friendly explanation}}
-
-# **Related Information**
-- [Azure Service Health](https://azure.microsoft.com/status/)
-
-# **Tags or Prompts**
-{{MISSING::Tags::Relevant search tags}}
+[Complete TSG with all required headings]
 <!-- TSG_END -->
 
 <!-- QUESTIONS_BEGIN -->
-- {{MISSING::Title::Specific error message or scenario with keywords}} -> What is the specific error message or scenario the user encounters?
-- {{MISSING::Issue Description::Detailed description of what the user experiences}} -> Can you describe in detail what the user sees when this issue occurs?
-- {{MISSING::Issue Description::Which users or scenarios are affected}} -> Who is affected by this issue (specific users, roles, regions)?
-- {{MISSING::Issue Description::Specific service, region, or component}} -> Which Azure service, region, or component is involved?
-- {{MISSING::Issue Description::Timing, frequency, or triggering conditions}} -> When does this issue occur? Is it constant or intermittent?
-- {{MISSING::When does the TSG not Apply::Scenarios where this TSG should not be used}} -> Are there scenarios where this issue does NOT occur?
-- {{MISSING::Diagnosis::First diagnostic step}} -> What is the first thing a support engineer should check?
-- {{MISSING::Diagnosis::Second diagnostic step}} -> What additional diagnostic steps are needed?
-- {{MISSING::Questions to Ask::Relevant questions to gather more information}} -> What questions should we ask the customer?
-- {{MISSING::Cause::Root cause of the issue}} -> What is the technical root cause?
-- {{MISSING::Mitigation or Resolution::Steps to resolve the issue}} -> What are the steps to resolve or work around this issue?
-- {{MISSING::Root Cause to be shared with Customer::Customer-friendly explanation}} -> What explanation can we share with the customer?
-- {{MISSING::Tags::Relevant search tags}} -> What keywords should this TSG be tagged with?
+[One line per placeholder: `- {{MISSING::...}} -> question`]
+[OR exactly: `NO_MISSING`]
 <!-- QUESTIONS_END -->
+```
 
-# Final Reminder
-1. YOU MUST USE YOUR TOOLS FOR RESEARCH before generating output.
-2. YOU MUST USE {{MISSING::...}} PLACEHOLDERS for any information not provided or verified.
-3. Sparse input = Many placeholders. This is CORRECT.
+# When to Use Placeholders
+Insert `{{MISSING::<Section>::<Hint>}}` when:
+- The user's notes do NOT contain that specific information
+- You would need to guess or assume (even if research gave general info)
+- Case-specific details are missing: error codes, repro steps, customer environment, root cause
 
-Your output MUST:
-1. Start with <!-- TSG_BEGIN -->
-2. Contain the complete TSG (with placeholders for missing info)
-3. Have <!-- TSG_END --> after the TSG
-4. Have <!-- QUESTIONS_BEGIN --> next
-5. Have follow-up questions for EACH placeholder, OR "NO_MISSING" if none
-6. End with <!-- QUESTIONS_END -->
+**Research = general knowledge. Placeholders = case-specific gaps the TSG author must fill.**
 
-Do NOT include any text before <!-- TSG_BEGIN --> or after <!-- QUESTIONS_END -->.
+Example: Notes say "tool limit issue" but no error message → `{{MISSING::Issue Description::Exact error message}}`
+
+# Required TSG Sections (keep headings exactly)
+1. Title (with error/scenario keywords)
+2. Issue Description / Symptoms (What/Who/Where/When)
+3. When does the TSG not Apply
+4. Diagnosis (include: "Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM.")
+5. Questions to Ask the Customer
+6. Cause
+7. Mitigation or Resolution
+8. Root Cause to be shared with Customer
+9. Related Information (include URLs from research)
+10. Tags or Prompts
+
+# Questions Block Rules
+- If TSG contains `{{MISSING::...}}` → list each with format: `- {{MISSING::X::Y}} -> question?`
+- If TSG has NO placeholders → output exactly: `NO_MISSING`
+- "Questions to Ask the Customer" (inside TSG) ≠ follow-up questions (for TSG author)
 """
 
 
@@ -297,44 +177,27 @@ def build_user_prompt(notes: str, prior_tsg: str | None = None, user_answers: st
 
 
 def build_user_prompt_gpt41(notes: str, prior_tsg: str | None = None, user_answers: str | None = None) -> str:
-    """Build the user prompt for GPT-4.1 (more explicit, research-first workflow)."""
+    """Build the user prompt for GPT-4.1 (explicit about placeholders for case-specific info)."""
     parts = [
-        "FIRST: Use your Learn MCP and Bing Search tools to research the topic in these notes.\n",
-        "THEN: Transform the raw notes into a TSG using the template provided.\n",
-        "CRITICAL: Use {{MISSING::<SECTION>::<HINT>}} placeholders for ANY information not in the notes.\n",
+        "Research this topic with your tools, then generate a TSG.\n\n",
+        "**Key rule**: Use `{{MISSING::<Section>::<Hint>}}` for case-specific details not in the notes below.\n",
+        "General knowledge from research ≠ case-specific facts. Mark what the TSG author must fill in.\n",
         "\n<template>\n",
         TSG_TEMPLATE,
         "\n</template>\n",
-        "\n<raw_notes>\n",
+        "\n<notes>\n",
         notes,
-        "\n</raw_notes>\n",
+        "\n</notes>\n",
     ]
     if prior_tsg:
         parts.extend(["\n<prior_tsg>\n", prior_tsg, "\n</prior_tsg>\n"])
     if user_answers:
         parts.extend([
-            "\n<user_answers>\n",
+            "\n<answers>\n",
             user_answers,
-            "\n</user_answers>\n",
-            "Replace the {{MISSING::...}} placeholders that correspond to these answers.\n",
+            "\n</answers>\n",
+            "Replace corresponding {{MISSING::...}} placeholders with these answers.\n",
         ])
-    # Reinforce tool usage first, then output format (GPT-4.1 best practice)
-    parts.append("""
-IMPORTANT WORKFLOW:
-1. FIRST: Call your tools (Learn MCP and Bing Search) to research the topic
-2. THEN: Generate the TSG with {{MISSING::...}} placeholders for unknown info
-3. FINALLY: Output follow-up questions for EACH placeholder
-
-<!-- TSG_BEGIN -->
-[Complete TSG here - USE PLACEHOLDERS for missing information]
-<!-- TSG_END -->
-
-<!-- QUESTIONS_BEGIN -->
-[One question per {{MISSING::...}} placeholder, OR "NO_MISSING" if none exist]
-<!-- QUESTIONS_END -->
-
-Remember: Sparse input = Many placeholders. This is CORRECT behavior.
-""")
     return "".join(parts)
 
 
@@ -367,3 +230,101 @@ def get_user_prompt_builder(style: str | None = None):
     """Get the user prompt builder function for the specified style."""
     style = style or DEFAULT_PROMPT_STYLE
     return PROMPT_STYLES.get(style, PROMPT_STYLES[DEFAULT_PROMPT_STYLE])["build_prompt"]
+
+
+# --- Output Validation ---
+
+# Required TSG section headings (must appear exactly as written)
+REQUIRED_TSG_HEADINGS = [
+    "# **Issue Description / Symptoms**",
+    "# **When does the TSG not Apply**",
+    "# **Diagnosis**",
+    "# **Questions to Ask the Customer**",
+    "# **Cause**",
+    "# **Mitigation or Resolution**",
+    "# **Root Cause to be shared with Customer**",
+    "# **Related Information**",
+    "# **Tags or Prompts**",
+]
+
+
+def validate_tsg_output(response_text: str) -> dict:
+    """
+    Validate that the agent response follows the required format.
+    Returns a dict with 'valid' bool and 'issues' list.
+    """
+    issues = []
+    
+    # Check for required markers
+    if TSG_BEGIN not in response_text:
+        issues.append("Missing <!-- TSG_BEGIN --> marker")
+    if TSG_END not in response_text:
+        issues.append("Missing <!-- TSG_END --> marker")
+    if QUESTIONS_BEGIN not in response_text:
+        issues.append("Missing <!-- QUESTIONS_BEGIN --> marker")
+    if QUESTIONS_END not in response_text:
+        issues.append("Missing <!-- QUESTIONS_END --> marker")
+    
+    # Extract TSG content
+    tsg_content = ""
+    if TSG_BEGIN in response_text and TSG_END in response_text:
+        start = response_text.find(TSG_BEGIN) + len(TSG_BEGIN)
+        end = response_text.find(TSG_END)
+        tsg_content = response_text[start:end]
+    
+    # Check for required headings
+    for heading in REQUIRED_TSG_HEADINGS:
+        if heading not in tsg_content:
+            issues.append(f"Missing required heading: {heading}")
+    
+    # Check for required diagnosis line
+    if REQUIRED_DIAGNOSIS_LINE not in tsg_content:
+        issues.append("Missing required diagnosis line")
+    
+    # Extract questions block
+    questions_content = ""
+    if QUESTIONS_BEGIN in response_text and QUESTIONS_END in response_text:
+        start = response_text.find(QUESTIONS_BEGIN) + len(QUESTIONS_BEGIN)
+        end = response_text.find(QUESTIONS_END)
+        questions_content = response_text[start:end].strip()
+    
+    # Check questions block validity
+    if questions_content:
+        has_missing_placeholders = "{{MISSING::" in tsg_content
+        has_no_missing = questions_content == "NO_MISSING"
+        has_questions = "{{MISSING::" in questions_content and "->" in questions_content
+        
+        if has_missing_placeholders and has_no_missing:
+            issues.append("TSG has {{MISSING::...}} placeholders but questions block says NO_MISSING")
+        elif not has_missing_placeholders and not has_no_missing:
+            issues.append("TSG has no placeholders but questions block is not NO_MISSING")
+        elif has_missing_placeholders and not has_questions:
+            issues.append("TSG has placeholders but questions block doesn't list them")
+    
+    return {
+        "valid": len(issues) == 0,
+        "issues": issues,
+        "tsg_content": tsg_content,
+        "questions_content": questions_content,
+    }
+
+
+def build_retry_prompt(original_notes: str, failed_response: str, validation_issues: list[str]) -> str:
+    """Build a follow-up prompt to fix validation issues."""
+    issues_text = "\n".join(f"- {issue}" for issue in validation_issues)
+    return f"""Your previous response had formatting issues:
+
+{issues_text}
+
+Please regenerate the TSG with the correct format. Remember:
+1. Start with <!-- TSG_BEGIN --> and end with <!-- TSG_END -->
+2. Include ALL required section headings exactly as in the template
+3. Use {{{{MISSING::<Section>::<Hint>}}}} for any information not in the notes
+4. End with <!-- QUESTIONS_BEGIN --> ... <!-- QUESTIONS_END -->
+5. List one question per placeholder, OR output exactly "NO_MISSING"
+
+Original notes:
+<notes>
+{original_notes}
+</notes>
+"""

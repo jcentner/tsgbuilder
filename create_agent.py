@@ -65,6 +65,7 @@ def main():
       instructions=agent_instructions,
       tools=tools,
       tool_resources=mcp_tool.resources,
+      temperature=0,  # Deterministic output for reliable instruction following
     )
 
   # Persist agent id for inference.
