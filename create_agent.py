@@ -50,6 +50,8 @@ def main():
   
   # Microsoft Learn MCP for official documentation
   mcp_tool = McpTool(server_label="learn", server_url=LEARN_MCP_URL)
+  # Disable approval requirement so tools execute automatically
+  mcp_tool.set_approval_mode("never")
   tools.extend(mcp_tool.definitions)
 
   # Get the appropriate instructions based on prompt style
@@ -62,6 +64,7 @@ def main():
       name=agent_name,
       instructions=agent_instructions,
       tools=tools,
+      tool_resources=mcp_tool.resources,
     )
 
   # Persist agent id for inference.

@@ -112,11 +112,26 @@ When given answers to follow-up questions, replace the corresponding placeholder
 # - Concrete examples demonstrating exact output format
 # - Instructions placed at both beginning and end for emphasis
 # - "Double down" on critical rules
+# - Research instruction placed FIRST to ensure tool usage
 AGENT_INSTRUCTIONS_GPT41 = """# Role and Objective
 You are a senior support engineer Agent. Your task is to transform raw troubleshooting notes into a production-quality Technical Support Guide (TSG) using a strict markdown template.
 
-# Output Format (CRITICAL - READ FIRST)
-Your response MUST contain exactly two blocks and nothing else. No preamble, no explanation, no commentary.
+# MANDATORY FIRST STEP: Research (DO THIS BEFORE ANYTHING ELSE)
+You MUST perform research using your tools BEFORE generating any TSG content. This is non-negotiable.
+
+Required research actions:
+1. **Use Learn MCP tool** - Search Microsoft Learn for relevant documentation (at least 2 queries)
+2. **Use Bing Search tool** - Search for GitHub issues, Stack Overflow posts, or community discussions (at least 1 query)
+3. Collect all relevant URLs from your research for the "Related Information" section
+
+DO NOT proceed to TSG generation until you have completed tool-based research. The TSG quality depends on this research.
+
+# Tools Available
+- **Learn MCP tool**: Search Microsoft Learn documentation (learn.microsoft.com) - USE THIS FIRST
+- **Bing Search**: Search GitHub issues, Stack Overflow, community discussions - USE THIS SECOND
+
+# Output Format
+After completing research, your response MUST contain exactly two blocks and nothing else. No preamble, no explanation, no commentary.
 
 Block 1 - TSG content wrapped in markers:
 <!-- TSG_BEGIN -->
@@ -128,20 +143,16 @@ Block 2 - Follow-up questions wrapped in markers:
 [Either "NO_MISSING" or your follow-up questions]
 <!-- QUESTIONS_END -->
 
-# Tools Available
-- **Learn MCP tool**: Search Microsoft Learn documentation (learn.microsoft.com)
-- **Bing Search**: Search GitHub issues, Stack Overflow, community discussions
+# Workflow (Follow This Order)
 
-# Instructions
+## Step 1: Research (REQUIRED - You must call tools)
+Call your tools now to gather information:
+- Search Microsoft Learn for the topic in the notes
+- Search Bing for GitHub issues or community discussions
+- Note URLs found for "Related Information"
 
-## Step 1: Research Phase (MANDATORY)
-Before writing ANY TSG content, you MUST use your tools:
-1. Use Learn MCP to search for relevant Microsoft documentation (2-3 searches minimum)
-2. Use Bing to search GitHub/community for related discussions (1-2 searches minimum)
-3. Note all relevant URLs you find - they go in "Related Information"
-
-## Step 2: Generate TSG
-- Fill the template provided in the user message with content from notes and research
+## Step 2: Generate TSG (Only after research)
+- Fill the template provided in the user message with content from notes AND your research findings
 - Preserve ALL template headings exactly as given (same capitalization, formatting)
 - Keep this exact line in Diagnosis: "Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM."
 - For missing information, insert placeholders: {{MISSING::<SECTION>::<HINT>}}
@@ -217,6 +228,8 @@ Connection timeout, portal access, East US
 <!-- QUESTIONS_END -->
 
 # Final Reminder
+YOU MUST USE YOUR TOOLS FOR RESEARCH before generating output. Do not skip this step.
+
 Your output MUST:
 1. Start with <!-- TSG_BEGIN -->
 2. Contain the complete TSG
@@ -248,9 +261,10 @@ def build_user_prompt(notes: str, prior_tsg: str | None = None, user_answers: st
 
 
 def build_user_prompt_gpt41(notes: str, prior_tsg: str | None = None, user_answers: str | None = None) -> str:
-    """Build the user prompt for GPT-4.1 (more explicit, with output format reinforcement)."""
+    """Build the user prompt for GPT-4.1 (more explicit, research-first workflow)."""
     parts = [
-        "Transform the raw notes below into a TSG using the template provided.\n",
+        "FIRST: Use your Learn MCP and Bing Search tools to research the topic in these notes.\n",
+        "THEN: Transform the raw notes into a TSG using the template provided.\n",
         "\n<template>\n",
         TSG_TEMPLATE,
         "\n</template>\n",
@@ -266,11 +280,11 @@ def build_user_prompt_gpt41(notes: str, prior_tsg: str | None = None, user_answe
             user_answers,
             "\n</user_answers>\n",
         ])
-    # Reinforce output format at the end (GPT-4.1 best practice: instructions at both beginning AND end)
+    # Reinforce tool usage first, then output format (GPT-4.1 best practice)
     parts.append("""
-IMPORTANT: Your response must follow this EXACT structure:
-1. First, use your tools to research the topic
-2. Then output ONLY the two blocks below with NO other text:
+IMPORTANT WORKFLOW:
+1. FIRST: Call your tools (Learn MCP and Bing Search) to research the topic
+2. THEN: After research is complete, output the two blocks:
 
 <!-- TSG_BEGIN -->
 [Complete TSG here]
@@ -280,7 +294,7 @@ IMPORTANT: Your response must follow this EXACT structure:
 [NO_MISSING or follow-up questions]
 <!-- QUESTIONS_END -->
 
-Start your output with <!-- TSG_BEGIN --> - do not include any preamble or explanation.
+Remember: Research with tools FIRST, then output the TSG.
 """)
     return "".join(parts)
 

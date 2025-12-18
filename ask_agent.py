@@ -29,6 +29,7 @@ from azure.ai.agents.models import (
     RunStepToolCallDetails,
     RunStepMcpToolCall,
     RunStepBingGroundingToolCall,
+    McpTool,
 )
 
 from tsg_constants import (
@@ -140,15 +141,20 @@ class TSGEventHandler(AgentEventHandler):
         pass  # Silently ignore unhandled events
 
 
-def run_agent_with_streaming(project: AIProjectClient, thread_id: str, agent_id: str) -> str:
+def run_agent_with_streaming(project: AIProjectClient, thread_id: str, agent_id: str, tool_resources: Any = None) -> str:
     """Run the agent with streaming to get real-time feedback."""
     handler = TSGEventHandler()
     
-    with project.agents.runs.stream(
-        thread_id=thread_id,
-        agent_id=agent_id,
-        event_handler=handler
-    ) as stream:
+    # Build streaming run kwargs
+    stream_kwargs = {
+        "thread_id": thread_id,
+        "agent_id": agent_id,
+        "event_handler": handler,
+    }
+    if tool_resources is not None:
+        stream_kwargs["tool_resources"] = tool_resources
+    
+    with project.agents.runs.stream(**stream_kwargs) as stream:
         stream.until_done()
     
     return handler.response_text
@@ -250,6 +256,10 @@ def main():
         print("ERROR: No notes provided.", file=sys.stderr)
         sys.exit(1)
 
+    # Create MCP tool with approval mode set to "never" for automatic tool execution
+    mcp_tool = McpTool(server_label="learn", server_url="https://learn.microsoft.com/api/mcp")
+    mcp_tool.set_approval_mode("never")
+
     with project:
         # Create a thread for the conversation
         thread = project.agents.threads.create()
@@ -269,7 +279,7 @@ def main():
             )
 
             print(f"\n{Colors.BOLD}🚀 Starting agent...{Colors.RESET}")
-            assistant_text = run_agent_with_streaming(project, thread.id, agent_id)
+            assistant_text = run_agent_with_streaming(project, thread.id, agent_id, tool_resources=mcp_tool.resources)
             
             tsg_block, questions_block = extract_blocks(assistant_text)
             if not tsg_block:
@@ -304,7 +314,7 @@ def main():
             )
 
             print(f"\n{Colors.BOLD}🚀 Refining TSG...{Colors.RESET}")
-            assistant_text = run_agent_with_streaming(project, thread.id, agent_id)
+            assistant_text = run_agent_with_streaming(project, thread.id, agent_id, tool_resources=mcp_tool.resources)
             
             tsg_block, questions_block = extract_blocks(assistant_text)
             if not tsg_block:

@@ -204,16 +204,22 @@ def run_agent_with_streaming(
     project: AIProjectClient, 
     thread_id: str, 
     agent_id: str,
-    event_queue: queue.Queue
+    event_queue: queue.Queue,
+    tool_resources: Any = None
 ) -> str:
     """Run the agent with streaming and queue events for SSE."""
     handler = SSEEventHandler(event_queue)
     
-    with project.agents.runs.stream(
-        thread_id=thread_id,
-        agent_id=agent_id,
-        event_handler=handler
-    ) as stream:
+    # Build streaming run kwargs
+    stream_kwargs = {
+        "thread_id": thread_id,
+        "agent_id": agent_id,
+        "event_handler": handler,
+    }
+    if tool_resources is not None:
+        stream_kwargs["tool_resources"] = tool_resources
+    
+    with project.agents.runs.stream(**stream_kwargs) as stream:
         stream.until_done()
     
     return handler.response_text
@@ -524,6 +530,8 @@ def api_create_agent():
         
         # Microsoft Learn MCP for official documentation
         mcp_tool = McpTool(server_label="learn", server_url=LEARN_MCP_URL)
+        # Disable approval requirement so tools execute automatically
+        mcp_tool.set_approval_mode("never")
         tools.extend(mcp_tool.definitions)
         
         # Get the appropriate instructions based on prompt style
@@ -535,6 +543,7 @@ def api_create_agent():
                 name=agent_name,
                 instructions=agent_instructions,
                 tools=tools,
+                tool_resources=mcp_tool.resources,
             )
         
         # Save agent ID
@@ -571,6 +580,10 @@ def generate_sse_events(notes: str, thread_id: str | None = None, answers: str |
             agent_id = get_agent_id()
             project = get_project_client()
             
+            # Create MCP tool with approval mode set to "never" for automatic tool execution
+            mcp_tool = McpTool(server_label="learn", server_url=LEARN_MCP_URL)
+            mcp_tool.set_approval_mode("never")
+            
             with project:
                 if thread_id is None:
                     # New generation - create thread
@@ -595,9 +608,10 @@ def generate_sse_events(notes: str, thread_id: str | None = None, answers: str |
                     content=user_content,
                 )
                 
-                # Run with streaming
+                # Run with streaming, passing MCP tool resources for automatic execution
                 response_text = run_agent_with_streaming(
-                    project, current_thread_id, agent_id, event_queue
+                    project, current_thread_id, agent_id, event_queue,
+                    tool_resources=mcp_tool.resources
                 )
                 
                 result_holder["response"] = response_text
