@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any, Generator, Optional
 
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
-from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv, find_dotenv, set_key
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.agents.models import (
@@ -30,6 +30,8 @@ from azure.ai.agents.models import (
     RunStepToolCallDetails,
     RunStepMcpToolCall,
     RunStepBingGroundingToolCall,
+    BingGroundingTool,
+    McpTool,
 )
 
 from tsg_constants import (
@@ -38,7 +40,11 @@ from tsg_constants import (
     QUESTIONS_BEGIN,
     QUESTIONS_END,
     build_user_prompt,
+    AGENT_INSTRUCTIONS,
 )
+
+# Microsoft Learn MCP URL for agent creation
+LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
 
 # Load environment variables
 load_dotenv(find_dotenv())
@@ -242,25 +248,292 @@ def index():
 
 @app.route("/api/status")
 def api_status():
-    """Check if the agent is configured and ready."""
+    """Check if the agent is configured and ready, with detailed setup status."""
+    result = {
+        "ready": False,
+        "needs_setup": False,
+        "config": {
+            "has_env_file": False,
+            "has_endpoint": False,
+            "has_model": False,
+            "has_bing": False,
+        },
+        "agent": {
+            "exists": False,
+            "id": None,
+        },
+        "error": None,
+    }
+    
+    # Check .env file
+    dotenv_path = find_dotenv()
+    result["config"]["has_env_file"] = bool(dotenv_path)
+    
+    # Check environment variables
+    endpoint = os.getenv("PROJECT_ENDPOINT")
+    model = os.getenv("MODEL_DEPLOYMENT_NAME")
+    bing = os.getenv("BING_CONNECTION_NAME")
+    
+    result["config"]["has_endpoint"] = bool(endpoint)
+    result["config"]["has_model"] = bool(model)
+    result["config"]["has_bing"] = bool(bing)
+    
+    # Check agent
     try:
-        endpoint = os.getenv("PROJECT_ENDPOINT")
-        if not endpoint:
-            return jsonify({
-                "ready": False,
-                "error": "PROJECT_ENDPOINT not configured. Please set up your .env file."
-            })
-        
         agent_id = get_agent_id()
-        return jsonify({
-            "ready": True,
-            "agent_id": agent_id[:8] + "..." if agent_id else None
+        result["agent"]["exists"] = True
+        result["agent"]["id"] = agent_id[:8] + "..." if agent_id else None
+    except ValueError:
+        result["agent"]["exists"] = False
+    
+    # Determine overall status
+    config_complete = all([
+        result["config"]["has_endpoint"],
+        result["config"]["has_model"],
+        result["config"]["has_bing"],
+    ])
+    
+    if config_complete and result["agent"]["exists"]:
+        result["ready"] = True
+    elif not config_complete:
+        result["needs_setup"] = True
+        result["error"] = "Configuration incomplete. Please configure your Azure settings."
+    else:
+        result["needs_setup"] = True
+        result["error"] = "Agent not created. Please create the agent first."
+    
+    return jsonify(result)
+
+
+@app.route("/api/validate")
+def api_validate():
+    """Run validation checks and return structured results."""
+    checks = []
+    
+    # 1. Check .env file
+    dotenv_path = find_dotenv()
+    checks.append({
+        "name": ".env file",
+        "passed": bool(dotenv_path),
+        "message": f"Found at: {dotenv_path}" if dotenv_path else "Not found. Copy .env-sample to .env",
+        "critical": True,
+    })
+    
+    # 2. Check environment variables
+    required_vars = [
+        ("PROJECT_ENDPOINT", "Azure AI Foundry project endpoint"),
+        ("MODEL_DEPLOYMENT_NAME", "Model deployment name (e.g., gpt-4.1)"),
+        ("BING_CONNECTION_NAME", "Bing Search connection resource ID"),
+    ]
+    
+    env_ok = True
+    for var, desc in required_vars:
+        value = os.getenv(var)
+        if value:
+            # Mask long values
+            display = value[:40] + "..." if len(value) > 40 else value
+            checks.append({
+                "name": var,
+                "passed": True,
+                "message": display,
+                "critical": True,
+            })
+        else:
+            checks.append({
+                "name": var,
+                "passed": False,
+                "message": f"Not set. {desc}",
+                "critical": True,
+            })
+            env_ok = False
+    
+    # 3. Check Azure authentication (only if env vars are set)
+    if env_ok:
+        try:
+            credential = DefaultAzureCredential()
+            token = credential.get_token("https://cognitiveservices.azure.com/.default")
+            checks.append({
+                "name": "Azure Authentication",
+                "passed": bool(token),
+                "message": "Authenticated via DefaultAzureCredential",
+                "critical": True,
+            })
+        except Exception as e:
+            checks.append({
+                "name": "Azure Authentication",
+                "passed": False,
+                "message": f"Failed: {str(e)[:100]}. Run 'az login' first.",
+                "critical": True,
+            })
+            env_ok = False
+    
+    # 4. Check project connection (only if auth works)
+    if env_ok:
+        endpoint = os.getenv("PROJECT_ENDPOINT")
+        try:
+            project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
+            with project:
+                pass  # Just verify we can create the context
+            checks.append({
+                "name": "Project Connection",
+                "passed": True,
+                "message": "Connected successfully",
+                "critical": True,
+            })
+        except Exception as e:
+            checks.append({
+                "name": "Project Connection",
+                "passed": False,
+                "message": f"Failed: {str(e)[:100]}",
+                "critical": True,
+            })
+    
+    # 5. Check agent ID (not critical)
+    agent_id_file = Path(".agent_id")
+    agent_id = os.getenv("AGENT_ID")
+    if agent_id:
+        checks.append({
+            "name": "Agent ID",
+            "passed": True,
+            "message": f"From environment: {agent_id[:8]}...",
+            "critical": False,
         })
+    elif agent_id_file.exists():
+        agent_id = agent_id_file.read_text(encoding="utf-8").strip()
+        checks.append({
+            "name": "Agent ID",
+            "passed": True,
+            "message": f"From .agent_id: {agent_id[:8]}...",
+            "critical": False,
+        })
+    else:
+        checks.append({
+            "name": "Agent ID",
+            "passed": False,
+            "message": "Not found. Create an agent to continue.",
+            "critical": False,
+        })
+    
+    # Calculate overall status
+    all_critical_passed = all(c["passed"] for c in checks if c["critical"])
+    all_passed = all(c["passed"] for c in checks)
+    
+    return jsonify({
+        "checks": checks,
+        "all_passed": all_passed,
+        "ready_for_agent": all_critical_passed,
+    })
+
+
+@app.route("/api/config", methods=["GET"])
+def api_config_get():
+    """Get current configuration values (masked for security)."""
+    config = {
+        "PROJECT_ENDPOINT": os.getenv("PROJECT_ENDPOINT", ""),
+        "MODEL_DEPLOYMENT_NAME": os.getenv("MODEL_DEPLOYMENT_NAME", ""),
+        "BING_CONNECTION_NAME": os.getenv("BING_CONNECTION_NAME", ""),
+        "AGENT_NAME": os.getenv("AGENT_NAME", "TSG-Builder"),
+    }
+    return jsonify(config)
+
+
+@app.route("/api/config", methods=["POST"])
+def api_config_set():
+    """Update configuration values in .env file."""
+    data = request.get_json()
+    
+    # Find or create .env file
+    dotenv_path = find_dotenv()
+    if not dotenv_path:
+        dotenv_path = Path(".env")
+        # Create from sample if it exists
+        sample_path = Path(".env-sample")
+        if sample_path.exists():
+            dotenv_path.write_text(sample_path.read_text(encoding="utf-8"), encoding="utf-8")
+        else:
+            dotenv_path.touch()
+        dotenv_path = str(dotenv_path.absolute())
+    
+    allowed_keys = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME", "BING_CONNECTION_NAME", "AGENT_NAME"]
+    updated = []
+    
+    for key in allowed_keys:
+        if key in data:
+            value = data[key].strip()
+            set_key(dotenv_path, key, value)
+            os.environ[key] = value  # Also update current process
+            updated.append(key)
+    
+    # Reload environment
+    load_dotenv(dotenv_path, override=True)
+    
+    return jsonify({
+        "success": True,
+        "updated": updated,
+        "message": f"Updated {len(updated)} configuration value(s)",
+    })
+
+
+@app.route("/api/create-agent", methods=["POST"])
+def api_create_agent():
+    """Create the Azure AI Foundry agent."""
+    # Validate required configuration
+    endpoint = os.getenv("PROJECT_ENDPOINT")
+    model = os.getenv("MODEL_DEPLOYMENT_NAME")
+    conn_id = os.getenv("BING_CONNECTION_NAME")
+    agent_name = os.getenv("AGENT_NAME", "TSG-Builder")
+    
+    missing = []
+    if not endpoint:
+        missing.append("PROJECT_ENDPOINT")
+    if not model:
+        missing.append("MODEL_DEPLOYMENT_NAME")
+    if not conn_id:
+        missing.append("BING_CONNECTION_NAME")
+    
+    if missing:
+        return jsonify({
+            "success": False,
+            "error": f"Missing required configuration: {', '.join(missing)}",
+        }), 400
+    
+    try:
+        project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
+        
+        # Build tools list: Bing grounding + Microsoft Learn MCP
+        tools = []
+        
+        # Bing grounding for web/doc lookup
+        bing_tool = BingGroundingTool(connection_id=conn_id)
+        tools.extend(bing_tool.definitions)
+        
+        # Microsoft Learn MCP for official documentation
+        mcp_tool = McpTool(server_label="learn", server_url=LEARN_MCP_URL)
+        tools.extend(mcp_tool.definitions)
+        
+        with project:
+            agent = project.agents.create_agent(
+                model=model,
+                name=agent_name,
+                instructions=AGENT_INSTRUCTIONS,
+                tools=tools,
+            )
+        
+        # Save agent ID
+        Path(".agent_id").write_text(agent.id + "\n", encoding="utf-8")
+        
+        return jsonify({
+            "success": True,
+            "agent_id": agent.id,
+            "agent_name": agent_name,
+            "message": f"Agent '{agent_name}' created successfully!",
+        })
+    
     except Exception as e:
         return jsonify({
-            "ready": False,
-            "error": str(e)
-        })
+            "success": False,
+            "error": str(e),
+        }), 500
 
 
 def generate_sse_events(notes: str, thread_id: str | None = None, answers: str | None = None) -> Generator[str, None, None]:

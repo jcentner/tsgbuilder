@@ -13,11 +13,7 @@ Transform raw troubleshooting notes into structured **Technical Support Guides (
 - [Installation](#installation)
 - [Configuration](#configuration)
   - [Finding Your Configuration Values](#finding-your-configuration-values)
-- [Usage](#usage)
-  - [Validate Setup First](#validate-setup-first)
-  - [Create the Agent (One-Time)](#create-the-agent-one-time)
-  - [Generate a TSG](#generate-a-tsg)
-  - [Input Format](#input-format)
+- [CLI Usage](#cli-usage)
 - [Makefile Commands](#makefile-commands)
 - [How It Works](#how-it-works)
   - [Agent Research Phase](#agent-research-phase)
@@ -47,26 +43,19 @@ git clone <repo-url>
 cd tsgbuilder
 make setup
 
-# 2. Configure (edit .env with your values)
-nano .env
-
-# 3. Validate your setup
-make validate
-
-# 4. Create the agent (one-time)
-make create-agent
-
-# 5a. Generate a TSG (command line)
-make run NOTES_FILE=your-notes.txt
-
-# 5b. Or use the Web UI (recommended for easier interaction)
+# 2. Start the Web UI
 make ui
-# Then open http://localhost:5000 in your browser
+# Open http://localhost:5000 in your browser
 ```
+
+The web UI will automatically open the setup wizard if configuration is needed. The setup wizard guides you through:
+1. **Configure** — Enter your Azure AI Foundry settings
+2. **Validate** — Verify authentication and connectivity
+3. **Create Agent** — Create the AI agent with one click
 
 ## Web UI
 
-The easiest way to use TSG Builder is through the web interface:
+The web interface is the recommended way to use TSG Builder:
 
 ```bash
 make ui
@@ -75,6 +64,7 @@ make ui
 Then open **http://localhost:5000** in your browser.
 
 **Features:**
+- ⚙️ **Built-in setup wizard** — Configure, validate, and create agent from the browser
 - 📝 Paste notes directly in the browser
 - 🔄 Interactive follow-up questions
 - 📋 One-click copy to clipboard
@@ -82,8 +72,6 @@ Then open **http://localhost:5000** in your browser.
 - 💡 Load example input with one click
 
 ![TSG Builder UI](docs/ui-screenshot.png)
-
-## Command Line Usage
 
 ## Prerequisites
 
@@ -130,6 +118,19 @@ cp .env-sample .env
 
 ## Configuration
 
+Configuration can be done in two ways:
+
+### Option 1: Via Web UI (Recommended)
+
+1. Run `make ui` and open http://localhost:5000
+2. Click the **⚙️ Setup** button (or it opens automatically)
+3. Enter your Azure configuration values
+4. Click **Save Configuration**
+5. Run **Validation** to verify everything works
+6. Click **Create Agent**
+
+### Option 2: Edit .env Manually
+
 Edit `.env` with your Azure configuration:
 
 ```bash
@@ -144,7 +145,7 @@ BING_CONNECTION_NAME=/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Micro
 # Required: Name of your model deployment (recommended: GPT 5.2)
 MODEL_DEPLOYMENT_NAME=gpt-5.2
 
-# Optional: Custom name for your agent (default: tsg-agent)
+# Optional: Custom name for your agent (default: TSG-Builder)
 AGENT_NAME=TSG-Builder
 ```
 
@@ -165,13 +166,13 @@ AGENT_NAME=TSG-Builder
 
 #### MODEL_DEPLOYMENT_NAME
 1. In AI Foundry Portal, go to Deployments
-2. Use the name of your deployed model (e.g., `gpt-4o`)
+2. Use the name of your deployed model (e.g., `gpt-4.1`)
 
-## Usage
+## CLI Usage
 
-## Command Line Usage
+The command-line interface is available as an alternative to the web UI.
 
-### Validate Setup First
+### Validate Setup
 
 ```bash
 make validate
@@ -185,7 +186,7 @@ This checks:
 - ✓ Project connectivity
 - ✓ Python dependencies
 
-### Create the Agent (One-Time)
+### Create the Agent
 
 ```bash
 make create-agent
@@ -229,14 +230,14 @@ See `input-example.txt` for a sample input.
 | Command | Description |
 |---------|-------------|
 | `make setup` | First-time setup (venv + deps + .env) |
-| `make install` | Install dependencies only |
-| `make validate` | Check environment configuration |
-| `make create-agent` | Create the Azure AI agent |
-| `make run` | Run with `input.txt` |
-| `make run NOTES_FILE=x.txt` | Run with custom notes file |
+| `make ui` | **Start the web UI** at http://localhost:5000 |
+| `make validate` | Check environment configuration (CLI) |
+| `make create-agent` | Create the Azure AI agent (CLI) |
+| `make run` | Run with `input.txt` (CLI) |
+| `make run NOTES_FILE=x.txt` | Run with custom notes file (CLI) |
 | `make run-example` | Run with `input-example.txt` |
 | `make run-save` | Run and save output to `output.md` |
-| `make ui` | Start the web UI at http://localhost:5000 |
+| `make install` | Install dependencies only |
 | `make clean` | Remove venv and generated files |
 | `make help` | Show all commands |
 

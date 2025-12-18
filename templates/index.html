@@ -353,6 +353,235 @@
             padding: 6px 12px;
             font-size: 12px;
         }
+
+        /* Setup Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            background: var(--card-bg);
+            border-radius: 12px;
+            max-width: 700px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            padding: 4px 8px;
+        }
+
+        .modal-close:hover {
+            color: var(--text);
+        }
+
+        .modal-body {
+            padding: 24px;
+        }
+
+        .setup-section {
+            margin-bottom: 24px;
+        }
+
+        .setup-section h3 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .setup-section h3 .step-number {
+            background: var(--primary);
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: var(--text);
+        }
+
+        .form-group .hint {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+        }
+
+        .validation-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .validation-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: #fafafa;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .validation-item.passed {
+            background: #dff6dd;
+            border-color: var(--success);
+        }
+
+        .validation-item.failed {
+            background: #fde7e9;
+            border-color: var(--error);
+        }
+
+        .validation-item.warning {
+            background: #fff8e5;
+            border-color: var(--warning);
+        }
+
+        .validation-icon {
+            font-size: 16px;
+        }
+
+        .validation-name {
+            font-weight: 600;
+            min-width: 140px;
+        }
+
+        .validation-message {
+            flex: 1;
+            font-size: 12px;
+            color: var(--text-secondary);
+            word-break: break-all;
+        }
+
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .modal-footer .btn-group {
+            display: flex;
+            gap: 12px;
+        }
+
+        .setup-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .setup-status.ready {
+            color: var(--success);
+        }
+
+        .setup-status.pending {
+            color: var(--warning);
+        }
+
+        .btn-link {
+            background: none;
+            border: none;
+            color: var(--primary);
+            cursor: pointer;
+            font-size: 13px;
+            text-decoration: underline;
+        }
+
+        .btn-link:hover {
+            color: var(--primary-dark);
+        }
+
+        .agent-info {
+            padding: 16px;
+            background: #dff6dd;
+            border: 1px solid var(--success);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .agent-info .icon {
+            font-size: 24px;
+        }
+
+        .agent-info .details {
+            flex: 1;
+        }
+
+        .agent-info .agent-name {
+            font-weight: 600;
+        }
+
+        .agent-info .agent-id {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
@@ -367,6 +596,9 @@
         <div class="status-bar">
             <div class="status-indicator" id="statusIndicator"></div>
             <span id="statusText">Checking agent status...</span>
+            <button class="btn btn-secondary" id="setupBtn" onclick="openSetup()" style="margin-left: auto; padding: 6px 12px; font-size: 12px;">
+                ⚙️ Setup
+            </button>
         </div>
 
         <div class="main-layout">
@@ -469,12 +701,17 @@ Include:
                 
                 if (data.ready) {
                     indicator.className = 'status-indicator ready';
-                    text.textContent = `Agent ready (${data.agent_id})`;
+                    text.textContent = `Agent ready (${data.agent.id})`;
                     btn.disabled = false;
                 } else {
                     indicator.className = 'status-indicator error';
-                    text.textContent = data.error || 'Agent not configured';
+                    text.textContent = data.error || 'Setup required';
                     btn.disabled = true;
+                    
+                    // Auto-open setup if needs configuration
+                    if (data.needs_setup) {
+                        openSetup();
+                    }
                 }
             } catch (error) {
                 document.getElementById('statusIndicator').className = 'status-indicator error';
@@ -761,6 +998,300 @@ Known issue with Agents seeing connected OpenAI resource deployments in the UI. 
 
 Workaround:
 Create new capability host that points at an OpenAI resource instead of the AI Services resource using the aiServicesConnections property.`;
+        }
+    </script>
+
+    <!-- Setup Modal -->
+    <div id="setupModal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>⚙️ TSG Builder Setup</h2>
+                <button class="modal-close" onclick="closeSetup()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Step 1: Configuration -->
+                <div class="setup-section">
+                    <h3><span class="step-number">1</span> Azure Configuration</h3>
+                    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+                        Enter your Azure AI Foundry project details. These values are saved to your .env file.
+                    </p>
+                    
+                    <div class="form-group">
+                        <label for="configEndpoint">PROJECT_ENDPOINT</label>
+                        <input type="text" id="configEndpoint" placeholder="https://your-resource.services.ai.azure.com/api/projects/your-project">
+                        <p class="hint">Found in Azure Portal → AI Foundry → Project → Overview</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="configModel">MODEL_DEPLOYMENT_NAME</label>
+                        <input type="text" id="configModel" placeholder="gpt-4.1">
+                        <p class="hint">The name of your deployed model (e.g., gpt-4.1, gpt-5.2)</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="configBing">BING_CONNECTION_NAME</label>
+                        <input type="text" id="configBing" placeholder="/subscriptions/.../connections/bing-connection">
+                        <p class="hint">Found in AI Foundry Portal → Management Center → Connected Resources</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="configAgentName">AGENT_NAME (optional)</label>
+                        <input type="text" id="configAgentName" placeholder="TSG-Builder">
+                        <p class="hint">Custom name for your agent (default: TSG-Builder)</p>
+                    </div>
+                    
+                    <button class="btn btn-primary" onclick="saveConfig()" id="saveConfigBtn">
+                        💾 Save Configuration
+                    </button>
+                    <span id="configSaveStatus" style="margin-left: 12px; font-size: 13px;"></span>
+                </div>
+
+                <!-- Step 2: Validation -->
+                <div class="setup-section">
+                    <h3><span class="step-number">2</span> Validate Setup</h3>
+                    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+                        Verify your configuration, Azure authentication, and project connectivity.
+                    </p>
+                    
+                    <ul class="validation-list" id="validationList">
+                        <li class="validation-item">
+                            <span class="validation-icon">⏳</span>
+                            <span class="validation-name">Not validated</span>
+                            <span class="validation-message">Click "Run Validation" to check your setup</span>
+                        </li>
+                    </ul>
+                    
+                    <button class="btn btn-secondary" onclick="runValidation()" id="validateBtn">
+                        🔍 Run Validation
+                    </button>
+                </div>
+
+                <!-- Step 3: Create Agent -->
+                <div class="setup-section">
+                    <h3><span class="step-number">3</span> Create Agent</h3>
+                    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+                        Create the Azure AI Foundry agent with Bing Search and Microsoft Learn tools.
+                    </p>
+                    
+                    <div id="agentStatus">
+                        <div id="noAgentInfo" class="validation-item warning">
+                            <span class="validation-icon">⚠️</span>
+                            <span class="validation-name">No Agent</span>
+                            <span class="validation-message">Agent not created yet. Complete configuration and validation first.</span>
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-success" onclick="createAgent()" id="createAgentBtn" disabled style="margin-top: 12px;">
+                        🤖 Create Agent
+                    </button>
+                    <span id="agentCreateStatus" style="margin-left: 12px; font-size: 13px;"></span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="setup-status" id="setupOverallStatus">
+                    <span>⏳</span> <span>Checking status...</span>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-secondary" onclick="closeSetup()">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Setup modal functions
+        async function openSetup() {
+            document.getElementById('setupModal').classList.remove('hidden');
+            await loadConfig();
+            updateSetupOverallStatus();
+        }
+
+        function closeSetup() {
+            document.getElementById('setupModal').classList.add('hidden');
+            checkStatus(); // Refresh main status
+        }
+
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+                
+                document.getElementById('configEndpoint').value = config.PROJECT_ENDPOINT || '';
+                document.getElementById('configModel').value = config.MODEL_DEPLOYMENT_NAME || '';
+                document.getElementById('configBing').value = config.BING_CONNECTION_NAME || '';
+                document.getElementById('configAgentName').value = config.AGENT_NAME || 'TSG-Builder';
+            } catch (error) {
+                console.error('Failed to load config:', error);
+            }
+        }
+
+        async function saveConfig() {
+            const btn = document.getElementById('saveConfigBtn');
+            const status = document.getElementById('configSaveStatus');
+            
+            btn.disabled = true;
+            status.textContent = 'Saving...';
+            status.style.color = 'var(--text-secondary)';
+            
+            const config = {
+                PROJECT_ENDPOINT: document.getElementById('configEndpoint').value.trim(),
+                MODEL_DEPLOYMENT_NAME: document.getElementById('configModel').value.trim(),
+                BING_CONNECTION_NAME: document.getElementById('configBing').value.trim(),
+                AGENT_NAME: document.getElementById('configAgentName').value.trim() || 'TSG-Builder',
+            };
+            
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    status.textContent = '✓ Saved!';
+                    status.style.color = 'var(--success)';
+                    updateSetupOverallStatus();
+                } else {
+                    status.textContent = '✗ ' + (result.error || 'Failed to save');
+                    status.style.color = 'var(--error)';
+                }
+            } catch (error) {
+                status.textContent = '✗ ' + error.message;
+                status.style.color = 'var(--error)';
+            } finally {
+                btn.disabled = false;
+                setTimeout(() => { status.textContent = ''; }, 3000);
+            }
+        }
+
+        async function runValidation() {
+            const btn = document.getElementById('validateBtn');
+            const list = document.getElementById('validationList');
+            
+            btn.disabled = true;
+            btn.textContent = '🔄 Validating...';
+            list.innerHTML = '<li class="validation-item"><span class="validation-icon">🔄</span><span class="validation-message">Running validation checks...</span></li>';
+            
+            try {
+                const response = await fetch('/api/validate');
+                const result = await response.json();
+                
+                list.innerHTML = '';
+                
+                for (const check of result.checks) {
+                    const item = document.createElement('li');
+                    const statusClass = check.passed ? 'passed' : (check.critical ? 'failed' : 'warning');
+                    const icon = check.passed ? '✓' : (check.critical ? '✗' : '⚠️');
+                    
+                    item.className = `validation-item ${statusClass}`;
+                    item.innerHTML = `
+                        <span class="validation-icon">${icon}</span>
+                        <span class="validation-name">${check.name}</span>
+                        <span class="validation-message">${check.message}</span>
+                    `;
+                    list.appendChild(item);
+                }
+                
+                // Enable/disable create agent button based on validation
+                const createBtn = document.getElementById('createAgentBtn');
+                createBtn.disabled = !result.ready_for_agent;
+                
+                updateSetupOverallStatus();
+                
+            } catch (error) {
+                list.innerHTML = `<li class="validation-item failed"><span class="validation-icon">✗</span><span class="validation-message">Validation failed: ${error.message}</span></li>`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔍 Run Validation';
+            }
+        }
+
+        async function createAgent() {
+            const btn = document.getElementById('createAgentBtn');
+            const status = document.getElementById('agentCreateStatus');
+            const agentStatusDiv = document.getElementById('agentStatus');
+            
+            btn.disabled = true;
+            btn.textContent = '🔄 Creating...';
+            status.textContent = 'This may take a moment...';
+            status.style.color = 'var(--text-secondary)';
+            
+            try {
+                const response = await fetch('/api/create-agent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    status.textContent = '✓ Agent created!';
+                    status.style.color = 'var(--success)';
+                    
+                    agentStatusDiv.innerHTML = `
+                        <div class="agent-info">
+                            <span class="icon">🤖</span>
+                            <div class="details">
+                                <div class="agent-name">${result.agent_name}</div>
+                                <div class="agent-id">ID: ${result.agent_id}</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    btn.textContent = '✓ Agent Created';
+                    updateSetupOverallStatus();
+                } else {
+                    status.textContent = '✗ ' + result.error;
+                    status.style.color = 'var(--error)';
+                    btn.disabled = false;
+                    btn.textContent = '🤖 Create Agent';
+                }
+            } catch (error) {
+                status.textContent = '✗ ' + error.message;
+                status.style.color = 'var(--error)';
+                btn.disabled = false;
+                btn.textContent = '🤖 Create Agent';
+            }
+        }
+
+        async function updateSetupOverallStatus() {
+            const statusDiv = document.getElementById('setupOverallStatus');
+            
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                if (data.ready) {
+                    statusDiv.className = 'setup-status ready';
+                    statusDiv.innerHTML = '<span>✓</span> <span>Ready to generate TSGs!</span>';
+                } else if (data.needs_setup) {
+                    statusDiv.className = 'setup-status pending';
+                    statusDiv.innerHTML = '<span>⚠️</span> <span>Setup incomplete</span>';
+                } else {
+                    statusDiv.className = 'setup-status pending';
+                    statusDiv.innerHTML = '<span>⏳</span> <span>Checking...</span>';
+                }
+                
+                // Update agent status display
+                if (data.agent && data.agent.exists) {
+                    document.getElementById('agentStatus').innerHTML = `
+                        <div class="agent-info">
+                            <span class="icon">🤖</span>
+                            <div class="details">
+                                <div class="agent-name">Agent Ready</div>
+                                <div class="agent-id">ID: ${data.agent.id}</div>
+                            </div>
+                        </div>
+                    `;
+                    document.getElementById('createAgentBtn').textContent = '✓ Agent Exists';
+                }
+                
+            } catch (error) {
+                statusDiv.className = 'setup-status';
+                statusDiv.innerHTML = '<span>⚠️</span> <span>Status check failed</span>';
+            }
         }
     </script>
 </body>
