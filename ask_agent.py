@@ -37,7 +37,8 @@ from tsg_constants import (
     TSG_END,
     QUESTIONS_BEGIN,
     QUESTIONS_END,
-    build_user_prompt,
+    get_user_prompt_builder,
+    DEFAULT_PROMPT_STYLE,
 )
 
 
@@ -256,6 +257,11 @@ def main():
         print("ERROR: No notes provided.", file=sys.stderr)
         sys.exit(1)
 
+    # Get the appropriate prompt builder based on configured style
+    prompt_style = os.getenv("PROMPT_STYLE", DEFAULT_PROMPT_STYLE)
+    prompt_builder = get_user_prompt_builder(prompt_style)
+    print(f"{Colors.DIM}Using prompt style: {prompt_style}{Colors.RESET}")
+
     # Create MCP tool with approval mode set to "never" for automatic tool execution
     mcp_tool = McpTool(server_label="learn", server_url="https://learn.microsoft.com/api/mcp")
     mcp_tool.set_approval_mode("never")
@@ -269,7 +275,7 @@ def main():
         final_tsg = None
         
         while True:
-            user_content = build_user_prompt(notes, prior_tsg=prior_tsg, user_answers=None)
+            user_content = prompt_builder(notes, prior_tsg=prior_tsg, user_answers=None)
             
             # Add user message to thread
             project.agents.messages.create(
