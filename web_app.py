@@ -62,11 +62,14 @@ sessions: dict[str, dict] = {}
 class SSEEventHandler(AgentEventHandler):
     """Event handler that queues events for SSE streaming."""
     
-    def __init__(self, event_queue: queue.Queue):
+    def __init__(self, event_queue: queue.Queue, thread_id: str = ""):
         super().__init__()
         self.event_queue = event_queue
         self.response_text = ""
         self._current_status = ""
+        self._thread_id = thread_id
+        self._run_id = ""
+        self._last_error = None
     
     def _send_event(self, event_type: str, data: dict):
         """Queue an event for SSE streaming."""
@@ -74,6 +77,14 @@ class SSEEventHandler(AgentEventHandler):
     
     def on_thread_run(self, run: ThreadRun) -> None:
         """Called when the run status changes."""
+        # Track the run ID for debugging
+        if run.id and not self._run_id:
+            self._run_id = run.id
+            self._send_event("debug_info", {
+                "thread_id": self._thread_id,
+                "run_id": run.id,
+            })
+        
         if run.status != self._current_status:
             self._current_status = run.status
             self._send_event("status", {
@@ -82,7 +93,20 @@ class SSEEventHandler(AgentEventHandler):
             })
         
         if run.status == "failed":
-            self._send_event("error", {"message": str(run.last_error)})
+            # Capture detailed error information
+            error_details = {
+                "message": str(run.last_error) if run.last_error else "Unknown error",
+                "thread_id": self._thread_id,
+                "run_id": run.id,
+            }
+            # Try to extract more error details if available
+            if run.last_error:
+                if hasattr(run.last_error, "code"):
+                    error_details["error_code"] = run.last_error.code
+                if hasattr(run.last_error, "message"):
+                    error_details["error_message"] = run.last_error.message
+            self._last_error = error_details
+            self._send_event("error", error_details)
     
     def _get_status_message(self, status: str) -> str:
         """Get a user-friendly status message."""
@@ -200,15 +224,24 @@ def extract_blocks(content: str) -> tuple[str, str]:
     return between(content, TSG_BEGIN, TSG_END), between(content, QUESTIONS_BEGIN, QUESTIONS_END)
 
 
+@dataclass
+class AgentRunResult:
+    """Result of an agent run, including response and debug info."""
+    response_text: str
+    thread_id: str
+    run_id: str
+    error: Optional[dict] = None
+
+
 def run_agent_with_streaming(
     project: AIProjectClient, 
     thread_id: str, 
     agent_id: str,
     event_queue: queue.Queue,
     tool_resources: Any = None
-) -> str:
+) -> AgentRunResult:
     """Run the agent with streaming and queue events for SSE."""
-    handler = SSEEventHandler(event_queue)
+    handler = SSEEventHandler(event_queue, thread_id=thread_id)
     
     # Build streaming run kwargs
     stream_kwargs = {
@@ -222,7 +255,12 @@ def run_agent_with_streaming(
     with project.agents.runs.stream(**stream_kwargs) as stream:
         stream.until_done()
     
-    return handler.response_text
+    return AgentRunResult(
+        response_text=handler.response_text,
+        thread_id=thread_id,
+        run_id=handler._run_id,
+        error=handler._last_error,
+    )
 
 
 def run_agent_and_get_response(project: AIProjectClient, thread_id: str, agent_id: str) -> str:
@@ -569,7 +607,7 @@ def api_create_agent():
 def generate_sse_events(notes: str, thread_id: str | None = None, answers: str | None = None) -> Generator[str, None, None]:
     """Generator that yields SSE events during agent execution."""
     event_queue: queue.Queue = queue.Queue()
-    result_holder = {"response": "", "error": None}
+    result_holder: dict[str, Any] = {"response": "", "error": None, "run_result": None}
     
     # Get the appropriate prompt builder based on configured style
     prompt_style = os.getenv("PROMPT_STYLE", DEFAULT_PROMPT_STYLE)
@@ -609,17 +647,25 @@ def generate_sse_events(notes: str, thread_id: str | None = None, answers: str |
                 )
                 
                 # Run with streaming, passing MCP tool resources for automatic execution
-                response_text = run_agent_with_streaming(
+                run_result = run_agent_with_streaming(
                     project, current_thread_id, agent_id, event_queue,
                     tool_resources=mcp_tool.resources
                 )
                 
-                result_holder["response"] = response_text
+                result_holder["response"] = run_result.response_text
                 result_holder["thread_id"] = current_thread_id
+                result_holder["run_result"] = run_result
                 
         except Exception as e:
-            result_holder["error"] = str(e)
-            event_queue.put({"type": "error", "data": {"message": str(e)}})
+            # Include any available debug info in exception errors
+            error_data = {
+                "message": str(e),
+                "thread_id": result_holder.get("thread_id"),
+            }
+            if result_holder.get("run_result"):
+                error_data["run_id"] = result_holder["run_result"].run_id
+            result_holder["error"] = error_data
+            event_queue.put({"type": "error", "data": error_data})
         finally:
             event_queue.put(None)  # Signal end of events
     
@@ -642,15 +688,42 @@ def generate_sse_events(notes: str, thread_id: str | None = None, answers: str |
     
     agent_thread.join()
     
+    # Get debug info from run result if available
+    run_result = result_holder.get("run_result")
+    debug_info = {
+        "thread_id": result_holder.get("thread_id"),
+        "run_id": run_result.run_id if run_result else None,
+        "agent_id": os.getenv("AGENT_ID") or (Path(".agent_id").read_text(encoding="utf-8").strip() if Path(".agent_id").exists() else None),
+    }
+    
     # Send final result
     if result_holder["error"]:
-        yield f"data: {json.dumps({'type': 'error', 'data': {'message': result_holder['error']}})}\n\n"
+        error_data = result_holder["error"]
+        # Ensure debug info is in error response
+        if isinstance(error_data, dict):
+            error_data.update({k: v for k, v in debug_info.items() if v})
+        else:
+            error_data = {"message": str(error_data), **{k: v for k, v in debug_info.items() if v}}
+        yield f"data: {json.dumps({'type': 'error', 'data': error_data})}\n\n"
+    elif run_result and run_result.error:
+        # Agent run failed - include full error details
+        error_data = {
+            "message": run_result.error.get("message", "Agent run failed"),
+            **{k: v for k, v in debug_info.items() if v},
+            **{k: v for k, v in run_result.error.items() if k != "message" and v},
+        }
+        yield f"data: {json.dumps({'type': 'error', 'data': error_data})}\n\n"
     else:
         response_text = result_holder["response"]
         tsg_block, questions_block = extract_blocks(response_text)
         
         if not tsg_block:
-            yield f"data: {json.dumps({'type': 'error', 'data': {'message': 'Agent did not produce a valid TSG. The agent response did not contain the expected TSG markers.', 'raw_response': response_text[:2000] if response_text else '(empty response)'}})}\n\n"
+            error_data = {
+                "message": "Agent did not produce a valid TSG. The agent response did not contain the expected TSG markers.",
+                "raw_response": response_text[:2000] if response_text else "(empty response)",
+                **{k: v for k, v in debug_info.items() if v},
+            }
+            yield f"data: {json.dumps({'type': 'error', 'data': error_data})}\n\n"
         else:
             has_questions = questions_block and questions_block.strip() != "NO_MISSING"
             

@@ -828,11 +828,34 @@ Include:
                     
                 case 'error':
                     addActivity('❌', event.data.message, 'error');
-                    // Include raw_response in error for debugging
-                    const errorMsg = event.data.raw_response 
-                        ? `${event.data.message}\n\n--- Raw Agent Response ---\n${event.data.raw_response}`
-                        : event.data.message;
+                    // Build comprehensive error message with debug info
+                    let errorMsg = event.data.message;
+                    
+                    // Add debug info section
+                    const debugParts = [];
+                    if (event.data.thread_id) debugParts.push(`Thread ID: ${event.data.thread_id}`);
+                    if (event.data.run_id) debugParts.push(`Run ID: ${event.data.run_id}`);
+                    if (event.data.agent_id) debugParts.push(`Agent ID: ${event.data.agent_id}`);
+                    if (event.data.error_code) debugParts.push(`Error Code: ${event.data.error_code}`);
+                    
+                    if (debugParts.length > 0) {
+                        errorMsg += '\n\n--- Debug Information ---\n' + debugParts.join('\n');
+                    }
+                    
+                    // Include raw_response if available
+                    if (event.data.raw_response) {
+                        errorMsg += '\n\n--- Raw Agent Response ---\n' + event.data.raw_response;
+                    }
+                    
                     reject(new Error(errorMsg));
+                    break;
+                
+                case 'debug_info':
+                    // Track debug info for display in activity feed
+                    if (event.data.thread_id || event.data.run_id) {
+                        const infoMsg = `Session: ${event.data.thread_id || 'N/A'} | Run: ${event.data.run_id || 'N/A'}`;
+                        addActivity('🔗', infoMsg, 'status');
+                    }
                     break;
                     
                 case 'result':
@@ -944,20 +967,58 @@ Include:
         function showError(message) {
             const el = document.getElementById('errorMessage');
             
-            // Check if message contains raw response (separated by ---)
-            const separator = '--- Raw Agent Response ---';
-            if (message.includes(separator)) {
-                const [errorPart, rawPart] = message.split(separator);
-                el.innerHTML = `
-                    <div>${escapeHtml(errorPart.trim())}</div>
+            // Parse message for debug info and raw response sections
+            const debugSeparator = '--- Debug Information ---';
+            const rawSeparator = '--- Raw Agent Response ---';
+            
+            let errorPart = message;
+            let debugPart = null;
+            let rawPart = null;
+            
+            // Extract debug info section
+            if (message.includes(debugSeparator)) {
+                const idx = message.indexOf(debugSeparator);
+                errorPart = message.substring(0, idx).trim();
+                let remainder = message.substring(idx + debugSeparator.length);
+                
+                // Check if raw response follows debug info
+                if (remainder.includes(rawSeparator)) {
+                    const rawIdx = remainder.indexOf(rawSeparator);
+                    debugPart = remainder.substring(0, rawIdx).trim();
+                    rawPart = remainder.substring(rawIdx + rawSeparator.length).trim();
+                } else {
+                    debugPart = remainder.trim();
+                }
+            } else if (message.includes(rawSeparator)) {
+                const idx = message.indexOf(rawSeparator);
+                errorPart = message.substring(0, idx).trim();
+                rawPart = message.substring(idx + rawSeparator.length).trim();
+            }
+            
+            // Build the HTML
+            let html = `<div style="margin-bottom: 10px;">${escapeHtml(errorPart)}</div>`;
+            
+            // Add debug info section (always visible for easier debugging)
+            if (debugPart) {
+                html += `
+                    <div style="margin-top: 10px; padding: 10px; background: #2d2d2d; border-radius: 4px; border-left: 3px solid var(--primary);">
+                        <strong style="color: var(--primary);">🔍 Debug Information</strong>
+                        <pre style="margin-top: 8px; font-size: 12px; white-space: pre-wrap; color: #ccc;">${escapeHtml(debugPart)}</pre>
+                    </div>
+                `;
+            }
+            
+            // Add raw response in collapsible section
+            if (rawPart) {
+                html += `
                     <details style="margin-top: 10px;">
-                        <summary style="cursor: pointer; color: var(--primary);">Show raw agent response (for debugging)</summary>
-                        <pre style="margin-top: 8px; padding: 10px; background: #1e1e1e; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; max-height: 300px; overflow-y: auto;">${escapeHtml(rawPart.trim())}</pre>
+                        <summary style="cursor: pointer; color: var(--primary);">Show raw agent response</summary>
+                        <pre style="margin-top: 8px; padding: 10px; background: #1e1e1e; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; max-height: 300px; overflow-y: auto;">${escapeHtml(rawPart)}</pre>
                     </details>
                 `;
-            } else {
-                el.textContent = message;
             }
+            
+            el.innerHTML = html;
             el.classList.remove('hidden');
         }
         
