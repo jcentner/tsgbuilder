@@ -78,7 +78,6 @@ You can include screenshots or images with your troubleshooting notes:
 
 1. **Drag and drop** — Drag image files onto the upload zone
 2. **Click to upload** — Click the upload zone to open file picker
-3. **Paste from clipboard** — Copy an image and paste anywhere on the page (Ctrl+V / Cmd+V)
 
 Supported formats: PNG, JPG, GIF, WebP. Maximum 10 images per request.
 
