@@ -44,7 +44,8 @@ setup: .venv install env-file
 	@echo "  1. Edit .env with your Azure configuration"
 	@echo "  2. Run 'make validate' to verify setup"
 	@echo "  3. Run 'make create-agent' to create the agent"
-	@echo "  4. Run 'make run' to generate a TSG"
+	@echo "  4. Run 'make ui' to start the UI"
+	@echo "  5. Navigate to http://localhost:5000 in your browser"
 
 .venv:
 	@echo "Creating virtual environment..."

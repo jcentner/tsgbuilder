@@ -130,7 +130,7 @@ def check_agent_ref() -> bool:
         print_ok(f"Agent ID found: {agent_id}")
         return True
     else:
-        print_warn("No agent created yet. Run 'python create_agent.py' first.")
+        print_warn("No agent created yet. Run 'python create_agent.py' or 'make create-agent' first.")
         return True  # Not a failure, just not created yet
 
 
@@ -199,10 +199,10 @@ def main():
         print("All checks passed! You're ready to run the TSG Builder.")
         print("\nNext steps:")
         if not Path(".agent_id").exists():
-            print("  1. Create the agent:  python create_agent.py")
-            print("  2. Run inference:     python ask_agent.py --notes-file input.txt")
+            print("  1. Create the agent:  make create-agent")
+            print("  2. Run the UI:        make ui")
         else:
-            print("  Run inference: python ask_agent.py --notes-file input.txt")
+            print("  Run the UI: make ui")
         sys.exit(0)
     else:
         print("Some checks failed. Please fix the issues above before proceeding.")
