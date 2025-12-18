@@ -1040,6 +1040,14 @@ Create new capability host that points at an OpenAI resource instead of the AI S
                         <p class="hint">Custom name for your agent (default: TSG-Builder)</p>
                     </div>
                     
+                    <div class="form-group">
+                        <label for="configPromptStyle">Prompt Style</label>
+                        <select id="configPromptStyle" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary); font-size: 14px;">
+                            <!-- Options populated dynamically -->
+                        </select>
+                        <p class="hint" id="promptStyleHint">Select based on your model deployment</p>
+                    </div>
+                    
                     <button class="btn btn-primary" onclick="saveConfig()" id="saveConfigBtn">
                         💾 Save Configuration
                     </button>
@@ -1120,6 +1128,39 @@ Create new capability host that points at an OpenAI resource instead of the AI S
                 document.getElementById('configModel').value = config.MODEL_DEPLOYMENT_NAME || '';
                 document.getElementById('configBing').value = config.BING_CONNECTION_NAME || '';
                 document.getElementById('configAgentName').value = config.AGENT_NAME || 'TSG-Builder';
+                
+                // Populate prompt style dropdown
+                const promptStyleSelect = document.getElementById('configPromptStyle');
+                const promptStyleHint = document.getElementById('promptStyleHint');
+                promptStyleSelect.innerHTML = '';
+                
+                if (config.prompt_styles) {
+                    for (const [key, info] of Object.entries(config.prompt_styles)) {
+                        const option = document.createElement('option');
+                        option.value = key;
+                        option.textContent = info.name;
+                        option.title = info.description;
+                        if (key === (config.PROMPT_STYLE || config.default_prompt_style)) {
+                            option.selected = true;
+                        }
+                        promptStyleSelect.appendChild(option);
+                    }
+                    
+                    // Update hint when selection changes
+                    promptStyleSelect.addEventListener('change', () => {
+                        const selected = promptStyleSelect.value;
+                        const info = config.prompt_styles[selected];
+                        if (info) {
+                            promptStyleHint.textContent = info.description;
+                        }
+                    });
+                    
+                    // Set initial hint
+                    const currentStyle = config.PROMPT_STYLE || config.default_prompt_style;
+                    if (config.prompt_styles[currentStyle]) {
+                        promptStyleHint.textContent = config.prompt_styles[currentStyle].description;
+                    }
+                }
             } catch (error) {
                 console.error('Failed to load config:', error);
             }
@@ -1138,6 +1179,7 @@ Create new capability host that points at an OpenAI resource instead of the AI S
                 MODEL_DEPLOYMENT_NAME: document.getElementById('configModel').value.trim(),
                 BING_CONNECTION_NAME: document.getElementById('configBing').value.trim(),
                 AGENT_NAME: document.getElementById('configAgentName').value.trim() || 'TSG-Builder',
+                PROMPT_STYLE: document.getElementById('configPromptStyle').value,
             };
             
             try {

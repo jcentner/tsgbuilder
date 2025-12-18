@@ -41,6 +41,10 @@ from tsg_constants import (
     QUESTIONS_END,
     build_user_prompt,
     AGENT_INSTRUCTIONS,
+    PROMPT_STYLES,
+    DEFAULT_PROMPT_STYLE,
+    get_agent_instructions,
+    get_user_prompt_builder,
 )
 
 # Microsoft Learn MCP URL for agent creation
@@ -433,8 +437,18 @@ def api_config_get():
         "MODEL_DEPLOYMENT_NAME": os.getenv("MODEL_DEPLOYMENT_NAME", ""),
         "BING_CONNECTION_NAME": os.getenv("BING_CONNECTION_NAME", ""),
         "AGENT_NAME": os.getenv("AGENT_NAME", "TSG-Builder"),
+        "PROMPT_STYLE": os.getenv("PROMPT_STYLE", DEFAULT_PROMPT_STYLE),
     }
-    return jsonify(config)
+    # Include available prompt styles metadata
+    prompt_styles_info = {
+        key: {"name": val["name"], "description": val["description"]}
+        for key, val in PROMPT_STYLES.items()
+    }
+    return jsonify({
+        **config,
+        "prompt_styles": prompt_styles_info,
+        "default_prompt_style": DEFAULT_PROMPT_STYLE,
+    })
 
 
 @app.route("/api/config", methods=["POST"])
@@ -454,7 +468,7 @@ def api_config_set():
             dotenv_path.touch()
         dotenv_path = str(dotenv_path.absolute())
     
-    allowed_keys = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME", "BING_CONNECTION_NAME", "AGENT_NAME"]
+    allowed_keys = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME", "BING_CONNECTION_NAME", "AGENT_NAME", "PROMPT_STYLE"]
     updated = []
     
     for key in allowed_keys:
@@ -482,6 +496,7 @@ def api_create_agent():
     model = os.getenv("MODEL_DEPLOYMENT_NAME")
     conn_id = os.getenv("BING_CONNECTION_NAME")
     agent_name = os.getenv("AGENT_NAME", "TSG-Builder")
+    prompt_style = os.getenv("PROMPT_STYLE", DEFAULT_PROMPT_STYLE)
     
     missing = []
     if not endpoint:
@@ -511,22 +526,28 @@ def api_create_agent():
         mcp_tool = McpTool(server_label="learn", server_url=LEARN_MCP_URL)
         tools.extend(mcp_tool.definitions)
         
+        # Get the appropriate instructions based on prompt style
+        agent_instructions = get_agent_instructions(prompt_style)
+        
         with project:
             agent = project.agents.create_agent(
                 model=model,
                 name=agent_name,
-                instructions=AGENT_INSTRUCTIONS,
+                instructions=agent_instructions,
                 tools=tools,
             )
         
         # Save agent ID
         Path(".agent_id").write_text(agent.id + "\n", encoding="utf-8")
         
+        style_info = PROMPT_STYLES.get(prompt_style, PROMPT_STYLES[DEFAULT_PROMPT_STYLE])
         return jsonify({
             "success": True,
             "agent_id": agent.id,
             "agent_name": agent_name,
-            "message": f"Agent '{agent_name}' created successfully!",
+            "prompt_style": prompt_style,
+            "prompt_style_name": style_info["name"],
+            "message": f"Agent '{agent_name}' created with {style_info['name']} prompt style!",
         })
     
     except Exception as e:
@@ -540,6 +561,10 @@ def generate_sse_events(notes: str, thread_id: str | None = None, answers: str |
     """Generator that yields SSE events during agent execution."""
     event_queue: queue.Queue = queue.Queue()
     result_holder = {"response": "", "error": None}
+    
+    # Get the appropriate prompt builder based on configured style
+    prompt_style = os.getenv("PROMPT_STYLE", DEFAULT_PROMPT_STYLE)
+    prompt_builder = get_user_prompt_builder(prompt_style)
     
     def run_agent_thread():
         try:
@@ -558,8 +583,8 @@ def generate_sse_events(notes: str, thread_id: str | None = None, answers: str |
                         "data": {"thread_id": current_thread_id}
                     })
                     
-                    # Build and send the initial prompt
-                    user_content = build_user_prompt(notes, prior_tsg=None, user_answers=None)
+                    # Build and send the initial prompt using the configured style
+                    user_content = prompt_builder(notes, prior_tsg=None, user_answers=None)
                 else:
                     current_thread_id = thread_id
                     user_content = answers
