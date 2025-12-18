@@ -828,7 +828,11 @@ Include:
                     
                 case 'error':
                     addActivity('❌', event.data.message, 'error');
-                    reject(new Error(event.data.message));
+                    // Include raw_response in error for debugging
+                    const errorMsg = event.data.raw_response 
+                        ? `${event.data.message}\n\n--- Raw Agent Response ---\n${event.data.raw_response}`
+                        : event.data.message;
+                    reject(new Error(errorMsg));
                     break;
                     
                 case 'result':
@@ -939,8 +943,28 @@ Include:
 
         function showError(message) {
             const el = document.getElementById('errorMessage');
-            el.textContent = message;
+            
+            // Check if message contains raw response (separated by ---)
+            const separator = '--- Raw Agent Response ---';
+            if (message.includes(separator)) {
+                const [errorPart, rawPart] = message.split(separator);
+                el.innerHTML = `
+                    <div>${escapeHtml(errorPart.trim())}</div>
+                    <details style="margin-top: 10px;">
+                        <summary style="cursor: pointer; color: var(--primary);">Show raw agent response (for debugging)</summary>
+                        <pre style="margin-top: 8px; padding: 10px; background: #1e1e1e; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; max-height: 300px; overflow-y: auto;">${escapeHtml(rawPart.trim())}</pre>
+                    </details>
+                `;
+            } else {
+                el.textContent = message;
+            }
             el.classList.remove('hidden');
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
         function showSuccess(message) {

@@ -636,7 +636,7 @@ def generate_sse_events(notes: str, thread_id: str | None = None, answers: str |
         tsg_block, questions_block = extract_blocks(response_text)
         
         if not tsg_block:
-            yield f"data: {json.dumps({'type': 'error', 'data': {'message': 'Agent did not produce a valid TSG', 'raw_response': response_text[:500]}})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'data': {'message': 'Agent did not produce a valid TSG. The agent response did not contain the expected TSG markers.', 'raw_response': response_text[:2000] if response_text else '(empty response)'}})}\n\n"
         else:
             has_questions = questions_block and questions_block.strip() != "NO_MISSING"
             
@@ -729,8 +729,8 @@ def api_generate():
             
             if not tsg_block:
                 return jsonify({
-                    "error": "Agent did not produce a valid TSG; please retry. Ensure you're using a model sophisticated enough to follow detailed instructions.",
-                    "raw_response": assistant_text[:500]
+                    "error": "Agent did not produce a valid TSG. The agent response did not contain the expected TSG markers (<!-- TSG_BEGIN --> and <!-- TSG_END -->). Please retry or use a more capable model.",
+                    "raw_response": assistant_text[:2000] if assistant_text else "(empty response)"
                 }), 500
             
             # Determine if there are follow-up questions
@@ -787,8 +787,8 @@ def api_answer():
             
             if not tsg_block:
                 return jsonify({
-                    "error": "Agent did not produce a valid TSG on refinement",
-                    "raw_response": assistant_text[:500]
+                    "error": "Agent did not produce a valid TSG on refinement. The agent response did not contain the expected TSG markers.",
+                    "raw_response": assistant_text[:2000] if assistant_text else "(empty response)"
                 }), 500
             
             has_questions = questions_block and questions_block.strip() != "NO_MISSING"
