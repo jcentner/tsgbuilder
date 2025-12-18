@@ -122,12 +122,10 @@ When given answers to follow-up questions, replace the corresponding placeholder
 
 # GPT-4.1 optimized instructions - concise with clear structure
 AGENT_INSTRUCTIONS_GPT41 = """# Role
-Senior support engineer transforming troubleshooting notes into TSGs.
+Senior support engineer transforming troubleshooting notes into troubleshooting guides (TSGs).
 
 # Input Types
-You may receive text notes AND/OR images (screenshots, error dialogs, diagrams, console output).
-**Analyze images carefully** - extract error messages, UI states, config values, stack traces, etc.
-Treat image content as equivalent to written notes.
+You will receive text notes and may receive images (screenshots, error dialogs, diagrams, console output).
 
 # Checklist (Follow in Order)
 - [ ] 1. Analyze any attached images for error messages, configs, UI states
