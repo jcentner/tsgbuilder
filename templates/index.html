@@ -582,6 +582,129 @@
             color: var(--text-secondary);
             font-family: monospace;
         }
+
+        /* Image Upload Styles */
+        .image-upload-section {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+
+        .image-upload-section h4 {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+        }
+
+        .image-drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: #fafafa;
+        }
+
+        .image-drop-zone:hover {
+            border-color: var(--primary);
+            background: rgba(0, 120, 212, 0.05);
+        }
+
+        .image-drop-zone.dragover {
+            border-color: var(--primary);
+            background: rgba(0, 120, 212, 0.1);
+            border-style: solid;
+        }
+
+        .image-drop-zone .drop-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .image-drop-zone .drop-text {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .image-drop-zone .drop-hint {
+            font-size: 11px;
+            color: var(--text-secondary);
+            opacity: 0.7;
+            margin-top: 4px;
+        }
+
+        .image-previews {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .image-preview {
+            position: relative;
+            width: 100px;
+            height: 100px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            background: #f5f5f5;
+        }
+
+        .image-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .image-preview .remove-btn {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--error);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+        }
+
+        .image-preview:hover .remove-btn {
+            opacity: 1;
+        }
+
+        .image-preview .image-name {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 4px 6px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            font-size: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .image-count {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-left: 8px;
+        }
+
+        /* Hidden file input */
+        .image-input {
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -620,6 +743,19 @@ Include:
 - Known workarounds
 - Related documentation links"
                     ></textarea>
+                    
+                    <!-- Image Upload Section -->
+                    <div class="image-upload-section">
+                        <h4>📎 Attach Images (Optional) <span class="image-count" id="imageCount"></span></h4>
+                        <input type="file" id="imageInput" class="image-input" accept="image/*" multiple>
+                        <div class="image-drop-zone" id="imageDropZone" onclick="document.getElementById('imageInput').click()">
+                            <div class="drop-icon">🖼️</div>
+                            <div class="drop-text">Drop images here or click to upload</div>
+                            <div class="drop-hint">Supports PNG, JPG, GIF • Max 10 images</div>
+                        </div>
+                        <div class="image-previews" id="imagePreviews"></div>
+                    </div>
+                    
                     <div class="actions">
                         <button class="btn btn-primary" id="generateBtn" onclick="generateTSG()">
                             <span>🚀</span> Generate TSG
@@ -686,9 +822,113 @@ Include:
         let currentThreadId = null;
         let currentTSG = '';
         let eventSource = null;
+        
+        // Image storage
+        let uploadedImages = [];
+        const MAX_IMAGES = 10;
 
         // Check agent status on load
-        document.addEventListener('DOMContentLoaded', checkStatus);
+        document.addEventListener('DOMContentLoaded', () => {
+            checkStatus();
+            initImageUpload();
+        });
+        
+        // Image upload functionality
+        function initImageUpload() {
+            const dropZone = document.getElementById('imageDropZone');
+            const fileInput = document.getElementById('imageInput');
+            
+            // Drag and drop handlers
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+            
+            dropZone.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+            });
+            
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+                handleFiles(e.dataTransfer.files);
+            });
+            
+            // File input change
+            fileInput.addEventListener('change', (e) => {
+                handleFiles(e.target.files);
+                fileInput.value = ''; // Reset to allow same file again
+            });
+            
+            // Note: Clipboard paste for images is intentionally disabled to avoid
+            // conflicts with pasting text from rich-text sources like OneNote.
+            // Use drag-and-drop or the file picker to add images.
+        }
+        
+        function handleFiles(files) {
+            const fileArray = Array.from(files);
+            
+            // Filter for images only
+            const imageFiles = fileArray.filter(f => f.type.startsWith('image/'));
+            
+            if (imageFiles.length === 0) {
+                showError('Please select image files only.');
+                return;
+            }
+            
+            // Check max limit
+            if (uploadedImages.length + imageFiles.length > MAX_IMAGES) {
+                showError(`Maximum ${MAX_IMAGES} images allowed. You have ${uploadedImages.length} already.`);
+                return;
+            }
+            
+            // Process each file
+            imageFiles.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const dataUrl = e.target.result;
+                    // Extract base64 data and type
+                    const [header, base64Data] = dataUrl.split(',');
+                    const mimeType = header.match(/data:(.*?);/)[1];
+                    
+                    uploadedImages.push({
+                        name: file.name,
+                        type: mimeType,
+                        data: base64Data,
+                        preview: dataUrl
+                    });
+                    
+                    updateImagePreviews();
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+        
+        function updateImagePreviews() {
+            const container = document.getElementById('imagePreviews');
+            const countSpan = document.getElementById('imageCount');
+            
+            container.innerHTML = uploadedImages.map((img, index) => `
+                <div class="image-preview">
+                    <img src="${img.preview}" alt="${img.name}">
+                    <button class="remove-btn" onclick="removeImage(${index})" title="Remove">×</button>
+                    <div class="image-name">${img.name}</div>
+                </div>
+            `).join('');
+            
+            countSpan.textContent = uploadedImages.length > 0 ? `(${uploadedImages.length}/${MAX_IMAGES})` : '';
+        }
+        
+        function removeImage(index) {
+            uploadedImages.splice(index, 1);
+            updateImagePreviews();
+        }
+        
+        function clearImages() {
+            uploadedImages = [];
+            updateImagePreviews();
+        }
 
         async function checkStatus() {
             try {
@@ -886,7 +1126,19 @@ Include:
             document.getElementById('questionsPanel').classList.add('hidden');
 
             try {
-                const data = await generateTSGWithStreaming('/api/generate/stream', { notes });
+                // Prepare request body with notes and images
+                const requestBody = { notes };
+                
+                // Include images if any were uploaded
+                if (uploadedImages.length > 0) {
+                    requestBody.images = uploadedImages.map(img => ({
+                        data: img.data,
+                        type: img.type
+                    }));
+                    addActivity('🖼️', `Including ${uploadedImages.length} image(s) in request`, 'status');
+                }
+                
+                const data = await generateTSGWithStreaming('/api/generate/stream', requestBody);
                 
                 displayTSG(data.tsg);
 
@@ -1048,6 +1300,8 @@ Include:
             hideMessages();
             currentThreadId = null;
             currentTSG = '';
+            // Also clear uploaded images
+            clearImages();
         }
 
         async function copyTSG() {

@@ -66,10 +66,27 @@ Then open **http://localhost:5000** in your browser.
 **Features:**
 - ⚙️ **Built-in setup wizard** — Configure, validate, and create agent from the browser
 - 📝 Paste notes directly in the browser
+- �️ **Image support** — Attach screenshots via drag-and-drop, file picker, or paste
 - 🔄 Interactive follow-up questions
 - 📋 One-click copy to clipboard
 - 📊 Real-time status indicator
 - 💡 Load example input with one click
+
+### Attaching Images
+
+You can include screenshots or images with your troubleshooting notes:
+
+1. **Drag and drop** — Drag image files onto the upload zone
+2. **Click to upload** — Click the upload zone to open file picker
+3. **Paste from clipboard** — Copy an image and paste anywhere on the page (Ctrl+V / Cmd+V)
+
+Supported formats: PNG, JPG, GIF, WebP. Maximum 10 images per request.
+
+Images are sent to the AI agent for visual analysis, which is especially useful for:
+- Error screenshots
+- Architecture diagrams
+- Console/terminal output
+- Configuration screenshots
 
 ![TSG Builder UI](docs/ui-screenshot.png)
 

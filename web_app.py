@@ -32,6 +32,9 @@ from azure.ai.agents.models import (
     RunStepBingGroundingToolCall,
     BingGroundingTool,
     McpTool,
+    MessageImageUrlParam,
+    MessageInputTextBlock,
+    MessageInputImageUrlBlock,
 )
 
 from tsg_constants import (
@@ -606,8 +609,43 @@ def api_create_agent():
         }), 500
 
 
-def generate_sse_events(notes: str, thread_id: str | None = None, answers: str | None = None) -> Generator[str, None, None]:
-    """Generator that yields SSE events during agent execution."""
+def build_message_content(text: str, images: list[dict] | None = None) -> list | str:
+    """Build message content with text and optional images.
+    
+    Args:
+        text: The text content of the message
+        images: Optional list of image dicts with 'data' (base64) and 'type' (mime type) keys
+        
+    Returns:
+        Either a string (text only) or list of content blocks (with images)
+    """
+    if not images:
+        return text
+    
+    # Build content blocks: text first, then images
+    content_blocks = [MessageInputTextBlock(text=text)]
+    
+    for img in images:
+        # Construct data URL from base64 data
+        mime_type = img.get("type", "image/png")
+        base64_data = img.get("data", "")
+        data_url = f"data:{mime_type};base64,{base64_data}"
+        
+        url_param = MessageImageUrlParam(url=data_url, detail="high")
+        content_blocks.append(MessageInputImageUrlBlock(image_url=url_param))
+    
+    return content_blocks
+
+
+def generate_sse_events(notes: str, thread_id: str | None = None, answers: str | None = None, images: list[dict] | None = None) -> Generator[str, None, None]:
+    """Generator that yields SSE events during agent execution.
+    
+    Args:
+        notes: The troubleshooting notes text
+        thread_id: Optional existing thread ID for follow-up
+        answers: Optional answers to follow-up questions
+        images: Optional list of image dicts with 'data' (base64) and 'type' (mime type)
+    """
     event_queue: queue.Queue = queue.Queue()
     result_holder: dict[str, Any] = {"response": "", "error": None, "run_result": None}
     
@@ -637,9 +675,12 @@ def generate_sse_events(notes: str, thread_id: str | None = None, answers: str |
                     })
                     
                     # Build and send the initial prompt using the configured style
-                    user_content = prompt_builder(notes, prior_tsg=None, user_answers=None)
+                    user_text = prompt_builder(notes, prior_tsg=None, user_answers=None)
+                    # Include images if provided (only on initial generation)
+                    user_content = build_message_content(user_text, images)
                 else:
                     current_thread_id = thread_id
+                    # For follow-up answers, no images
                     user_content = answers
                 
                 project.agents.messages.create(
@@ -743,15 +784,34 @@ def generate_sse_events(notes: str, thread_id: str | None = None, answers: str |
 
 @app.route("/api/generate/stream", methods=["POST"])
 def api_generate_stream():
-    """Start TSG generation with SSE streaming for real-time updates."""
+    """Start TSG generation with SSE streaming for real-time updates.
+    
+    Accepts JSON with:
+        - notes: str - The troubleshooting notes text (required)
+        - images: list[dict] - Optional list of images, each with:
+            - data: str - Base64-encoded image data (without data URL prefix)
+            - type: str - MIME type (e.g., "image/png", "image/jpeg")
+    """
     data = request.get_json()
     notes = data.get("notes", "").strip()
+    images = data.get("images", None)  # List of {data: base64, type: mime_type}
     
     if not notes:
         return jsonify({"error": "No notes provided"}), 400
     
+    # Validate images if provided
+    if images:
+        if not isinstance(images, list):
+            return jsonify({"error": "Images must be a list"}), 400
+        for i, img in enumerate(images):
+            if not isinstance(img, dict) or "data" not in img:
+                return jsonify({"error": f"Image {i} must have 'data' field"}), 400
+            # Default type to png if not specified
+            if "type" not in img:
+                img["type"] = "image/png"
+    
     return Response(
-        stream_with_context(generate_sse_events(notes)),
+        stream_with_context(generate_sse_events(notes, images=images)),
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
