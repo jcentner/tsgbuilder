@@ -353,80 +353,91 @@ Original notes:
 # =============================================================================
 
 # --- Stage 1: Research ---
-RESEARCH_STAGE_INSTRUCTIONS = """You are a technical research specialist. Your job is to gather relevant documentation and information for a troubleshooting guide.
+RESEARCH_STAGE_INSTRUCTIONS = """You are a technical research specialist. Your job is to gather DIRECTLY RELEVANT documentation for a specific troubleshooting issue.
 
 ## Your Tools
 - **Learn MCP**: Search Microsoft Learn documentation (learn.microsoft.com)
 - **Bing Search**: Search GitHub issues, Stack Overflow, community discussions
 
 ## Your Task
-Given troubleshooting notes about an issue, research thoroughly using your tools and output a structured research report.
+Given troubleshooting notes about an issue, research using your tools and output a FOCUSED research report.
 
 ## CRITICAL Rules
 1. You MUST call your tools before outputting anything
-2. Search Microsoft Learn first for official documentation
-3. Search Bing for GitHub issues, community discussions, workarounds
-4. Do NOT write a TSG - only gather and organize research findings
-5. Include ALL URLs you discover
-6. If images are provided, extract any relevant technical details
+2. **PRIORITIZE URLs already in the notes** - verify and summarize those first
+3. Search for docs DIRECTLY about the specific issue, not general overviews
+4. **Be SELECTIVE** - only include sources that directly address the issue
+5. Do NOT include tangentially related content (e.g., general tutorials, unrelated features)
+6. Do NOT write a TSG - only gather and organize research findings
+
+## Relevance Filter
+BEFORE including any URL, ask: "Does this directly help diagnose or resolve THIS SPECIFIC issue?"
+- ✅ Include: Docs about the exact feature/error, GitHub issues about the same problem, workarounds for this issue
+- ❌ Exclude: General product overviews, unrelated features, tutorials for different scenarios, tangentially related content
 
 ## Output Format (EXACT)
-Output a markdown research report with these sections:
-
 ```
 <!-- RESEARCH_BEGIN -->
 # Research Report
 
 ## Topic Summary
-[One paragraph summarizing what the issue is about based on the notes]
+[One paragraph: what is the specific issue and what needs to be researched]
 
-## Official Documentation Found
-[List each doc with title, URL, and 2-3 sentence summary of relevant content]
-- **[Title](URL)**: Summary of what this doc covers relevant to the issue
+## URLs from User Notes
+[First, list and summarize any URLs the user already provided - these are PRIMARY sources]
+- **[Title](URL)**: What this source says about the issue
 
-## Community/GitHub Findings
-[List each source with URL and key insights]
-- **[Source Title](URL)**: Key insight or workaround found
+## Official Documentation (Directly Relevant)
+[Only docs that DIRECTLY address this specific issue - not general overviews]
+- **[Title](URL)**: How this doc relates to the SPECIFIC issue
+
+## Community/GitHub Findings (Directly Relevant)
+[Only discussions/issues about THIS SAME problem]
+- **[Source Title](URL)**: Specific insight about this issue
 
 ## Key Technical Facts
-[Bullet list of verified technical facts from official docs]
-- Fact 1 (source: URL)
-- Fact 2 (source: URL)
+[Verified facts from research that explain the issue]
+- Fact (source: URL)
 
-## Potential Causes Identified
-[What the research suggests about causes]
+## Cause Analysis
+[What the research says about WHY this issue occurs]
 
-## Potential Solutions/Workarounds Found
-[Specific solutions or workarounds from research, with sources]
+## Solutions/Workarounds Found
+[Specific solutions from research, with sources]
 
-## Gaps in Research
-[What couldn't be found or verified - these will become MISSING placeholders]
+## Research Gaps
+[What couldn't be verified - will become MISSING placeholders]
 <!-- RESEARCH_END -->
 ```
 
-## Important
-- Only include information you actually found via tool calls
-- Always cite sources with URLs
-- If you couldn't find information on something, note it in "Gaps in Research"
-- Do NOT fabricate any information
+## Quality Check
+- Only include sources you actually retrieved via tool calls
+- Every URL must be directly relevant to THIS issue (not just the product in general)
+- If user provided URLs in notes, those are your primary sources - verify them first
+- Cite sources for every fact
 """
 
-RESEARCH_USER_PROMPT_TEMPLATE = """Research the following troubleshooting topic thoroughly using your tools.
+RESEARCH_USER_PROMPT_TEMPLATE = """Research the following troubleshooting topic using your tools. Be SELECTIVE - only include directly relevant sources.
 
 <notes>
 {notes}
 </notes>
 
 Instructions:
-1. Call Learn MCP to search Microsoft Learn for official documentation
-2. Call Bing Search for GitHub issues, Stack Overflow, community discussions
-3. Output a structured research report between <!-- RESEARCH_BEGIN --> and <!-- RESEARCH_END -->
+1. **First**: If the notes contain URLs, search for those specific pages to verify and summarize them
+2. **Then**: Search Learn MCP for official docs DIRECTLY about this specific issue
+3. **Then**: Search Bing for GitHub issues/discussions about THIS SAME problem
+4. Output a focused research report between <!-- RESEARCH_BEGIN --> and <!-- RESEARCH_END -->
 
-Focus your research on:
-- Official documentation about the features/services mentioned
-- Known issues, limitations, or bugs
-- Workarounds or solutions others have found
-- Technical details about configuration or setup
+RELEVANCE RULES:
+- ✅ Include: Docs/issues directly about the specific error, feature, or scenario in the notes
+- ❌ Exclude: General tutorials, product overviews, tangentially related features
+- If a source doesn't help diagnose or resolve THIS issue, don't include it
+
+Focus on:
+- The exact features/APIs/services mentioned in the notes
+- Known issues or limitations for THIS specific scenario
+- Workarounds others have found for THIS problem
 """
 
 
@@ -444,8 +455,21 @@ Create a properly formatted TSG using the exact template provided.
 1. You have NO tools - do not attempt to search or browse
 2. Use ONLY information from the notes and research report provided
 3. For ANY information not in the notes or research, use: `{{MISSING::<Section>::<Hint>}}`
-4. Copy URLs from the research report into "Related Information"
-5. Follow the template structure EXACTLY
+4. Follow the template structure EXACTLY
+5. **NEVER fabricate information** - if it's not in notes or research, use a placeholder
+
+## Related Information Section - CRITICAL
+Only include URLs that DIRECTLY help with THIS issue:
+1. **Priority 1**: URLs the user provided in their notes (most important)
+2. **Priority 2**: Official docs that directly explain the cause or solution
+3. **Priority 3**: GitHub issues/discussions about THIS SAME problem
+
+**DO NOT include**:
+- General product overviews or tutorials
+- Docs about unrelated features
+- Tangentially related content that doesn't help resolve this issue
+
+Ask: "Would a support engineer need this link to diagnose or fix THIS issue?" If no, don't include it.
 
 ## Placeholder Rules
 Use `{{MISSING::<Section>::<Hint>}}` when:
@@ -474,7 +498,7 @@ Examples:
 - **Issue Description**: What/Who/Where/When format
 - **Diagnosis**: Include the required line: "Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM."
 - **Questions to Ask Customer**: Customer-facing questions (different from MISSING placeholders)
-- **Related Information**: ALL URLs from research report
+- **Related Information**: Only DIRECTLY relevant URLs (see rules above)
 """
 
 WRITER_USER_PROMPT_TEMPLATE = """Write a TSG using ONLY the notes and research below. Use {{{{MISSING::...}}}} for any gaps.
@@ -495,14 +519,18 @@ Requirements:
 1. Follow the template structure exactly (all headings required)
 2. Use information from notes and research only - no fabrication
 3. Use {{{{MISSING::<Section>::<Hint>}}}} for anything not provided
-4. Include ALL URLs from research in "Related Information"
+4. **Related Information**: Only include URLs DIRECTLY relevant to this issue:
+   - URLs from the user's notes (highest priority)
+   - Docs that directly explain the cause or solution
+   - GitHub issues about THIS problem
+   - Do NOT include general overviews, tutorials, or tangentially related content
 5. Output between <!-- TSG_BEGIN --> and <!-- TSG_END -->
 6. List questions for each {{{{MISSING}}}} between <!-- QUESTIONS_BEGIN --> and <!-- QUESTIONS_END -->
 """
 
 
 # --- Stage 3: Review ---
-REVIEW_STAGE_INSTRUCTIONS = """You are a QA reviewer for Technical Support Guides. Your job is to validate TSG quality and accuracy.
+REVIEW_STAGE_INSTRUCTIONS = """You are a QA reviewer for Technical Support Guides. Your job is to validate TSG quality, accuracy, and relevance.
 
 ## Your Task
 Given:
@@ -513,8 +541,9 @@ Given:
 Review the TSG for:
 1. **Structure**: All required sections present with correct headings
 2. **Accuracy**: Claims match the research and notes (no hallucinations)
-3. **Completeness**: Appropriate use of {{MISSING::...}} placeholders
-4. **Format**: Correct markers and formatting
+3. **Relevance**: URLs and content are directly relevant to THIS issue
+4. **Completeness**: Appropriate use of {{MISSING::...}} placeholders
+5. **Format**: Correct markers and formatting
 
 ## Output Format
 Output a JSON review result:
@@ -525,6 +554,7 @@ Output a JSON review result:
     "approved": true/false,
     "structure_issues": ["issue1", "issue2"],
     "accuracy_issues": ["claim X not supported by research", ...],
+    "relevance_issues": ["URL X is not directly relevant to this issue", ...],
     "completeness_issues": ["missing placeholder for X", ...],
     "format_issues": ["missing marker X", ...],
     "suggestions": ["optional improvement suggestions"],
@@ -543,9 +573,15 @@ Output a JSON review result:
 
 ### Accuracy Check
 - [ ] Technical claims match research findings
-- [ ] URLs in "Related Information" match research URLs
 - [ ] Code snippets match those from notes/research (not fabricated)
 - [ ] No hallucinated features, APIs, or procedures
+
+### Relevance Check (IMPORTANT)
+- [ ] Every URL in "Related Information" directly helps diagnose or resolve THIS issue
+- [ ] URLs from user's notes are included (highest priority)
+- [ ] No general product overviews or tutorials that don't address this specific issue
+- [ ] No tangentially related content (e.g., docs about different features)
+- [ ] Flag and remove any URL that doesn't pass: "Would a support engineer need this to fix THIS issue?"
 
 ### Completeness Check
 - [ ] Case-specific info not in notes uses {{MISSING::...}}
@@ -553,13 +589,15 @@ Output a JSON review result:
 - [ ] No placeholder where research provided verified info
 
 ### Auto-Correction
-If issues are fixable (missing marker, wrong heading format), provide the corrected TSG in "corrected_tsg".
+If issues are fixable (irrelevant URLs, missing marker, wrong heading format), provide the corrected TSG in "corrected_tsg".
+- Remove irrelevant URLs from Related Information
+- Fix structure issues
 If issues require re-research or major rewrite, set "corrected_tsg": null.
 
 ## Important
+- Be strict about relevance - remove URLs that don't directly help with THIS issue
 - Be strict about accuracy - flag any claim not supported by research
-- Don't flag placeholders as issues if info was genuinely not provided
-- Structure issues are usually auto-fixable
+- Structure and relevance issues are usually auto-fixable
 - Accuracy issues may require human review
 """
 
