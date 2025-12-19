@@ -52,6 +52,9 @@ from tsg_constants import (
     build_retry_prompt,
 )
 
+# Import pipeline for multi-stage generation
+from pipeline import run_pipeline, PipelineStage
+
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
 
@@ -782,6 +785,100 @@ def generate_sse_events(notes: str, thread_id: str | None = None, answers: str |
             yield f"data: {json.dumps({'type': 'result', 'data': {'thread_id': final_thread_id, 'tsg': tsg_block, 'questions': questions_block if has_questions else None, 'complete': not has_questions}})}\n\n"
 
 
+def generate_pipeline_sse_events(
+    notes: str,
+    thread_id: str | None = None,
+    answers: str | None = None,
+    images: list[dict] | None = None
+) -> Generator[str, None, None]:
+    """Generator that yields SSE events during multi-stage pipeline execution.
+    
+    This is the new multi-stage pipeline that separates:
+    1. Research: Gather docs/info using tools
+    2. Write: Create TSG from notes + research
+    3. Review: Validate and fix issues
+    
+    Args:
+        notes: The troubleshooting notes text
+        thread_id: Optional existing thread ID for follow-up
+        answers: Optional answers to follow-up questions
+        images: Optional list of image dicts with 'data' (base64) and 'type' (mime type)
+    """
+    event_queue: queue.Queue = queue.Queue()
+    result_holder: dict[str, Any] = {"result": None, "error": None}
+    
+    def run_pipeline_thread():
+        try:
+            result = run_pipeline(
+                notes=notes,
+                images=images,
+                event_queue=event_queue,
+                thread_id=thread_id,
+                prior_tsg=sessions.get(thread_id, {}).get("current_tsg") if thread_id else None,
+                user_answers=answers,
+            )
+            result_holder["result"] = result
+        except Exception as e:
+            result_holder["error"] = str(e)
+            event_queue.put({"type": "error", "data": {"message": str(e)}})
+        finally:
+            event_queue.put(None)  # Signal end of events
+    
+    # Start pipeline in background thread
+    pipeline_thread = threading.Thread(target=run_pipeline_thread)
+    pipeline_thread.start()
+    
+    # Yield SSE events as they arrive
+    while True:
+        try:
+            event = event_queue.get(timeout=180)  # 3 minute timeout for pipeline
+            if event is None:
+                break
+            
+            yield f"data: {json.dumps(event)}\n\n"
+            
+        except queue.Empty:
+            # Send keepalive
+            yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
+    
+    pipeline_thread.join()
+    
+    # Send final result
+    if result_holder["error"]:
+        yield f"data: {json.dumps({'type': 'error', 'data': {'message': result_holder['error']}})}\n\n"
+    elif result_holder["result"]:
+        result = result_holder["result"]
+        
+        if result.success:
+            has_questions = result.questions_content and result.questions_content.strip() != "NO_MISSING"
+            
+            # Store session
+            if result.thread_id:
+                sessions[result.thread_id] = {
+                    "notes": notes,
+                    "current_tsg": result.tsg_content,
+                    "questions": result.questions_content if has_questions else None,
+                    "research_report": result.research_report,
+                }
+            
+            # Include review warnings if any
+            review_warnings = []
+            if result.review_result and not result.review_result.get("approved", True):
+                review_warnings = (
+                    result.review_result.get("accuracy_issues", []) +
+                    result.review_result.get("suggestions", [])
+                )
+            
+            yield f"data: {json.dumps({'type': 'result', 'data': {'thread_id': result.thread_id, 'tsg': result.tsg_content, 'questions': result.questions_content if has_questions else None, 'complete': not has_questions, 'stages_completed': [s.value for s in result.stages_completed], 'retries': result.retry_count, 'warnings': review_warnings}})}\n\n"
+        else:
+            yield f"data: {json.dumps({'type': 'error', 'data': {'message': result.error or 'Pipeline failed to produce TSG', 'stages_completed': [s.value for s in result.stages_completed]}})}\n\n"
+
+
+def use_pipeline_mode() -> bool:
+    """Check if multi-stage pipeline mode is enabled."""
+    return os.getenv("USE_PIPELINE", "true").lower() in ("true", "1", "yes")
+
+
 @app.route("/api/generate/stream", methods=["POST"])
 def api_generate_stream():
     """Start TSG generation with SSE streaming for real-time updates.
@@ -810,8 +907,14 @@ def api_generate_stream():
             if "type" not in img:
                 img["type"] = "image/png"
     
+    # Choose between pipeline and single-agent mode
+    if use_pipeline_mode():
+        generator = generate_pipeline_sse_events(notes, images=images)
+    else:
+        generator = generate_sse_events(notes, images=images)
+    
     return Response(
-        stream_with_context(generate_sse_events(notes, images=images)),
+        stream_with_context(generator),
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -835,8 +938,14 @@ def api_answer_stream():
     
     notes = sessions[thread_id].get("notes", "")
     
+    # Choose between pipeline and single-agent mode
+    if use_pipeline_mode():
+        generator = generate_pipeline_sse_events(notes, thread_id, answers)
+    else:
+        generator = generate_sse_events(notes, thread_id, answers)
+    
     return Response(
-        stream_with_context(generate_sse_events(notes, thread_id, answers)),
+        stream_with_context(generator),
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

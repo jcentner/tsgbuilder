@@ -259,6 +259,49 @@ See `input-example.txt` for a sample input.
 
 ## How It Works
 
+### Multi-Stage Pipeline (Default)
+
+TSG Builder uses a **three-stage pipeline** for improved accuracy and reliability:
+
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│  RESEARCH   │───▶│    WRITE    │───▶│   REVIEW    │───▶│   OUTPUT    │
+│  🔍         │    │   ✏️         │    │   🔎        │    │   ✅        │
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+  Uses tools        No tools           Validates          Final TSG
+  (Bing, MCP)       Just writes        & fact-checks
+```
+
+#### Stage 1: Research
+- Searches **Microsoft Learn MCP** for official documentation
+- Searches **Bing** for GitHub issues, community discussions
+- Outputs a structured research report with URLs and key findings
+- **Has tool access** to ensure research actually happens
+
+#### Stage 2: Write
+- Receives research report + original notes
+- **No tool access** — prevents ad-hoc searches that could introduce errors
+- Creates TSG from template using only verified research
+- Inserts `{{MISSING::...}}` placeholders for case-specific gaps
+
+#### Stage 3: Review
+- **Structure validation**: All required sections and markers present
+- **Fact-checking**: Claims match research (flags potential hallucinations)
+- **Auto-correction**: Fixes simple issues automatically
+- Retries up to 2x if validation fails
+
+### Single-Agent Mode (Legacy)
+
+You can disable the pipeline for legacy single-agent behavior:
+
+```bash
+# Via environment variable
+USE_PIPELINE=false make run
+
+# Via CLI flag
+python ask_agent.py --single-agent --notes-file input.txt
+```
+
 ### Agent Research Phase
 
 The agent is instructed to **always research** before generating the TSG:
@@ -327,21 +370,48 @@ If information is missing, the agent:
 
 ## Architecture
 
+### Multi-Stage Pipeline Architecture
+
 ```
-┌─────────────────┐     ┌──────────────────────────────────────────┐
-│  Raw Notes      │────▶│    Azure AI Foundry Agent (Classic)      │
-│  (input.txt)    │     │  ┌─────────────────────────────────────┐ │
-└─────────────────┘     │  │  1. Research (Learn MCP + Bing)     │ │
-                        │  │  2. Generate TSG from template      │ │
-                        │  │  3. Mark gaps with placeholders     │ │
-                        │  └─────────────────────────────────────┘ │
-                        └──────────────────┬───────────────────────┘
-                                           │
-                                           ▼
-                        ┌──────────────────────────────────────────┐
-                        │  Structured TSG (markdown)              │
-                        │  + Follow-up Questions OR NO_MISSING    │
-                        └──────────────────────────────────────────┘
+┌─────────────────┐     
+│  Raw Notes      │     
+│  (input.txt)    │     
+└────────┬────────┘     
+         │
+         ▼
+┌────────────────────────────────────────────────────────────────────┐
+│                    TSG PIPELINE                                    │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │  Stage 1: RESEARCH (has tools)                               │ │
+│  │  - Microsoft Learn MCP → official docs, APIs, limits         │ │
+│  │  - Bing Search → GitHub issues, community solutions          │ │
+│  │  → Output: Structured research report with URLs              │ │
+│  └──────────────────────────────────────────────────────────────┘ │
+│                              │                                     │
+│                              ▼                                     │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │  Stage 2: WRITE (no tools)                                   │ │
+│  │  - Uses ONLY notes + research report                         │ │
+│  │  - Follows TSG template exactly                              │ │
+│  │  → Output: Draft TSG + {{MISSING::...}} placeholders         │ │
+│  └──────────────────────────────────────────────────────────────┘ │
+│                              │                                     │
+│                              ▼                                     │
+│  ┌──────────────────────────────────────────────────────────────┐ │
+│  │  Stage 3: REVIEW (no tools)                                  │ │
+│  │  - Structure validation (headings, markers)                  │ │
+│  │  - Fact-check against research (soft warnings)               │ │
+│  │  - Auto-fix simple issues, retry if needed                   │ │
+│  │  → Output: Validated TSG + review notes                      │ │
+│  └──────────────────────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────────┐
+│  Structured TSG (markdown)               │
+│  + Follow-up Questions OR NO_MISSING     │
+│  + Review warnings (if any)              │
+└──────────────────────────────────────────┘
 ```
 
 ## Files
@@ -349,14 +419,17 @@ If information is missing, the agent:
 | File | Purpose |
 |------|---------|
 | `create_agent.py` | Create the Azure AI Foundry agent |
-| `ask_agent.py` | Run inference / generate TSGs |
+| `ask_agent.py` | CLI for TSG generation (supports pipeline & single-agent modes) |
+| `web_app.py` | Flask web UI server |
+| `pipeline.py` | **Multi-stage pipeline orchestration** (Research → Write → Review) |
 | `validate_setup.py` | Validate environment configuration |
-| `tsg_constants.py` | TSG template and agent instructions |
+| `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
 | `Makefile` | Common operations |
 | `.env` | Your configuration (git-ignored) |
 | `.env-sample` | Configuration template |
 | `.agent_id` | Agent ID after creation |
 | `input-example.txt` | Example input notes |
+| `templates/index.html` | Web UI template |
 
 ## Contributing
 
