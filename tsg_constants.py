@@ -337,7 +337,7 @@ def build_retry_prompt(original_notes: str, failed_response: str, validation_iss
 Please regenerate the TSG with the correct format. Remember:
 1. Start with <!-- TSG_BEGIN --> and end with <!-- TSG_END -->
 2. Include ALL required section headings exactly as in the template
-3. Use {{{{MISSING::<Section>::<Hint>}}}} for any information not in the notes
+3. Use {{MISSING::<Section>::<Hint>}} for any information not in the notes
 4. End with <!-- QUESTIONS_BEGIN --> ... <!-- QUESTIONS_END -->
 5. List one question per placeholder, OR output exactly "NO_MISSING"
 
@@ -346,3 +346,358 @@ Original notes:
 {original_notes}
 </notes>
 """
+
+
+# =============================================================================
+# MULTI-STAGE PIPELINE PROMPTS
+# =============================================================================
+
+# --- Stage 1: Research ---
+RESEARCH_STAGE_INSTRUCTIONS = """You are a technical research specialist. Your job is to gather DIRECTLY RELEVANT documentation for a specific troubleshooting issue.
+
+## Your Tools
+- **Learn MCP**: Search Microsoft Learn documentation (learn.microsoft.com)
+- **Bing Search**: Search GitHub issues, Stack Overflow, community discussions
+
+## Your Task
+Given troubleshooting notes about an issue, research using your tools and output a FOCUSED research report.
+
+## CRITICAL Rules
+1. You MUST call your tools before outputting anything
+2. **PRIORITIZE URLs already in the notes** - verify and summarize those first
+3. Search for docs DIRECTLY about the specific issue, not general overviews
+4. **Be SELECTIVE** - only include sources that directly address the issue
+5. Do NOT include tangentially related content (e.g., general tutorials, unrelated features)
+6. Do NOT write a TSG - only gather and organize research findings
+
+## Relevance Filter
+BEFORE including any URL, ask: "Does this directly help diagnose or resolve THIS SPECIFIC issue?"
+- ✅ Include: Docs about the exact feature/error, GitHub issues about the same problem, workarounds for this issue
+- ❌ Exclude: General product overviews, unrelated features, tutorials for different scenarios, tangentially related content
+
+## Output Format (EXACT)
+```
+<!-- RESEARCH_BEGIN -->
+# Research Report
+
+## Topic Summary
+[One paragraph: what is the specific issue and what needs to be researched]
+
+## URLs from User Notes
+[First, list and summarize any URLs the user already provided - these are PRIMARY sources]
+- **[Title](URL)**: What this source says about the issue
+
+## Official Documentation (Directly Relevant)
+[Only docs that DIRECTLY address this specific issue - not general overviews]
+- **[Title](URL)**: How this doc relates to the SPECIFIC issue
+
+## Community/GitHub Findings (Directly Relevant)
+[Only discussions/issues about THIS SAME problem]
+- **[Source Title](URL)**: Specific insight about this issue
+
+## Key Technical Facts
+[Verified facts from research that explain the issue]
+- Fact (source: URL)
+
+## Cause Analysis
+[What the research says about WHY this issue occurs]
+
+## Solutions/Workarounds Found
+[Specific solutions from research, with sources]
+
+## Research Gaps
+[What couldn't be verified - will become MISSING placeholders]
+<!-- RESEARCH_END -->
+```
+
+## Quality Check
+- Only include sources you actually retrieved via tool calls
+- Every URL must be directly relevant to THIS issue (not just the product in general)
+- If user provided URLs in notes, those are your primary sources - verify them first
+- Cite sources for every fact
+"""
+
+RESEARCH_USER_PROMPT_TEMPLATE = """Research the following troubleshooting topic using your tools. Be SELECTIVE - only include directly relevant sources.
+
+<notes>
+{notes}
+</notes>
+
+Instructions:
+1. **First**: If the notes contain URLs, search for those specific pages to verify and summarize them
+2. **Then**: Search Learn MCP for official docs DIRECTLY about this specific issue
+3. **Then**: Search Bing for GitHub issues/discussions about THIS SAME problem
+4. Output a focused research report between <!-- RESEARCH_BEGIN --> and <!-- RESEARCH_END -->
+
+RELEVANCE RULES:
+- ✅ Include: Docs/issues directly about the specific error, feature, or scenario in the notes
+- ❌ Exclude: General tutorials, product overviews, tangentially related features
+- If a source doesn't help diagnose or resolve THIS issue, don't include it
+
+Focus on:
+- The exact features/APIs/services mentioned in the notes
+- Known issues or limitations for THIS specific scenario
+- Workarounds others have found for THIS problem
+"""
+
+
+# --- Stage 2: Writer ---
+WRITER_STAGE_INSTRUCTIONS = """You are a technical writer that creates Technical Support Guides (TSGs) from research and notes.
+
+## Your Task
+Given:
+1. Raw troubleshooting notes from a support engineer
+2. A research report with verified facts and sources
+
+Create a properly formatted TSG using the exact template provided.
+
+## CRITICAL Rules
+1. You have NO tools - do not attempt to search or browse
+2. Use ONLY information from the notes and research report provided
+3. For ANY information not in the notes or research, use: `{{MISSING::<Section>::<Hint>}}`
+4. Follow the template structure EXACTLY
+5. **NEVER fabricate information** - if it's not in notes or research, use a placeholder
+
+## Related Information Section - CRITICAL
+Only include URLs that DIRECTLY help with THIS issue:
+1. **Priority 1**: URLs the user provided in their notes (most important)
+2. **Priority 2**: Official docs that directly explain the cause or solution
+3. **Priority 3**: GitHub issues/discussions about THIS SAME problem
+
+**DO NOT include**:
+- General product overviews or tutorials
+- Docs about unrelated features
+- Tangentially related content that doesn't help resolve this issue
+
+Ask: "Would a support engineer need this link to diagnose or fix THIS issue?" If no, don't include it.
+
+## Placeholder Rules
+Use `{{MISSING::<Section>::<Hint>}}` when:
+- The information is case-specific and not in the notes
+- You would need to guess or assume
+- The research found general info but specific details are needed
+
+Examples:
+- `{{MISSING::Cause::Specific root cause for this customer's environment}}`
+- `{{MISSING::Diagnosis::Customer's subscription ID to run Kusto query}}`
+
+## Output Format (EXACT - no other text)
+```
+<!-- TSG_BEGIN -->
+[Complete TSG with all required headings from template]
+<!-- TSG_END -->
+
+<!-- QUESTIONS_BEGIN -->
+[One line per placeholder: `- {{MISSING::...}} -> question for TSG author`]
+[OR exactly: `NO_MISSING` if no placeholders]
+<!-- QUESTIONS_END -->
+```
+
+## Section Guidelines
+- **Title**: Include error message or scenario keywords
+- **Issue Description**: What/Who/Where/When format
+- **Diagnosis**: Include the required line: "Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM."
+- **Questions to Ask Customer**: Customer-facing questions (different from MISSING placeholders)
+- **Related Information**: Only DIRECTLY relevant URLs (see rules above)
+"""
+
+WRITER_USER_PROMPT_TEMPLATE = """Write a TSG using ONLY the notes and research below. Use {{MISSING::...}} for any gaps.
+
+<template>
+{template}
+</template>
+
+<notes>
+{notes}
+</notes>
+
+<research>
+{research}
+</research>
+
+Requirements:
+1. Follow the template structure exactly (all headings required)
+2. Use information from notes and research only - no fabrication
+3. Use {{MISSING::<Section>::<Hint>}} for anything not provided
+4. **Related Information**: Only include URLs DIRECTLY relevant to this issue:
+   - URLs from the user's notes (highest priority)
+   - Docs that directly explain the cause or solution
+   - GitHub issues about THIS problem
+   - Do NOT include general overviews, tutorials, or tangentially related content
+5. Output between <!-- TSG_BEGIN --> and <!-- TSG_END -->
+6. List questions for each {{MISSING}} between <!-- QUESTIONS_BEGIN --> and <!-- QUESTIONS_END -->
+"""
+
+
+# --- Stage 3: Review ---
+REVIEW_STAGE_INSTRUCTIONS = """You are a QA reviewer for Technical Support Guides. Your job is to validate TSG quality, accuracy, and relevance.
+
+## Your Task
+Given:
+1. A draft TSG
+2. The original research report
+3. The original notes
+
+Review the TSG for:
+1. **Structure**: All required sections present with correct headings
+2. **Accuracy**: Claims match the research and notes (no hallucinations)
+3. **Relevance**: URLs and content are directly relevant to THIS issue
+4. **Completeness**: Appropriate use of {{MISSING::...}} placeholders
+5. **Format**: Correct markers and formatting
+
+## Output Format
+Output a JSON review result:
+
+```
+<!-- REVIEW_BEGIN -->
+{
+    "approved": true/false,
+    "structure_issues": ["issue1", "issue2"],
+    "accuracy_issues": ["claim X not supported by research", ...],
+    "relevance_issues": ["URL X is not directly relevant to this issue", ...],
+    "completeness_issues": ["missing placeholder for X", ...],
+    "format_issues": ["missing marker X", ...],
+    "suggestions": ["optional improvement suggestions"],
+    "corrected_tsg": null or "[full corrected TSG if fixable]"
+}
+<!-- REVIEW_END -->
+```
+
+## Review Checklist
+
+### Structure Check
+- [ ] Has <!-- TSG_BEGIN --> and <!-- TSG_END --> markers
+- [ ] Has <!-- QUESTIONS_BEGIN --> and <!-- QUESTIONS_END --> markers
+- [ ] Contains all 9+ required section headings
+- [ ] Diagnosis includes required text: "Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM."
+
+### Accuracy Check
+- [ ] Technical claims match research findings
+- [ ] Code snippets match those from notes/research (not fabricated)
+- [ ] No hallucinated features, APIs, or procedures
+
+### Relevance Check (IMPORTANT)
+- [ ] Every URL in "Related Information" directly helps diagnose or resolve THIS issue
+- [ ] URLs from user's notes are included (highest priority)
+- [ ] No general product overviews or tutorials that don't address this specific issue
+- [ ] No tangentially related content (e.g., docs about different features)
+- [ ] Flag and remove any URL that doesn't pass: "Would a support engineer need this to fix THIS issue?"
+
+### Completeness Check
+- [ ] Case-specific info not in notes uses {{MISSING::...}}
+- [ ] Questions block matches placeholders (or NO_MISSING if none)
+- [ ] No placeholder where research provided verified info
+
+### Auto-Correction
+If issues are fixable (irrelevant URLs, missing marker, wrong heading format), provide the corrected TSG in "corrected_tsg".
+- Remove irrelevant URLs from Related Information
+- Fix structure issues
+If issues require re-research or major rewrite, set "corrected_tsg": null.
+
+## Important
+- Be strict about relevance - remove URLs that don't directly help with THIS issue
+- Be strict about accuracy - flag any claim not supported by research
+- Structure and relevance issues are usually auto-fixable
+- Accuracy issues may require human review
+"""
+
+REVIEW_USER_PROMPT_TEMPLATE = """Review this TSG draft for quality and accuracy.
+
+<draft_tsg>
+{draft_tsg}
+</draft_tsg>
+
+<research>
+{research}
+</research>
+
+<original_notes>
+{notes}
+</original_notes>
+
+Validate:
+1. Structure: All required sections and markers present
+2. Accuracy: Claims supported by research (no hallucinations)
+3. Completeness: Appropriate {{MISSING::...}} placeholders
+4. Format: Correct output format
+
+Output your review between <!-- REVIEW_BEGIN --> and <!-- REVIEW_END --> as JSON.
+If issues are auto-fixable, include "corrected_tsg" with the fixed version.
+"""
+
+
+# Research stage markers
+RESEARCH_BEGIN = "<!-- RESEARCH_BEGIN -->"
+RESEARCH_END = "<!-- RESEARCH_END -->"
+REVIEW_BEGIN = "<!-- REVIEW_BEGIN -->"
+REVIEW_END = "<!-- REVIEW_END -->"
+
+
+def build_research_prompt(notes: str) -> str:
+    """Build the prompt for the research stage."""
+    return RESEARCH_USER_PROMPT_TEMPLATE.format(notes=notes)
+
+
+def build_writer_prompt(notes: str, research: str, prior_tsg: str | None = None, user_answers: str | None = None) -> str:
+    """Build the prompt for the writer stage."""
+    prompt = WRITER_USER_PROMPT_TEMPLATE.format(
+        template=TSG_TEMPLATE,
+        notes=notes,
+        research=research,
+    )
+    if prior_tsg:
+        prompt += f"\n\n<prior_tsg>\n{prior_tsg}\n</prior_tsg>\n"
+    if user_answers:
+        prompt += f"\n\n<answers>\n{user_answers}\n</answers>\nReplace {{MISSING::...}} placeholders with these answers.\n"
+    return prompt
+
+
+def build_review_prompt(draft_tsg: str, research: str, notes: str) -> str:
+    """Build the prompt for the review stage."""
+    return REVIEW_USER_PROMPT_TEMPLATE.format(
+        draft_tsg=draft_tsg,
+        research=research,
+        notes=notes,
+    )
+
+
+def extract_research_block(response: str) -> str | None:
+    """Extract the research report from agent response."""
+    if RESEARCH_BEGIN in response and RESEARCH_END in response:
+        start = response.find(RESEARCH_BEGIN) + len(RESEARCH_BEGIN)
+        end = response.find(RESEARCH_END)
+        return response[start:end].strip()
+    return None
+
+
+def extract_review_block(response: str) -> dict | None:
+    """Extract and parse the review JSON from agent response."""
+    import json
+    if REVIEW_BEGIN in response and REVIEW_END in response:
+        start = response.find(REVIEW_BEGIN) + len(REVIEW_BEGIN)
+        end = response.find(REVIEW_END)
+        json_str = response[start:end].strip()
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            # Try to extract JSON from markdown code block
+            if "```" in json_str:
+                # Find JSON between code fences
+                lines = json_str.split("\n")
+                in_block = False
+                json_lines = []
+                for line in lines:
+                    if line.strip().startswith("```"):
+                        if in_block:
+                            break
+                        in_block = True
+                        continue
+                    if in_block:
+                        json_lines.append(line)
+                if json_lines:
+                    try:
+                        return json.loads("\n".join(json_lines))
+                    except json.JSONDecodeError:
+                        pass
+            return None
+    return None

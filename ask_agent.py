@@ -3,9 +3,14 @@
 """
 ask_agent.py — interactive chat loop using the classic Agents API (threads + runs).
 
+Supports two modes:
+- Pipeline mode (default): Multi-stage Research → Write → Review flow
+- Single-agent mode: Legacy single LLM call
+
 Env (read from .env via python-dotenv):
 - PROJECT_ENDPOINT          (required)
 - AGENT_ID                  (optional; else read from ./.agent_id)
+- USE_PIPELINE              (optional; default "true")
 """
 
 from __future__ import annotations
@@ -14,6 +19,8 @@ import argparse
 import os
 import sys
 import time
+import queue
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -43,6 +50,8 @@ from tsg_constants import (
     build_retry_prompt,
 )
 
+from pipeline import run_pipeline, PipelineStage
+
 
 # ANSI color codes for terminal output
 class Colors:
@@ -50,9 +59,20 @@ class Colors:
     GREEN = "\033[92m"
     YELLOW = "\033[93m"
     CYAN = "\033[96m"
+    MAGENTA = "\033[95m"
     DIM = "\033[2m"
     RESET = "\033[0m"
     BOLD = "\033[1m"
+
+
+# Stage icons and colors
+STAGE_STYLES = {
+    PipelineStage.RESEARCH: ("🔍", Colors.CYAN),
+    PipelineStage.WRITE: ("✏️", Colors.BLUE),
+    PipelineStage.REVIEW: ("🔎", Colors.MAGENTA),
+    PipelineStage.COMPLETE: ("✅", Colors.GREEN),
+    PipelineStage.FAILED: ("❌", Colors.YELLOW),
+}
 
 
 class TSGEventHandler(AgentEventHandler):
@@ -237,32 +257,163 @@ def main():
     parser.add_argument("--notes-file", help="Path to raw notes file (if omitted, you can paste interactively).")
     parser.add_argument("--agent-id", help="Override the agent ID, otherwise read from .agent_id or AGENT_ID env.")
     parser.add_argument("--output", "-o", help="Path to save the final TSG markdown file.")
+    parser.add_argument("--single-agent", action="store_true", help="Use single-agent mode instead of pipeline.")
     args = parser.parse_args()
 
     load_dotenv(find_dotenv())
 
+    # Determine mode:
+    # - USE_PIPELINE env sets the default (default is "true")
+    # - --single-agent always disables pipeline mode when provided
+    env_use_pipeline = os.getenv("USE_PIPELINE", "true").lower() not in ("false", "0", "no")
+    use_pipeline = env_use_pipeline
+    if args.single_agent:
+        use_pipeline = False
+    
+    notes = load_notes(args.notes_file)
+    if not notes.strip():
+        print("ERROR: No notes provided.", file=sys.stderr)
+        sys.exit(1)
+    
+    if use_pipeline:
+        run_pipeline_cli(notes, args.output)
+    else:
+        run_single_agent_cli(notes, args.output, args.agent_id)
+
+
+def run_pipeline_cli(notes: str, output_path: str | None = None):
+    """Run TSG generation using the multi-stage pipeline."""
+    print(f"{Colors.BOLD}🚀 Starting TSG Pipeline (Research → Write → Review){Colors.RESET}\n")
+    
+    event_queue: queue.Queue = queue.Queue()
+    result_holder: dict = {"result": None}
+    
+    def run_thread():
+        result = run_pipeline(
+            notes=notes,
+            event_queue=event_queue,
+        )
+        result_holder["result"] = result
+        event_queue.put(None)
+    
+    # Start pipeline
+    thread = threading.Thread(target=run_thread)
+    thread.start()
+    
+    current_stage = None
+    
+    # Process events
+    while True:
+        try:
+            event = event_queue.get(timeout=180)
+            if event is None:
+                break
+            
+            event_type = event.get("type", "")
+            data = event.get("data", {})
+            stage = data.get("stage", "")
+            
+            # Track stage transitions
+            if stage and stage != current_stage:
+                current_stage = stage
+                try:
+                    stage_enum = PipelineStage(stage)
+                    icon, color = STAGE_STYLES.get(stage_enum, ("•", Colors.RESET))
+                    print(f"\n{color}{icon} Stage: {stage.upper()}{Colors.RESET}")
+                except ValueError as exc:
+                    # Unknown or invalid stage value: keep processing but log for observability.
+                    print(f"{Colors.YELLOW}⚠️  Unknown pipeline stage '{stage}': {exc}{Colors.RESET}", file=sys.stderr)
+            
+            # Handle different event types
+            if event_type == "stage_start":
+                print(f"   {Colors.DIM}{data.get('message', '')}{Colors.RESET}")
+            elif event_type == "stage_complete":
+                print(f"   {Colors.GREEN}✓ {data.get('message', 'Complete')}{Colors.RESET}")
+            elif event_type == "status":
+                msg = data.get("message", data.get("status", ""))
+                if msg:
+                    print(f"   {Colors.DIM}{msg}{Colors.RESET}")
+            elif event_type == "tool_call":
+                tool_name = data.get("name", data.get("type", "Tool"))
+                print(f"   {Colors.GREEN}🔧 {tool_name}{Colors.RESET}")
+            elif event_type == "error":
+                print(f"   {Colors.YELLOW}⚠️  {data.get('message', 'Error')}{Colors.RESET}")
+            elif event_type == "pipeline_complete":
+                if data.get("success"):
+                    print(f"\n{Colors.GREEN}✅ Pipeline complete!{Colors.RESET}")
+                    if data.get("retries", 0) > 0:
+                        print(f"   {Colors.DIM}(took {data['retries']} retry iterations){Colors.RESET}")
+        
+        except queue.Empty:
+            print(".", end="", flush=True)
+    
+    thread.join()
+    
+    # Get result
+    result = result_holder.get("result")
+    if not result:
+        print(f"\n{Colors.YELLOW}ERROR: Pipeline did not produce a result.{Colors.RESET}")
+        sys.exit(1)
+    
+    if not result.success:
+        print(f"\n{Colors.YELLOW}ERROR: {result.error or 'Pipeline failed'}{Colors.RESET}")
+        sys.exit(1)
+    
+    # Print TSG
+    print(f"\n{Colors.BOLD}{'='*60}{Colors.RESET}")
+    print(f"{Colors.BOLD}GENERATED TSG{Colors.RESET}")
+    print(f"{Colors.BOLD}{'='*60}{Colors.RESET}\n")
+    print(result.tsg_content)
+    
+    # Print review warnings if any
+    if result.review_result:
+        warnings = (
+            result.review_result.get("accuracy_issues", []) +
+            result.review_result.get("suggestions", [])
+        )
+        if warnings:
+            print(f"\n{Colors.YELLOW}{'='*60}{Colors.RESET}")
+            print(f"{Colors.YELLOW}REVIEW NOTES{Colors.RESET}")
+            print(f"{Colors.YELLOW}{'='*60}{Colors.RESET}")
+            for warning in warnings:
+                print(f"  • {warning}")
+    
+    # Handle questions/follow-up
+    if result.questions_content and result.questions_content.strip() != "NO_MISSING":
+        print(f"\n{Colors.CYAN}{'='*60}{Colors.RESET}")
+        print(f"{Colors.CYAN}FOLLOW-UP QUESTIONS{Colors.RESET}")
+        print(f"{Colors.CYAN}{'='*60}{Colors.RESET}\n")
+        print(result.questions_content)
+        print(f"\n{Colors.DIM}(Answer these questions and re-run to complete the TSG){Colors.RESET}")
+    else:
+        print(f"\n{Colors.GREEN}✓ TSG is complete - no missing information.{Colors.RESET}")
+    
+    # Save output
+    if output_path and result.tsg_content:
+        path = Path(output_path)
+        path.write_text(result.tsg_content, encoding="utf-8")
+        print(f"\n{Colors.GREEN}TSG saved to: {path.resolve()}{Colors.RESET}")
+
+
+def run_single_agent_cli(notes: str, output_path: str | None = None, agent_id_override: str | None = None):
+    """Run TSG generation using single-agent mode (legacy)."""
     endpoint = os.getenv("PROJECT_ENDPOINT")
     if not endpoint:
         print("ERROR: PROJECT_ENDPOINT is required.", file=sys.stderr)
         sys.exit(1)
 
     agent_id = (
-        args.agent_id
+        agent_id_override
         or os.getenv("AGENT_ID")
         or Path(".agent_id").read_text(encoding="utf-8").strip()
     )
 
     project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
-
-    notes = load_notes(args.notes_file)
-    if not notes.strip():
-        print("ERROR: No notes provided.", file=sys.stderr)
-        sys.exit(1)
-
+    
     # Get the appropriate prompt builder based on configured style
     prompt_style = os.getenv("PROMPT_STYLE", DEFAULT_PROMPT_STYLE)
     prompt_builder = get_user_prompt_builder(prompt_style)
-    print(f"{Colors.DIM}Using prompt style: {prompt_style}{Colors.RESET}")
+    print(f"{Colors.DIM}Using single-agent mode with prompt style: {prompt_style}{Colors.RESET}")
 
     # Create MCP tool with approval mode set to "never" for automatic tool execution
     mcp_tool = McpTool(server_label="learn", server_url="https://learn.microsoft.com/api/mcp")
@@ -338,10 +489,10 @@ def main():
             continue
 
         # Save output if --output was specified
-        if args.output and final_tsg:
-            output_path = Path(args.output)
-            output_path.write_text(final_tsg, encoding="utf-8")
-            print(f"\n{Colors.GREEN}TSG saved to: {output_path.resolve()}{Colors.RESET}")
+        if output_path and final_tsg:
+            output_file = Path(output_path)
+            output_file.write_text(final_tsg, encoding="utf-8")
+            print(f"\n{Colors.GREEN}TSG saved to: {output_file.resolve()}{Colors.RESET}")
 
 
 if __name__ == "__main__":
