@@ -34,10 +34,6 @@ from tsg_constants import (
     TSG_END,
     QUESTIONS_BEGIN,
     QUESTIONS_END,
-    RESEARCH_BEGIN,
-    RESEARCH_END,
-    REVIEW_BEGIN,
-    REVIEW_END,
     # Stage instructions
     RESEARCH_STAGE_INSTRUCTIONS,
     WRITER_STAGE_INSTRUCTIONS,

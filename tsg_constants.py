@@ -337,7 +337,7 @@ def build_retry_prompt(original_notes: str, failed_response: str, validation_iss
 Please regenerate the TSG with the correct format. Remember:
 1. Start with <!-- TSG_BEGIN --> and end with <!-- TSG_END -->
 2. Include ALL required section headings exactly as in the template
-3. Use {{{{MISSING::<Section>::<Hint>}}}} for any information not in the notes
+3. Use {{MISSING::<Section>::<Hint>}} for any information not in the notes
 4. End with <!-- QUESTIONS_BEGIN --> ... <!-- QUESTIONS_END -->
 5. List one question per placeholder, OR output exactly "NO_MISSING"
 
@@ -501,7 +501,7 @@ Examples:
 - **Related Information**: Only DIRECTLY relevant URLs (see rules above)
 """
 
-WRITER_USER_PROMPT_TEMPLATE = """Write a TSG using ONLY the notes and research below. Use {{{{MISSING::...}}}} for any gaps.
+WRITER_USER_PROMPT_TEMPLATE = """Write a TSG using ONLY the notes and research below. Use {{MISSING::...}} for any gaps.
 
 <template>
 {template}
@@ -518,14 +518,14 @@ WRITER_USER_PROMPT_TEMPLATE = """Write a TSG using ONLY the notes and research b
 Requirements:
 1. Follow the template structure exactly (all headings required)
 2. Use information from notes and research only - no fabrication
-3. Use {{{{MISSING::<Section>::<Hint>}}}} for anything not provided
+3. Use {{MISSING::<Section>::<Hint>}} for anything not provided
 4. **Related Information**: Only include URLs DIRECTLY relevant to this issue:
    - URLs from the user's notes (highest priority)
    - Docs that directly explain the cause or solution
    - GitHub issues about THIS problem
    - Do NOT include general overviews, tutorials, or tangentially related content
 5. Output between <!-- TSG_BEGIN --> and <!-- TSG_END -->
-6. List questions for each {{{{MISSING}}}} between <!-- QUESTIONS_BEGIN --> and <!-- QUESTIONS_END -->
+6. List questions for each {{MISSING}} between <!-- QUESTIONS_BEGIN --> and <!-- QUESTIONS_END -->
 """
 
 
@@ -618,7 +618,7 @@ REVIEW_USER_PROMPT_TEMPLATE = """Review this TSG draft for quality and accuracy.
 Validate:
 1. Structure: All required sections and markers present
 2. Accuracy: Claims supported by research (no hallucinations)
-3. Completeness: Appropriate {{{{MISSING::...}}}} placeholders
+3. Completeness: Appropriate {{MISSING::...}} placeholders
 4. Format: Correct output format
 
 Output your review between <!-- REVIEW_BEGIN --> and <!-- REVIEW_END --> as JSON.
@@ -648,7 +648,7 @@ def build_writer_prompt(notes: str, research: str, prior_tsg: str | None = None,
     if prior_tsg:
         prompt += f"\n\n<prior_tsg>\n{prior_tsg}\n</prior_tsg>\n"
     if user_answers:
-        prompt += f"\n\n<answers>\n{user_answers}\n</answers>\nReplace {{{{MISSING::...}}}} placeholders with these answers.\n"
+        prompt += f"\n\n<answers>\n{user_answers}\n</answers>\nReplace {{MISSING::...}} placeholders with these answers.\n"
     return prompt
 
 
