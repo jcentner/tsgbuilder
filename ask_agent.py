@@ -262,9 +262,12 @@ def main():
 
     load_dotenv(find_dotenv())
 
-    # Determine mode
-    use_pipeline = not args.single_agent
-    if os.getenv("USE_PIPELINE", "true").lower() in ("false", "0", "no"):
+    # Determine mode:
+    # - USE_PIPELINE env sets the default (default is "true")
+    # - --single-agent always disables pipeline mode when provided
+    env_use_pipeline = os.getenv("USE_PIPELINE", "true").lower() not in ("false", "0", "no")
+    use_pipeline = env_use_pipeline
+    if args.single_agent:
         use_pipeline = False
     
     notes = load_notes(args.notes_file)
