@@ -320,8 +320,9 @@ def run_pipeline_cli(notes: str, output_path: str | None = None):
                     stage_enum = PipelineStage(stage)
                     icon, color = STAGE_STYLES.get(stage_enum, ("•", Colors.RESET))
                     print(f"\n{color}{icon} Stage: {stage.upper()}{Colors.RESET}")
-                except ValueError:
-                    pass
+                except ValueError as exc:
+                    # Unknown or invalid stage value: keep processing but log for observability.
+                    print(f"{Colors.YELLOW}⚠️  Unknown pipeline stage '{stage}': {exc}{Colors.RESET}", file=sys.stderr)
             
             # Handle different event types
             if event_type == "stage_start":
