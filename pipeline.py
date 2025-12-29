@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Generator, Optional
+from typing import Any
 
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
