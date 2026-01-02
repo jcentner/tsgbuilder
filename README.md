@@ -31,7 +31,7 @@ TSG Builder uses an Azure AI Foundry Agent (classic API) to:
 1. **Research** the issue using Bing Search and Microsoft Learn MCP
 2. **Generate** a structured TSG following your team's template
 3. **Iterate** by asking follow-up questions for missing information
-4. **Output** a production-ready markdown TSG
+4. **Output** a high-quality markdown TSG draft
 
 Source template: [TSG-Template.md - ADO](https://dev.azure.com/Supportability/AzureCognitiveServices/_git/AzureML?path=/AzureML/Welcome/TSG-Template.md&version=GBmaster&_a=preview)
 
