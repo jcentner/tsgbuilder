@@ -5,7 +5,7 @@ create_agent.py — create a classic Azure AI Foundry Agent that formats notes i
 Steps:
 - Connects to your Azure AI Foundry project using DefaultAzureCredential
 - Creates an agent with Bing Search and Microsoft Learn MCP attached (classic Agents API)
-- Saves the agent id for ask_agent.py to use
+- Saves the agent id for the web UI to use
 """
 
 import os

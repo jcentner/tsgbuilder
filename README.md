@@ -13,7 +13,6 @@ Transform raw troubleshooting notes into structured **Technical Support Guides (
 - [Installation](#installation)
 - [Configuration](#configuration)
   - [Finding Your Configuration Values](#finding-your-configuration-values)
-- [CLI Usage](#cli-usage)
 - [Makefile Commands](#makefile-commands)
 - [How It Works](#how-it-works)
   - [Agent Research Phase](#agent-research-phase)
@@ -184,77 +183,17 @@ AGENT_NAME=TSG-Builder
 1. In AI Foundry Portal, go to Deployments
 2. Use the name of your deployed model (e.g., `gpt-4.1`)
 
-## CLI Usage
-
-The command-line interface is available as an alternative to the web UI.
-
-### Validate Setup
-
-```bash
-make validate
-# or
-python validate_setup.py
-```
-
-This checks:
-- ✓ Required environment variables
-- ✓ Azure authentication
-- ✓ Project connectivity
-- ✓ Python dependencies
-
-### Create the Agent
-
-```bash
-make create-agent
-# or
-python create_agent.py
-```
-
-This creates an agent with:
-- Bing Search tool for web research
-- Microsoft Learn MCP for official documentation
-- TSG generation instructions
-
-### Generate a TSG
-
-```bash
-# Interactive mode (paste notes)
-python ask_agent.py
-
-# From a file
-python ask_agent.py --notes-file your-notes.txt
-
-# Save output to file
-python ask_agent.py --notes-file your-notes.txt --output tsg-output.md
-
-# Using make
-make run NOTES_FILE=your-notes.txt
-```
-
-### Input Format
-
-Create a text file with your raw troubleshooting notes. Include:
-- Error messages and codes
-- Customer symptoms
-- Any known workarounds
-- Relevant links (GitHub issues, Teams threads, etc.)
-
-See `input-example.txt` for a sample input.
-
 ## Makefile Commands
 
 | Command | Description |
 |---------|-------------|
 | `make setup` | First-time setup (venv + deps + .env) |
 | `make ui` | **Start the web UI** at http://localhost:5000 |
-| `make validate` | Check environment configuration (CLI) |
-| `make create-agent` | Create the Azure AI agent (CLI) |
-| `make run` | Run with `input.txt` (CLI) |
-| `make run NOTES_FILE=x.txt` | Run with custom notes file (CLI) |
-| `make run-example` | Run with `input-example.txt` |
-| `make run-save` | Run and save output to `output.md` |
+| `make validate` | Check environment configuration |
+| `make create-agent` | Create the Azure AI agent |
 | `make install` | Install dependencies only |
 | `make clean` | Remove venv and generated files |
+| `make lint` | Check Python syntax |
 | `make help` | Show all commands |
 
 ## How It Works
@@ -289,18 +228,6 @@ TSG Builder uses a **three-stage pipeline** for improved accuracy and reliabilit
 - **Fact-checking**: Claims match research (flags potential hallucinations)
 - **Auto-correction**: Fixes simple issues automatically
 - Retries up to 2x if validation fails
-
-### Single-Agent Mode (Legacy)
-
-You can disable the pipeline for legacy single-agent behavior:
-
-```bash
-# Via environment variable
-USE_PIPELINE=false make run
-
-# Via CLI flag
-python ask_agent.py --single-agent --notes-file input.txt
-```
 
 ### Agent Research Phase
 
@@ -418,10 +345,9 @@ If information is missing, the agent:
 
 | File | Purpose |
 |------|---------|
-| `create_agent.py` | Create the Azure AI Foundry agent |
-| `ask_agent.py` | CLI for TSG generation (supports pipeline & single-agent modes) |
 | `web_app.py` | Flask web UI server |
 | `pipeline.py` | **Multi-stage pipeline orchestration** (Research → Write → Review) |
+| `create_agent.py` | Create the Azure AI Foundry agent |
 | `validate_setup.py` | Validate environment configuration |
 | `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
 | `Makefile` | Common operations |
