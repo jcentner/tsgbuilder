@@ -5,7 +5,7 @@
 .venv/
 
 # Agent state (created per-deployment)
-.agent_id
+.agent_id*
 .agent_ref
 
 # Python cache

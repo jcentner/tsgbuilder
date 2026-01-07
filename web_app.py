@@ -49,6 +49,10 @@ from tsg_constants import (
     get_agent_instructions,
     get_user_prompt_builder,
     validate_tsg_output,
+    # Stage instructions for pipeline agents
+    RESEARCH_STAGE_INSTRUCTIONS,
+    WRITER_STAGE_INSTRUCTIONS,
+    REVIEW_STAGE_INSTRUCTIONS,
 )
 
 # Import pipeline for multi-stage generation
@@ -206,17 +210,48 @@ def get_project_client() -> AIProjectClient:
     return AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
 
 
+# Agent IDs JSON file path
+AGENT_IDS_FILE = Path(".agent_ids.json")
+
+
+def get_agent_ids() -> dict:
+    """Get all pipeline agent IDs from JSON file.
+    
+    Returns dict with keys: researcher, writer, reviewer, name_prefix
+    Raises ValueError if agents not configured.
+    """
+    if not AGENT_IDS_FILE.exists():
+        raise ValueError("No agents configured. Use Setup to create agents.")
+    
+    import json
+    data = json.loads(AGENT_IDS_FILE.read_text(encoding="utf-8"))
+    
+    required = ["researcher", "writer", "reviewer"]
+    missing = [k for k in required if not data.get(k)]
+    if missing:
+        raise ValueError(f"Missing agent IDs: {', '.join(missing)}. Use Setup to recreate agents.")
+    
+    return data
+
+
+def save_agent_ids(researcher: str, writer: str, reviewer: str, name_prefix: str):
+    """Save all pipeline agent IDs to JSON file."""
+    import json
+    data = {
+        "researcher": researcher,
+        "writer": writer,
+        "reviewer": reviewer,
+        "name_prefix": name_prefix,
+    }
+    AGENT_IDS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
 def get_agent_id() -> str:
-    """Get the agent ID from environment or file."""
-    agent_id = os.getenv("AGENT_ID")
-    if agent_id:
-        return agent_id
+    """Get the primary agent ID (for backwards compatibility).
     
-    agent_id_file = Path(".agent_id")
-    if agent_id_file.exists():
-        return agent_id_file.read_text(encoding="utf-8").strip()
-    
-    raise ValueError("No agent ID found. Run 'make create-agent' first.")
+    Returns the researcher agent ID as the 'primary' agent.
+    """
+    return get_agent_ids()["researcher"]
 
 
 def extract_blocks(content: str) -> tuple[str, str]:
@@ -313,9 +348,12 @@ def api_status():
             "has_model": False,
             "has_bing": False,
         },
-        "agent": {
-            "exists": False,
-            "id": None,
+        "agents": {
+            "configured": False,
+            "researcher": None,
+            "writer": None,
+            "reviewer": None,
+            "name_prefix": None,
         },
         "error": None,
     }
@@ -333,13 +371,16 @@ def api_status():
     result["config"]["has_model"] = bool(model)
     result["config"]["has_bing"] = bool(bing)
     
-    # Check agent
+    # Check agents
     try:
-        agent_id = get_agent_id()
-        result["agent"]["exists"] = True
-        result["agent"]["id"] = agent_id[:8] + "..." if agent_id else None
+        agent_ids = get_agent_ids()
+        result["agents"]["configured"] = True
+        result["agents"]["researcher"] = agent_ids.get("researcher", "")[:8] + "..."
+        result["agents"]["writer"] = agent_ids.get("writer", "")[:8] + "..."
+        result["agents"]["reviewer"] = agent_ids.get("reviewer", "")[:8] + "..."
+        result["agents"]["name_prefix"] = agent_ids.get("name_prefix")
     except ValueError:
-        result["agent"]["exists"] = False
+        result["agents"]["configured"] = False
     
     # Determine overall status
     config_complete = all([
@@ -348,14 +389,14 @@ def api_status():
         result["config"]["has_bing"],
     ])
     
-    if config_complete and result["agent"]["exists"]:
+    if config_complete and result["agents"]["configured"]:
         result["ready"] = True
     elif not config_complete:
         result["needs_setup"] = True
         result["error"] = "Configuration incomplete. Please configure your Azure settings."
     else:
         result["needs_setup"] = True
-        result["error"] = "Agent not created. Please create the agent first."
+        result["error"] = "Agents not created. Please run Setup to create agents."
     
     return jsonify(result)
 
@@ -541,13 +582,12 @@ def api_config_set():
 
 @app.route("/api/create-agent", methods=["POST"])
 def api_create_agent():
-    """Create the Azure AI Foundry agent."""
+    """Create all three pipeline agents (Researcher, Writer, Reviewer)."""
     # Validate required configuration
     endpoint = os.getenv("PROJECT_ENDPOINT")
     model = os.getenv("MODEL_DEPLOYMENT_NAME")
     conn_id = os.getenv("BING_CONNECTION_NAME")
     agent_name = os.getenv("AGENT_NAME", "TSG-Builder")
-    prompt_style = os.getenv("PROMPT_STYLE", DEFAULT_PROMPT_STYLE)
     
     missing = []
     if not endpoint:
@@ -566,42 +606,66 @@ def api_create_agent():
     try:
         project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
         
-        # Build tools list: Bing grounding + Microsoft Learn MCP
-        tools = []
-        
-        # Bing grounding for web/doc lookup
+        # Build tools for research agent (Bing + MCP)
+        research_tools = []
         bing_tool = BingGroundingTool(connection_id=conn_id)
-        tools.extend(bing_tool.definitions)
+        research_tools.extend(bing_tool.definitions)
         
-        # Microsoft Learn MCP for official documentation
         mcp_tool = McpTool(server_label="learn", server_url=LEARN_MCP_URL)
-        # Disable approval requirement so tools execute automatically
         mcp_tool.set_approval_mode("never")
-        tools.extend(mcp_tool.definitions)
+        research_tools.extend(mcp_tool.definitions)
         
-        # Get the appropriate instructions based on prompt style
-        agent_instructions = get_agent_instructions(prompt_style)
+        created_agents = {}
         
         with project:
-            agent = project.agents.create_agent(
+            # Create Researcher agent (with tools)
+            researcher = project.agents.create_agent(
                 model=model,
-                name=agent_name,
-                instructions=agent_instructions,
-                tools=tools,
+                name=f"{agent_name}-Researcher",
+                instructions=RESEARCH_STAGE_INSTRUCTIONS,
+                tools=research_tools,
                 tool_resources=mcp_tool.resources,
+                temperature=0,
             )
+            created_agents["researcher"] = researcher.id
+            
+            # Create Writer agent (no tools)
+            writer = project.agents.create_agent(
+                model=model,
+                name=f"{agent_name}-Writer",
+                instructions=WRITER_STAGE_INSTRUCTIONS,
+                tools=None,
+                temperature=0,
+            )
+            created_agents["writer"] = writer.id
+            
+            # Create Reviewer agent (no tools)
+            reviewer = project.agents.create_agent(
+                model=model,
+                name=f"{agent_name}-Reviewer",
+                instructions=REVIEW_STAGE_INSTRUCTIONS,
+                tools=None,
+                temperature=0,
+            )
+            created_agents["reviewer"] = reviewer.id
         
-        # Save agent ID
-        Path(".agent_id").write_text(agent.id + "\n", encoding="utf-8")
+        # Save all agent IDs
+        save_agent_ids(
+            researcher=created_agents["researcher"],
+            writer=created_agents["writer"],
+            reviewer=created_agents["reviewer"],
+            name_prefix=agent_name,
+        )
         
-        style_info = PROMPT_STYLES.get(prompt_style, PROMPT_STYLES[DEFAULT_PROMPT_STYLE])
         return jsonify({
             "success": True,
-            "agent_id": agent.id,
+            "agents": {
+                "researcher": created_agents["researcher"],
+                "writer": created_agents["writer"],
+                "reviewer": created_agents["reviewer"],
+            },
             "agent_name": agent_name,
-            "prompt_style": prompt_style,
-            "prompt_style_name": style_info["name"],
-            "message": f"Agent '{agent_name}' created with {style_info['name']} prompt style!",
+            "message": f"Created 3 pipeline agents: {agent_name}-Researcher, {agent_name}-Writer, {agent_name}-Reviewer",
         })
     
     except Exception as e:

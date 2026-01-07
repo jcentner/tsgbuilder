@@ -83,7 +83,7 @@ ui:
 clean:
 	@echo "Cleaning up..."
 	rm -rf .venv
-	rm -f .agent_id .agent_ref
+	rm -f .agent_id .agent_ref .agent_ids.json
 	rm -rf __pycache__ *.pyc
 	rm -f output.md
 	@echo "Cleaned. Run 'make setup' to start fresh."

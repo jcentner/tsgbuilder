@@ -183,6 +183,8 @@ class TSGPipeline:
     1. Research: Gather docs and information using tools
     2. Write: Create TSG from notes + research (no tools)
     3. Review: Validate structure and accuracy, auto-fix if possible
+    
+    Agents are created once during setup and reused across runs.
     """
     
     MAX_RETRIES = 2
@@ -190,19 +192,20 @@ class TSGPipeline:
     def __init__(
         self,
         project_endpoint: str,
-        agent_id: str,
+        researcher_agent_id: str,
+        writer_agent_id: str,
+        reviewer_agent_id: str,
         bing_connection_id: str | None = None,
         model_name: str | None = None,
     ):
         self.project_endpoint = project_endpoint
-        self.agent_id = agent_id
+        self.researcher_agent_id = researcher_agent_id
+        self.writer_agent_id = writer_agent_id
+        self.reviewer_agent_id = reviewer_agent_id
         self.bing_connection_id = bing_connection_id
         self.model_name = model_name or os.getenv("MODEL_DEPLOYMENT_NAME", "gpt-4.1")
         
         self._event_queue: queue.Queue | None = None
-        self._research_agent_id: str | None = None
-        self._writer_agent_id: str | None = None
-        self._review_agent_id: str | None = None
     
     def set_event_queue(self, event_queue: queue.Queue):
         """Set the event queue for SSE streaming."""
@@ -220,41 +223,6 @@ class TSGPipeline:
             endpoint=self.project_endpoint,
             credential=DefaultAzureCredential()
         )
-    
-    def _create_stage_agent(
-        self,
-        project: AIProjectClient,
-        name: str,
-        instructions: str,
-        with_tools: bool = False,
-    ) -> str:
-        """Create an agent for a specific stage."""
-        from azure.ai.agents.models import BingGroundingTool, McpTool
-        
-        tools = []
-        tool_resources = None
-        
-        if with_tools:
-            # Add Bing Search if connection available
-            if self.bing_connection_id:
-                bing_tool = BingGroundingTool(connection_id=self.bing_connection_id)
-                tools.extend(bing_tool.definitions)
-            
-            # Add Microsoft Learn MCP
-            mcp_tool = McpTool(server_label="learn", server_url=LEARN_MCP_URL)
-            mcp_tool.set_approval_mode("never")
-            tools.extend(mcp_tool.definitions)
-            tool_resources = mcp_tool.resources
-        
-        agent = project.agents.create_agent(
-            model=self.model_name,
-            name=name,
-            instructions=instructions,
-            tools=tools if tools else None,
-            tool_resources=tool_resources,
-            temperature=0,
-        )
-        return agent.id
     
     def _run_stage(
         self,
@@ -352,14 +320,6 @@ class TSGPipeline:
                 research_report = ""
                 if not user_answers:
                     # Only do research on initial generation, not follow-ups
-                    # Create research agent (with tools)
-                    research_agent_id = self._create_stage_agent(
-                        project,
-                        name="TSG-Researcher",
-                        instructions=RESEARCH_STAGE_INSTRUCTIONS,
-                        with_tools=True,
-                    )
-                    
                     research_prompt = build_research_prompt(notes)
                     # Note: Images are intentionally not passed to the research stage.
                     # Research gathers general documentation; images contain case-specific
@@ -367,7 +327,7 @@ class TSGPipeline:
                     
                     research_response, research_thread_id = self._run_stage(
                         project,
-                        research_agent_id,
+                        self.researcher_agent_id,
                         PipelineStage.RESEARCH,
                         research_prompt,
                     )
@@ -384,12 +344,6 @@ class TSGPipeline:
                         "message": "Research complete",
                         "has_content": bool(research_report),
                     })
-                    
-                    # Clean up research agent
-                    try:
-                        project.agents.delete_agent(research_agent_id)
-                    except Exception as e:
-                        logging.debug(f"Failed to delete research agent: {e}")
                 else:
                     # For follow-ups, skip research and use a placeholder
                     research_report = "(Follow-up - using prior research context)"
@@ -402,14 +356,6 @@ class TSGPipeline:
                     "message": "Writing TSG draft..."
                 })
                 
-                # Create writer agent (no tools)
-                writer_agent_id = self._create_stage_agent(
-                    project,
-                    name="TSG-Writer",
-                    instructions=WRITER_STAGE_INSTRUCTIONS,
-                    with_tools=False,
-                )
-                
                 writer_prompt = build_writer_prompt(
                     notes=notes,
                     research=research_report,
@@ -419,7 +365,7 @@ class TSGPipeline:
                 
                 write_response, write_thread_id = self._run_stage(
                     project,
-                    writer_agent_id,
+                    self.writer_agent_id,
                     PipelineStage.WRITE,
                     writer_prompt,
                 )
@@ -430,24 +376,10 @@ class TSGPipeline:
                     "message": "Draft complete",
                 })
                 
-                # Clean up writer agent
-                try:
-                    project.agents.delete_agent(writer_agent_id)
-                except Exception as e:
-                    logging.debug(f"Failed to delete writer agent: {e}")
-                
                 # --- Stage 3: Review (with retry loop) ---
                 self._send_stage_event(PipelineStage.REVIEW, "stage_start", {
                     "message": "Reviewing TSG quality..."
                 })
-                
-                # Create review agent (no tools)
-                review_agent_id = self._create_stage_agent(
-                    project,
-                    name="TSG-Reviewer",
-                    instructions=REVIEW_STAGE_INSTRUCTIONS,
-                    with_tools=False,
-                )
                 
                 draft_tsg = write_response
                 final_tsg = None
@@ -469,7 +401,7 @@ class TSGPipeline:
                         
                         review_response, _ = self._run_stage(
                             project,
-                            review_agent_id,
+                            self.reviewer_agent_id,
                             PipelineStage.REVIEW,
                             review_prompt,
                         )
@@ -521,7 +453,7 @@ Please fix these issues and regenerate the TSG with correct format.
 """
                             draft_tsg, _ = self._run_stage(
                                 project,
-                                writer_agent_id,
+                                self.writer_agent_id,
                                 PipelineStage.WRITE,
                                 fix_prompt,
                                 write_thread_id,
@@ -532,12 +464,6 @@ Please fix these issues and regenerate the TSG with correct format.
                             break
                 
                 result.stages_completed.append(PipelineStage.REVIEW)
-                
-                # Clean up review agent
-                try:
-                    project.agents.delete_agent(review_agent_id)
-                except Exception as e:
-                    logging.debug(f"Failed to delete review agent: {e}")
                 
                 # Extract final blocks
                 if final_tsg:
@@ -590,8 +516,9 @@ def run_pipeline(
     """
     Convenience function to run the TSG pipeline.
     
-    Loads configuration from environment variables.
+    Loads configuration from environment variables and agent IDs from storage.
     """
+    import json
     from dotenv import load_dotenv
     load_dotenv()
     
@@ -599,21 +526,31 @@ def run_pipeline(
     if not endpoint:
         raise ValueError("PROJECT_ENDPOINT environment variable required")
     
-    agent_id = os.getenv("AGENT_ID")
-    if not agent_id:
-        agent_id_file = Path(".agent_id")
-        if agent_id_file.exists():
-            agent_id = agent_id_file.read_text(encoding="utf-8").strip()
+    # Load agent IDs from storage
+    agent_ids_file = Path(".agent_ids.json")
+    if not agent_ids_file.exists():
+        raise ValueError("No agents configured. Use the web UI Setup wizard first.")
     
-    if not agent_id:
-        raise ValueError("No agent ID found. Run 'make create-agent' first.")
+    try:
+        agent_ids = json.loads(agent_ids_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, IOError) as e:
+        raise ValueError(f"Failed to load agent IDs: {e}") from e
+    
+    researcher_id = agent_ids.get("researcher")
+    writer_id = agent_ids.get("writer")
+    reviewer_id = agent_ids.get("reviewer")
+    
+    if not all([researcher_id, writer_id, reviewer_id]):
+        raise ValueError("Incomplete agent configuration. Re-run Setup wizard.")
     
     bing_connection_id = os.getenv("BING_CONNECTION_NAME")
     model_name = os.getenv("MODEL_DEPLOYMENT_NAME")
     
     pipeline = TSGPipeline(
         project_endpoint=endpoint,
-        agent_id=agent_id,
+        researcher_agent_id=researcher_id,
+        writer_agent_id=writer_id,
+        reviewer_agent_id=reviewer_id,
         bing_connection_id=bing_connection_id,
         model_name=model_name,
     )

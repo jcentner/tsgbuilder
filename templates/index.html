@@ -1683,18 +1683,23 @@ Include:
                     statusDiv.innerHTML = '<span>⏳</span> <span>Checking...</span>';
                 }
                 
-                // Update agent status display
-                if (data.agent && data.agent.exists) {
+                // Update agents status display
+                if (data.agents && data.agents.configured) {
+                    const prefix = data.agents.name_prefix || 'TSG';
                     document.getElementById('agentStatus').innerHTML = `
                         <div class="agent-info">
                             <span class="icon">🤖</span>
                             <div class="details">
-                                <div class="agent-name">Agent Ready</div>
-                                <div class="agent-id">ID: ${data.agent.id}</div>
+                                <div class="agent-name">3 Agents Ready (${prefix})</div>
+                                <div class="agent-id" style="font-size: 0.75em;">
+                                    Researcher: ${data.agents.researcher}<br>
+                                    Writer: ${data.agents.writer}<br>
+                                    Reviewer: ${data.agents.reviewer}
+                                </div>
                             </div>
                         </div>
                     `;
-                    document.getElementById('createAgentBtn').textContent = '✓ Agent Exists';
+                    document.getElementById('createAgentBtn').textContent = '✓ Agents Exist';
                 }
                 
             } catch (error) {
