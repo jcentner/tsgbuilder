@@ -4,9 +4,8 @@
 # Virtual environment
 .venv/
 
-# Agent state (created per-deployment)
-.agent_id*
-.agent_ref
+# Pipeline agent IDs (created per-deployment)
+.agent_ids.json
 
 # Python cache
 __pycache__/

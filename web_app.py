@@ -40,7 +40,6 @@ from tsg_constants import (
     TSG_END,
     QUESTIONS_BEGIN,
     QUESTIONS_END,
-    validate_tsg_output,
     # Stage instructions for pipeline agents
     RESEARCH_STAGE_INSTRUCTIONS,
     WRITER_STAGE_INSTRUCTIONS,
