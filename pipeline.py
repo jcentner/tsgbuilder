@@ -7,6 +7,7 @@ Orchestrates the Research → Write → Review stages for high-quality TSG gener
 
 from __future__ import annotations
 
+import logging
 import os
 import queue
 import time
@@ -360,7 +361,9 @@ class TSGPipeline:
                     )
                     
                     research_prompt = build_research_prompt(notes)
-                    # TODO: Add image support to research stage
+                    # Note: Images are intentionally not passed to the research stage.
+                    # Research gathers general documentation; images contain case-specific
+                    # details (screenshots, errors) that are analyzed in the Write stage.
                     
                     research_response, research_thread_id = self._run_stage(
                         project,
@@ -385,8 +388,8 @@ class TSGPipeline:
                     # Clean up research agent
                     try:
                         project.agents.delete_agent(research_agent_id)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logging.debug(f"Failed to delete research agent: {e}")
                 else:
                     # For follow-ups, skip research and use a placeholder
                     research_report = "(Follow-up - using prior research context)"
@@ -430,8 +433,8 @@ class TSGPipeline:
                 # Clean up writer agent
                 try:
                     project.agents.delete_agent(writer_agent_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.debug(f"Failed to delete writer agent: {e}")
                 
                 # --- Stage 3: Review (with retry loop) ---
                 self._send_stage_event(PipelineStage.REVIEW, "stage_start", {
@@ -533,8 +536,8 @@ Please fix these issues and regenerate the TSG with correct format.
                 # Clean up review agent
                 try:
                     project.agents.delete_agent(review_agent_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.debug(f"Failed to delete review agent: {e}")
                 
                 # Extract final blocks
                 if final_tsg:

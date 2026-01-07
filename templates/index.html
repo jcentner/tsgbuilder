@@ -771,9 +771,14 @@ Include:
             <div class="card">
                 <div class="card-header">
                     <h2>📄 Generated TSG</h2>
-                    <button class="btn btn-secondary copy-btn" onclick="copyTSG()" id="copyBtn" disabled>
-                        📋 Copy
-                    </button>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-secondary copy-btn" onclick="clearSession()" id="clearSessionBtn" disabled title="Clear current session and start fresh">
+                            🗑️ Clear Session
+                        </button>
+                        <button class="btn btn-secondary copy-btn" onclick="copyTSG()" id="copyBtn" disabled>
+                            📋 Copy
+                        </button>
+                    </div>
                 </div>
                 <div class="card-body">
                     <div id="errorMessage" class="error-message hidden"></div>
@@ -1193,9 +1198,36 @@ Include:
             showSuccess('TSG saved with current content.');
         }
 
+        async function clearSession() {
+            // Clear server-side session if we have one
+            if (currentThreadId) {
+                try {
+                    await fetch(`/api/session/${currentThreadId}`, { method: 'DELETE' });
+                } catch (e) {
+                    // Ignore errors - just clearing local state
+                }
+            }
+            
+            // Reset local state
+            currentThreadId = null;
+            currentTSG = '';
+            
+            // Reset UI
+            document.getElementById('tsgOutput').innerHTML = '<span style="color: var(--text-secondary);">Your generated TSG will appear here...</span>';
+            document.getElementById('copyBtn').disabled = true;
+            document.getElementById('clearSessionBtn').disabled = true;
+            document.getElementById('questionsPanel').classList.add('hidden');
+            document.getElementById('answersInput').value = '';
+            hideMessages();
+            
+            showSuccess('Session cleared. Ready for a fresh start!');
+            setTimeout(() => hideMessages(), 3000);
+        }
+
         function displayTSG(tsg) {
             document.getElementById('tsgOutput').textContent = tsg;
             document.getElementById('copyBtn').disabled = false;
+            document.getElementById('clearSessionBtn').disabled = false;
         }
 
         function showQuestions(questions) {
@@ -1297,6 +1329,7 @@ Include:
                 '<span style="color: var(--text-secondary);">Your generated TSG will appear here...</span>';
             document.getElementById('questionsPanel').classList.add('hidden');
             document.getElementById('copyBtn').disabled = true;
+            document.getElementById('clearSessionBtn').disabled = true;
             hideMessages();
             currentThreadId = null;
             currentTSG = '';

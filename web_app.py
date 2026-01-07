@@ -15,7 +15,7 @@ import threading
 import queue
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Any, Generator, Optional
+from typing import Any, Generator
 
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from dotenv import load_dotenv, find_dotenv, set_key
@@ -49,7 +49,6 @@ from tsg_constants import (
     get_agent_instructions,
     get_user_prompt_builder,
     validate_tsg_output,
-    build_retry_prompt,
 )
 
 # Import pipeline for multi-stage generation
@@ -238,7 +237,7 @@ class AgentRunResult:
     response_text: str
     thread_id: str
     run_id: str
-    error: Optional[dict] = None
+    error: dict | None = None
 
 
 def run_agent_with_streaming(

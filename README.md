@@ -189,8 +189,7 @@ AGENT_NAME=TSG-Builder
 |---------|-------------|
 | `make setup` | First-time setup (venv + deps + .env) |
 | `make ui` | **Start the web UI** at http://localhost:5000 |
-| `make validate` | Check environment configuration |
-| `make create-agent` | Create the Azure AI agent |
+| `make validate` | Check environment configuration (CLI troubleshooting) |
 | `make install` | Install dependencies only |
 | `make clean` | Remove venv and generated files |
 | `make lint` | Check Python syntax |
@@ -284,12 +283,12 @@ If information is missing, the agent:
 - Check you have the "Azure AI User" role on the project
 
 ### "Agent not found"
-- Run `python create_agent.py` to create the agent
+- Open the web UI and use the Setup wizard to create the agent
 - Check `.agent_id` file exists
 
 ### Agent doesn't use tools / research
 - The agent instructions mandate research before output
-- If this persists, recreate the agent: `make clean && make create-agent`
+- If this persists, recreate the agent via the Setup wizard in the web UI
 
 ### TSG missing documentation links
 - The agent is instructed to include URLs from research in "Related Information"
@@ -345,10 +344,9 @@ If information is missing, the agent:
 
 | File | Purpose |
 |------|---------|
-| `web_app.py` | Flask web UI server |
+| `web_app.py` | Flask web UI server (includes agent creation) |
 | `pipeline.py` | **Multi-stage pipeline orchestration** (Research → Write → Review) |
-| `create_agent.py` | Create the Azure AI Foundry agent |
-| `validate_setup.py` | Validate environment configuration |
+| `validate_setup.py` | Validate environment configuration (CLI troubleshooting) |
 | `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
 | `Makefile` | Common operations |
 | `.env` | Your configuration (git-ignored) |

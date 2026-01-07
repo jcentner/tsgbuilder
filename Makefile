@@ -1,7 +1,7 @@
 # TSG Builder Makefile
 # Common operations for the TSG Builder project
 
-.PHONY: setup install validate create-agent clean help ui lint
+.PHONY: setup install validate clean help ui lint
 
 # Default Python interpreter
 PYTHON ?= python3
@@ -18,8 +18,7 @@ help:
 	@echo "                      automatically if configuration is needed."
 	@echo ""
 	@echo "Utility commands:"
-	@echo "  make validate     - Validate environment configuration"
-	@echo "  make create-agent - Create the Azure AI Foundry agent"
+	@echo "  make validate     - Validate environment configuration (CLI)"
 	@echo "  make install      - Install dependencies only (assumes venv exists)"
 	@echo "  make clean        - Remove generated files and virtual environment"
 	@echo "  make lint         - Check Python syntax"
@@ -71,14 +70,6 @@ validate:
 		.venv/bin/python validate_setup.py; \
 	else \
 		$(PYTHON) validate_setup.py; \
-	fi
-
-create-agent:
-	@echo "Creating Azure AI Foundry agent..."
-	@if [ -d ".venv" ]; then \
-		.venv/bin/python create_agent.py; \
-	else \
-		$(PYTHON) create_agent.py; \
 	fi
 
 ui:
