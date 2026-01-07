@@ -34,7 +34,7 @@ def check_env_vars() -> tuple[bool, dict[str, str]]:
     print("\n[1/5] Checking environment variables...")
     
     required = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME", "BING_CONNECTION_NAME"]
-    optional = ["AGENT_NAME", "AGENT_ID"]
+    optional = ["AGENT_NAME"]
     
     env_vars = {}
     all_ok = True

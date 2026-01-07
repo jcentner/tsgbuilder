@@ -50,7 +50,7 @@ make ui
 The web UI will automatically open the setup wizard if configuration is needed. The setup wizard guides you through:
 1. **Configure** — Enter your Azure AI Foundry settings
 2. **Validate** — Verify authentication and connectivity
-3. **Create Agent** — Create the AI agent with one click
+3. **Create Agents** — Create the three pipeline agents (Researcher, Writer, Reviewer)
 
 ## Web UI
 
@@ -63,7 +63,7 @@ make ui
 Then open **http://localhost:5000** in your browser.
 
 **Features:**
-- ⚙️ **Built-in setup wizard** — Configure, validate, and create agent from the browser
+- ⚙️ **Built-in setup wizard** — Configure, validate, and create agents from the browser
 - 📝 Paste notes directly in the browser
 - �️ **Image support** — Attach screenshots via drag-and-drop, file picker, or paste
 - 🔄 Interactive follow-up questions
@@ -142,7 +142,7 @@ Configuration can be done in two ways:
 3. Enter your Azure configuration values
 4. Click **Save Configuration**
 5. Run **Validation** to verify everything works
-6. Click **Create Agent**
+6. Click **Create Agents**
 
 ### Option 2: Edit .env Manually
 
