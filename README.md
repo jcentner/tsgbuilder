@@ -283,8 +283,8 @@ If information is missing, the agent:
 - Check you have the "Azure AI User" role on the project
 
 ### "Agent not found"
-- Open the web UI and use the Setup wizard to create the agent
-- Check `.agent_id` file exists
+- Open the web UI and use the Setup wizard to create the agents
+- Check `.agent_ids.json` file exists
 
 ### Agent doesn't use tools / research
 - The agent instructions mandate research before output
@@ -351,7 +351,7 @@ If information is missing, the agent:
 | `Makefile` | Common operations |
 | `.env` | Your configuration (git-ignored) |
 | `.env-sample` | Configuration template |
-| `.agent_id` | Agent ID after creation |
+| `.agent_ids.json` | Pipeline agent IDs after creation |
 | `input-example.txt` | Example input notes |
 | `templates/index.html` | Web UI template |
 

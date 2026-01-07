@@ -120,17 +120,23 @@ def check_project_connection(endpoint: str) -> bool:
 
 
 def check_agent_ref() -> bool:
-    """Check if agent ID file exists."""
-    print("\n[4/5] Checking agent ID...")
+    """Check if agent IDs file exists."""
+    print("\n[4/5] Checking pipeline agents...")
     
-    agent_id_file = Path(".agent_id")
+    agent_ids_file = Path(".agent_ids.json")
     
-    if agent_id_file.exists():
-        agent_id = agent_id_file.read_text(encoding="utf-8").strip()
-        print_ok(f"Agent ID found: {agent_id}")
-        return True
+    if agent_ids_file.exists():
+        import json
+        try:
+            data = json.loads(agent_ids_file.read_text(encoding="utf-8"))
+            prefix = data.get("name_prefix", "TSG")
+            print_ok(f"3 pipeline agents configured ({prefix})")
+            return True
+        except (json.JSONDecodeError, IOError) as e:
+            print_warn(f"Agent IDs file exists but is invalid: {e}")
+            return True
     else:
-        print_warn("No agent created yet. Run 'python create_agent.py' or 'make create-agent' first.")
+        print_warn("No agents created yet. Use the Setup wizard in the web UI.")
         return True  # Not a failure, just not created yet
 
 
@@ -198,9 +204,9 @@ def main():
     if all_passed:
         print("All checks passed! You're ready to run the TSG Builder.")
         print("\nNext steps:")
-        if not Path(".agent_id").exists():
-            print("  1. Create the agent:  make create-agent")
-            print("  2. Run the UI:        make ui")
+        if not Path(".agent_ids.json").exists():
+            print("  1. Run the UI:  make ui")
+            print("  2. Use the Setup wizard to create agents")
         else:
             print("  Run the UI: make ui")
         sys.exit(0)

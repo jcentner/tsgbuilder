@@ -944,7 +944,8 @@ Include:
                 
                 if (data.ready) {
                     indicator.className = 'status-indicator ready';
-                    text.textContent = `Agent ready (${data.agent.id})`;
+                    const prefix = data.agents?.name_prefix || 'TSG';
+                    text.textContent = `3 agents ready (${prefix})`;
                     btn.disabled = false;
                 } else {
                     indicator.className = 'status-indicator error';
@@ -1441,23 +1442,23 @@ Include:
                     </button>
                 </div>
 
-                <!-- Step 3: Create Agent -->
+                <!-- Step 3: Create Agents -->
                 <div class="setup-section">
-                    <h3><span class="step-number">3</span> Create Agent</h3>
+                    <h3><span class="step-number">3</span> Create Agents</h3>
                     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
-                        Create the Azure AI Foundry agent with Bing Search and Microsoft Learn tools.
+                        Create the three pipeline agents (Researcher, Writer, Reviewer) with Azure AI Foundry.
                     </p>
                     
                     <div id="agentStatus">
                         <div id="noAgentInfo" class="validation-item warning">
                             <span class="validation-icon">⚠️</span>
-                            <span class="validation-name">No Agent</span>
-                            <span class="validation-message">Agent not created yet. Complete configuration and validation first.</span>
+                            <span class="validation-name">No Agents</span>
+                            <span class="validation-message">Agents not created yet. Complete configuration and validation first.</span>
                         </div>
                     </div>
                     
                     <button class="btn btn-success" onclick="createAgent()" id="createAgentBtn" disabled style="margin-top: 12px;">
-                        🤖 Create Agent
+                        🤖 Create Agents
                     </button>
                     <span id="agentCreateStatus" style="margin-left: 12px; font-size: 13px;"></span>
                 </div>
@@ -1636,32 +1637,36 @@ Include:
                 const result = await response.json();
                 
                 if (result.success) {
-                    status.textContent = '✓ Agent created!';
+                    status.textContent = '✓ Agents created!';
                     status.style.color = 'var(--success)';
                     
                     agentStatusDiv.innerHTML = `
                         <div class="agent-info">
                             <span class="icon">🤖</span>
                             <div class="details">
-                                <div class="agent-name">${result.agent_name}</div>
-                                <div class="agent-id">ID: ${result.agent_id}</div>
+                                <div class="agent-name">3 Agents Ready (${result.agent_name})</div>
+                                <div class="agent-id" style="font-size: 0.75em;">
+                                    Researcher: ${result.agents.researcher.substring(0, 8)}...<br>
+                                    Writer: ${result.agents.writer.substring(0, 8)}...<br>
+                                    Reviewer: ${result.agents.reviewer.substring(0, 8)}...
+                                </div>
                             </div>
                         </div>
                     `;
                     
-                    btn.textContent = '✓ Agent Created';
+                    btn.textContent = '✓ Agents Created';
                     updateSetupOverallStatus();
                 } else {
                     status.textContent = '✗ ' + result.error;
                     status.style.color = 'var(--error)';
                     btn.disabled = false;
-                    btn.textContent = '🤖 Create Agent';
+                    btn.textContent = '🤖 Create Agents';
                 }
             } catch (error) {
                 status.textContent = '✗ ' + error.message;
                 status.style.color = 'var(--error)';
                 btn.disabled = false;
-                btn.textContent = '🤖 Create Agent';
+                btn.textContent = '🤖 Create Agents';
             }
         }
 

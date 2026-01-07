@@ -484,29 +484,21 @@ def api_validate():
                 "critical": True,
             })
     
-    # 5. Check agent ID (not critical)
-    agent_id_file = Path(".agent_id")
-    agent_id = os.getenv("AGENT_ID")
-    if agent_id:
+    # 5. Check agent IDs (not critical)
+    try:
+        agent_ids = get_agent_ids()
+        prefix = agent_ids.get("name_prefix", "TSG")
         checks.append({
-            "name": "Agent ID",
+            "name": "Pipeline Agents",
             "passed": True,
-            "message": f"From environment: {agent_id[:8]}...",
+            "message": f"3 agents configured ({prefix})",
             "critical": False,
         })
-    elif agent_id_file.exists():
-        agent_id = agent_id_file.read_text(encoding="utf-8").strip()
+    except ValueError:
         checks.append({
-            "name": "Agent ID",
-            "passed": True,
-            "message": f"From .agent_id: {agent_id[:8]}...",
-            "critical": False,
-        })
-    else:
-        checks.append({
-            "name": "Agent ID",
+            "name": "Pipeline Agents",
             "passed": False,
-            "message": "Not found. Create an agent to continue.",
+            "message": "Not found. Create agents to continue.",
             "critical": False,
         })
     
@@ -799,10 +791,15 @@ def generate_sse_events(notes: str, thread_id: str | None = None, answers: str |
     
     # Get debug info from run result if available
     run_result = result_holder.get("run_result")
+    try:
+        agent_ids = get_agent_ids()
+        primary_agent_id = agent_ids.get("researcher")
+    except ValueError:
+        primary_agent_id = None
     debug_info = {
         "thread_id": result_holder.get("thread_id"),
         "run_id": run_result.run_id if run_result else None,
-        "agent_id": os.getenv("AGENT_ID") or (Path(".agent_id").read_text(encoding="utf-8").strip() if Path(".agent_id").exists() else None),
+        "agent_id": primary_agent_id,
     }
     
     # Send final result
@@ -1157,11 +1154,12 @@ def main():
         print("Please configure your .env file and restart.")
     
     try:
-        agent_id = get_agent_id()
-        print(f"Agent ID: {agent_id[:8]}...")
+        agent_ids = get_agent_ids()
+        prefix = agent_ids.get("name_prefix", "TSG")
+        print(f"Pipeline agents: 3 configured ({prefix})")
     except Exception as e:
         print(f"WARNING: {e}")
-        print("Run 'make create-agent' to create an agent before using the UI.")
+        print("Use the Setup wizard in the web UI to create agents.")
     
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
