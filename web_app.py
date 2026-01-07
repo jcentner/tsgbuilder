@@ -1073,6 +1073,17 @@ def api_delete_session(thread_id):
     return jsonify({"success": True})
 
 
+@app.route("/api/example")
+def api_example():
+    """Return the example input file content."""
+    example_path = Path("examples/capability-host-input.txt")
+    if not example_path.exists():
+        return jsonify({"error": "Example file not found"}), 404
+    
+    content = example_path.read_text(encoding="utf-8")
+    return jsonify({"content": content})
+
+
 def main():
     """Run the Flask development server."""
     # Check configuration before starting
