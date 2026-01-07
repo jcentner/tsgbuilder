@@ -95,7 +95,7 @@ Images are sent to the AI agent for visual analysis, which is especially useful 
 | Resource | Purpose | How to Get |
 |----------|---------|------------|
 | **Azure AI Foundry Project** | Hosts the agent | [Create a project](https://learn.microsoft.com/azure/ai-foundry/how-to/create-projects) |
-| **Model Deployment** | LLM for the agent (e.g., `gpt-4.1` or `gpt-5.2`) | Deploy in your project |
+| **Model Deployment** | LLM for the agent (recommend `gpt-4.1`) | Deploy in your project |
 | **Bing Search Connection** | Web research capability | [Connect Bing Search](https://learn.microsoft.com/azure/ai-foundry/how-to/connections-add) |
 
 ### Local Requirements
@@ -133,36 +133,12 @@ cp .env-sample .env
 
 ## Configuration
 
-Configuration can be done in two ways:
-
-### Option 1: Via Web UI (Recommended)
-
 1. Run `make ui` and open http://localhost:5000
 2. Click the **⚙️ Setup** button (or it opens automatically)
 3. Enter your Azure configuration values
 4. Click **Save Configuration**
 5. Run **Validation** to verify everything works
 6. Click **Create Agents**
-
-### Option 2: Edit .env Manually
-
-Edit `.env` with your Azure configuration:
-
-```bash
-# Required: Your Azure AI Foundry project endpoint
-# Found in: Azure Portal > AI Foundry > Project > Overview
-PROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project
-
-# Required: Full resource ID of your Bing Search connection
-# Found in: AI Foundry Portal > Management Center > Connected Resources
-BING_CONNECTION_NAME=/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/projects/<project>/connections/<bing-connection>
-
-# Required: Name of your model deployment (recommended: gpt-4.1)
-MODEL_DEPLOYMENT_NAME=gpt-4.1
-
-# Optional: Custom name for your agent (default: TSG-Builder)
-AGENT_NAME=TSG-Builder
-```
 
 ### Finding Your Configuration Values
 
@@ -275,6 +251,7 @@ If information is missing, the agent:
 - Run `make validate` to check all variables
 
 ### "Azure authentication failed"
+- Ensure Azure CLI is installed ([Install Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli))
 - Run `az login` to authenticate
 - Ensure your account has access to the AI Foundry project
 
