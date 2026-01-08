@@ -21,10 +21,12 @@ help:
 	@echo "  make validate     - Validate environment configuration (CLI)"
 	@echo "  make install      - Install dependencies only (assumes venv exists)"
 	@echo "  make clean        - Remove generated files and virtual environment"
+	@echo "                      Add DELETE_AGENTS=1 to also delete agents from Azure"
 	@echo "  make lint         - Check Python syntax"
 	@echo ""
 	@echo "Example:"
 	@echo "  make setup && make ui    # Recommended: setup then open UI"
+	@echo "  make clean DELETE_AGENTS=1  # Clean and delete agents from Azure"
 
 setup: .venv install env-file
 	@echo ""
@@ -82,6 +84,14 @@ ui:
 
 clean:
 	@echo "Cleaning up..."
+ifdef DELETE_AGENTS
+	@echo "Deleting agents from Azure..."
+	@if [ -d ".venv" ]; then \
+		.venv/bin/python delete_agents.py --yes || true; \
+	else \
+		$(PYTHON) delete_agents.py --yes || true; \
+	fi
+endif
 	rm -rf .venv
 	rm -f .agent_ids.json
 	rm -rf __pycache__ *.pyc
