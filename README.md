@@ -63,6 +63,7 @@ make ui
 Then open **http://localhost:5000** in your browser.
 
 > ⚠️ **Note**: This web UI is intended for local development use only. Do not expose it to the internet without adding proper authentication and security measures.
+
 > ⚠️ **Note**: This tool uses an Azure AI Agent to search the internet. Be mindful of customer data; it should never be in your input notes or input images. 
 
 **Features:**
