@@ -71,8 +71,7 @@ Then open **http://localhost:5000** in your browser.
 - 📝 Paste notes directly in the browser
 - �️ **Image support** — Attach screenshots via drag-and-drop, file picker, or paste
 - 🔄 Interactive follow-up questions
-- 📋 One-click copy to clipboard
-- 📊 Real-time status indicator
+- 📋 One-click copy to clipboard- 👁️ **Raw/Preview toggle** — Switch between raw markdown (for copy/paste) and rendered preview- 📊 Real-time status indicator
 - 💡 Load example input with one click
 
 ### Attaching Images
@@ -172,6 +171,7 @@ cp .env-sample .env
 | `make validate` | Check environment configuration (CLI troubleshooting) |
 | `make install` | Install dependencies only |
 | `make clean` | Remove venv and generated files |
+| `make clean DELETE_AGENTS=1` | Also delete agents from Azure before cleaning |
 | `make lint` | Check Python syntax |
 | `make help` | Show all commands |
 
@@ -326,8 +326,7 @@ If information is missing, the agent:
 |------|---------|
 | `web_app.py` | Flask web UI server (includes agent creation) |
 | `pipeline.py` | **Multi-stage pipeline orchestration** (Research → Write → Review) |
-| `validate_setup.py` | Validate environment configuration (CLI troubleshooting) |
-| `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
+| `validate_setup.py` | Validate environment configuration (CLI troubleshooting) || `delete_agents.py` | Delete agents from Azure (used by `make clean DELETE_AGENTS=1`) || `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
 | `Makefile` | Common operations |
 | `.env` | Your configuration (git-ignored) |
 | `.env-sample` | Configuration template |
