@@ -62,6 +62,8 @@ make ui
 
 Then open **http://localhost:5000** in your browser.
 
+> ⚠️ **Note**: This web UI is intended for local development use only. Do not expose it to the internet without adding proper authentication and security measures.
+
 **Features:**
 - ⚙️ **Built-in setup wizard** — Configure, validate, and create agents from the browser
 - 📝 Paste notes directly in the browser
