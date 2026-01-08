@@ -136,12 +136,13 @@ This will:
 
 ## Configuration
 
-1. Run `make ui` and open http://localhost:5000
-2. Click the **⚙️ Setup** button (or it opens automatically)
-3. Enter your Azure configuration values
-4. Click **Save Configuration**
-5. Run **Validation** to verify everything works
-6. Click **Create Agents**
+Run `make ui` and open http://localhost:5000
+
+1. Click the **⚙️ Setup** button (or it opens automatically)
+2. Enter your Azure configuration values
+3. Click **Save Configuration**
+4. Run **Validation** to verify everything works
+5. Click **Create Agents**
 
 ### Finding Your Configuration Values
 
