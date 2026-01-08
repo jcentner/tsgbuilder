@@ -214,7 +214,6 @@ def get_agent_ids() -> dict:
     if not AGENT_IDS_FILE.exists():
         raise ValueError("No agents configured. Use Setup to create agents.")
     
-    import json
     data = json.loads(AGENT_IDS_FILE.read_text(encoding="utf-8"))
     
     required = ["researcher", "writer", "reviewer"]
@@ -227,7 +226,6 @@ def get_agent_ids() -> dict:
 
 def save_agent_ids(researcher: str, writer: str, reviewer: str, name_prefix: str):
     """Save all pipeline agent IDs to JSON file."""
-    import json
     data = {
         "researcher": researcher,
         "writer": writer,
