@@ -2,6 +2,16 @@
 
 Transform raw troubleshooting notes into structured **Technical Support Guides (TSGs)** using an Azure AI Foundry Agent with Bing Search and Microsoft Learn MCP integration.
 
+## Why TSG Builder?
+
+Writing high-quality troubleshooting guides is essential to Support knowledge curation, but tedious. In fast-moving areas like Azure AI Support, new issues emerge constantly, each requiring a new TSG. 
+
+TSG Builder was born out of this frustration. The idea: **you provide a raw dump of info to start from, the tool researches and formats**.
+
+- **Human + AI collaboration** — You curate initial notes from cases, threads with engineering, incidents; the agent enhances them with research from public docs like Microsoft Learn and relevant GitHub discussions
+- **Fits existing workflows** — Support and supportability teams already review common issues to identify TSG candidates; those notes become your input
+- **Broadly applicable** — Agnostic to team, technology, or support area
+
 ## Table of Contents
 
 - [Overview](#overview)
