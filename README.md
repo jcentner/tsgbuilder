@@ -40,6 +40,8 @@ Source template: [TSG-Template.md - ADO](https://dev.azure.com/Supportability/Az
 
 ## Quick Start
 
+> See [Prerequisites](#prerequisites) for Windows/PowerShell instructions 
+
 ```bash
 # 1. Clone and setup
 git clone <repo-url>
