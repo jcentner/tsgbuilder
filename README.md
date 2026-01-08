@@ -102,18 +102,24 @@ Images are sent to the AI agent for visual analysis, which is especially useful 
 | Resource | Purpose | How to Get |
 |----------|---------|------------|
 | **Azure AI Foundry Project** | Hosts the agent | [Create a project](https://learn.microsoft.com/azure/ai-foundry/how-to/create-projects) |
-| **Model Deployment** | LLM for the agent (recommend `gpt-4.1`) | Deploy in your project |
+| **Model Deployment** | LLM for the agent (designed for `gpt-4.1`) | Deploy in your project |
 | **Bing Search Connection** | Web research capability | [Connect Bing Search](https://learn.microsoft.com/azure/ai-foundry/how-to/connections-add) |
 
 ### Local Requirements
 
 - Python 3.9+
+- GNU Make
 - Azure CLI (logged in with `az login`)
-- Access to the Azure AI Foundry project
+- Access to an Azure AI Foundry project
+
+> **Windows (PowerShell)**: Install Make and add to PATH:
+> ```powershell
+> winget install GnuWin32.Make
+> [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Program Files (x86)\GnuWin32\bin", "User")
+> ```
+> Then **restart PowerShell** for the PATH change to take effect.
 
 ## Installation
-
-### Option 1: Using Make (Recommended)
 
 ```bash
 make setup
@@ -123,20 +129,6 @@ This will:
 - Create a virtual environment (`.venv/`)
 - Install dependencies
 - Copy `.env-sample` to `.env`
-
-### Option 2: Manual Setup
-
-```bash
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Create .env file
-cp .env-sample .env
-```
 
 ## Configuration
 
