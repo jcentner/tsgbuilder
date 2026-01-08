@@ -11,13 +11,10 @@ This directory contains example input files and their expected outputs to help y
 
 ## Usage
 
-```bash
-# Run with the example input
-python ask_agent.py --notes-file examples/capability-host-input.txt --output examples/my-output.md
-
-# Compare your output to the expected output
-diff examples/my-output.md examples/capability-host-expected.md
-```
+1. Start the web UI: `make ui`
+2. Open http://localhost:5000
+3. Click "Load example" to load `input-example.txt`, or paste content from your own notes on an issue
+4. Click "Generate TSG"
 
 ## Notes
 

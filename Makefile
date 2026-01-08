@@ -1,13 +1,10 @@
 # TSG Builder Makefile
 # Common operations for the TSG Builder project
 
-.PHONY: setup install validate create-agent run run-example clean help ui
+.PHONY: setup install validate clean help ui lint
 
 # Default Python interpreter
 PYTHON ?= python3
-
-# Default notes file
-NOTES_FILE ?= input.txt
 
 help:
 	@echo "TSG Builder - Available Commands"
@@ -20,22 +17,14 @@ help:
 	@echo "                      available in the UI. The setup wizard opens"
 	@echo "                      automatically if configuration is needed."
 	@echo ""
-	@echo "CLI Commands (alternative to UI):"
-	@echo "  make validate     - Validate environment configuration"
-	@echo "  make create-agent - Create the Azure AI Foundry agent"
-	@echo "  make run          - Run inference with default notes file (input.txt)"
-	@echo "  make run-example  - Run inference with example input"
-	@echo ""
 	@echo "Utility commands:"
+	@echo "  make validate     - Validate environment configuration (CLI)"
 	@echo "  make install      - Install dependencies only (assumes venv exists)"
 	@echo "  make clean        - Remove generated files and virtual environment"
+	@echo "  make lint         - Check Python syntax"
 	@echo ""
-	@echo "Variables:"
-	@echo "  NOTES_FILE=<path> - Specify notes file for 'make run'"
-	@echo ""
-	@echo "Examples:"
+	@echo "Example:"
 	@echo "  make setup && make ui    # Recommended: setup then open UI"
-	@echo "  make run NOTES_FILE=my-notes.txt"
 
 setup: .venv install env-file
 	@echo ""
@@ -83,41 +72,6 @@ validate:
 		$(PYTHON) validate_setup.py; \
 	fi
 
-create-agent:
-	@echo "Creating Azure AI Foundry agent..."
-	@if [ -d ".venv" ]; then \
-		.venv/bin/python create_agent.py; \
-	else \
-		$(PYTHON) create_agent.py; \
-	fi
-
-run:
-	@echo "Running TSG agent with $(NOTES_FILE)..."
-	@if [ ! -f "$(NOTES_FILE)" ]; then \
-		echo "ERROR: Notes file not found: $(NOTES_FILE)"; \
-		exit 1; \
-	fi
-	@if [ -d ".venv" ]; then \
-		.venv/bin/python ask_agent.py --notes-file $(NOTES_FILE); \
-	else \
-		$(PYTHON) ask_agent.py --notes-file $(NOTES_FILE); \
-	fi
-
-run-example:
-	@$(MAKE) run NOTES_FILE=input-example.txt
-
-run-save:
-	@echo "Running TSG agent and saving output..."
-	@if [ ! -f "$(NOTES_FILE)" ]; then \
-		echo "ERROR: Notes file not found: $(NOTES_FILE)"; \
-		exit 1; \
-	fi
-	@if [ -d ".venv" ]; then \
-		.venv/bin/python ask_agent.py --notes-file $(NOTES_FILE) --output output.md; \
-	else \
-		$(PYTHON) ask_agent.py --notes-file $(NOTES_FILE) --output output.md; \
-	fi
-
 ui:
 	@echo "Starting TSG Builder web UI..."
 	@if [ -d ".venv" ]; then \
@@ -129,7 +83,7 @@ ui:
 clean:
 	@echo "Cleaning up..."
 	rm -rf .venv
-	rm -f .agent_id .agent_ref
+	rm -f .agent_ids.json
 	rm -rf __pycache__ *.pyc
 	rm -f output.md
 	@echo "Cleaned. Run 'make setup' to start fresh."

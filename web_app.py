@@ -9,13 +9,11 @@ from __future__ import annotations
 
 import json
 import os
-import sys
-import time
 import threading
 import queue
 from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Any, Generator, Optional
+from dataclasses import dataclass
+from typing import Any, Generator
 
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from dotenv import load_dotenv, find_dotenv, set_key
@@ -42,14 +40,10 @@ from tsg_constants import (
     TSG_END,
     QUESTIONS_BEGIN,
     QUESTIONS_END,
-    build_user_prompt,
-    AGENT_INSTRUCTIONS,
-    PROMPT_STYLES,
-    DEFAULT_PROMPT_STYLE,
-    get_agent_instructions,
-    get_user_prompt_builder,
-    validate_tsg_output,
-    build_retry_prompt,
+    # Stage instructions for pipeline agents
+    RESEARCH_STAGE_INSTRUCTIONS,
+    WRITER_STAGE_INSTRUCTIONS,
+    REVIEW_STAGE_INSTRUCTIONS,
 )
 
 # Import pipeline for multi-stage generation
@@ -207,17 +201,38 @@ def get_project_client() -> AIProjectClient:
     return AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
 
 
-def get_agent_id() -> str:
-    """Get the agent ID from environment or file."""
-    agent_id = os.getenv("AGENT_ID")
-    if agent_id:
-        return agent_id
+# Agent IDs JSON file path
+AGENT_IDS_FILE = Path(".agent_ids.json")
+
+
+def get_agent_ids() -> dict:
+    """Get all pipeline agent IDs from JSON file.
     
-    agent_id_file = Path(".agent_id")
-    if agent_id_file.exists():
-        return agent_id_file.read_text(encoding="utf-8").strip()
+    Returns dict with keys: researcher, writer, reviewer, name_prefix
+    Raises ValueError if agents not configured.
+    """
+    if not AGENT_IDS_FILE.exists():
+        raise ValueError("No agents configured. Use Setup to create agents.")
     
-    raise ValueError("No agent ID found. Run 'make create-agent' first.")
+    data = json.loads(AGENT_IDS_FILE.read_text(encoding="utf-8"))
+    
+    required = ["researcher", "writer", "reviewer"]
+    missing = [k for k in required if not data.get(k)]
+    if missing:
+        raise ValueError(f"Missing agent IDs: {', '.join(missing)}. Use Setup to recreate agents.")
+    
+    return data
+
+
+def save_agent_ids(researcher: str, writer: str, reviewer: str, name_prefix: str):
+    """Save all pipeline agent IDs to JSON file."""
+    data = {
+        "researcher": researcher,
+        "writer": writer,
+        "reviewer": reviewer,
+        "name_prefix": name_prefix,
+    }
+    AGENT_IDS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def extract_blocks(content: str) -> tuple[str, str]:
@@ -238,7 +253,7 @@ class AgentRunResult:
     response_text: str
     thread_id: str
     run_id: str
-    error: Optional[dict] = None
+    error: dict | None = None
 
 
 def run_agent_with_streaming(
@@ -271,31 +286,6 @@ def run_agent_with_streaming(
     )
 
 
-def run_agent_and_get_response(project: AIProjectClient, thread_id: str, agent_id: str) -> str:
-    """Create a run, poll until complete, and return the assistant's response text (fallback)."""
-    run = project.agents.runs.create(thread_id=thread_id, agent_id=agent_id)
-    
-    while run.status in ("queued", "in_progress", "requires_action"):
-        time.sleep(1)
-        run = project.agents.runs.get(thread_id=thread_id, run_id=run.id)
-    
-    if run.status == "failed":
-        error_msg = getattr(run, "last_error", None)
-        raise RuntimeError(f"Agent run failed: {error_msg}")
-    
-    messages = project.agents.messages.list(thread_id=thread_id)
-    
-    for message in messages:
-        if message.role == "assistant":
-            text_parts = []
-            for content_item in message.content:
-                if hasattr(content_item, "text") and content_item.text:
-                    text_parts.append(content_item.text.value)
-            return "\n".join(text_parts)
-    
-    return ""
-
-
 @app.route("/")
 def index():
     """Serve the main page."""
@@ -314,9 +304,12 @@ def api_status():
             "has_model": False,
             "has_bing": False,
         },
-        "agent": {
-            "exists": False,
-            "id": None,
+        "agents": {
+            "configured": False,
+            "researcher": None,
+            "writer": None,
+            "reviewer": None,
+            "name_prefix": None,
         },
         "error": None,
     }
@@ -334,13 +327,16 @@ def api_status():
     result["config"]["has_model"] = bool(model)
     result["config"]["has_bing"] = bool(bing)
     
-    # Check agent
+    # Check agents
     try:
-        agent_id = get_agent_id()
-        result["agent"]["exists"] = True
-        result["agent"]["id"] = agent_id[:8] + "..." if agent_id else None
+        agent_ids = get_agent_ids()
+        result["agents"]["configured"] = True
+        result["agents"]["researcher"] = agent_ids.get("researcher", "")[:8] + "..."
+        result["agents"]["writer"] = agent_ids.get("writer", "")[:8] + "..."
+        result["agents"]["reviewer"] = agent_ids.get("reviewer", "")[:8] + "..."
+        result["agents"]["name_prefix"] = agent_ids.get("name_prefix")
     except ValueError:
-        result["agent"]["exists"] = False
+        result["agents"]["configured"] = False
     
     # Determine overall status
     config_complete = all([
@@ -349,14 +345,14 @@ def api_status():
         result["config"]["has_bing"],
     ])
     
-    if config_complete and result["agent"]["exists"]:
+    if config_complete and result["agents"]["configured"]:
         result["ready"] = True
     elif not config_complete:
         result["needs_setup"] = True
         result["error"] = "Configuration incomplete. Please configure your Azure settings."
     else:
         result["needs_setup"] = True
-        result["error"] = "Agent not created. Please create the agent first."
+        result["error"] = "Agents not created. Please run Setup to create agents."
     
     return jsonify(result)
 
@@ -444,29 +440,21 @@ def api_validate():
                 "critical": True,
             })
     
-    # 5. Check agent ID (not critical)
-    agent_id_file = Path(".agent_id")
-    agent_id = os.getenv("AGENT_ID")
-    if agent_id:
+    # 5. Check agent IDs (not critical)
+    try:
+        agent_ids = get_agent_ids()
+        prefix = agent_ids.get("name_prefix", "TSG")
         checks.append({
-            "name": "Agent ID",
+            "name": "Pipeline Agents",
             "passed": True,
-            "message": f"From environment: {agent_id[:8]}...",
+            "message": f"3 agents configured ({prefix})",
             "critical": False,
         })
-    elif agent_id_file.exists():
-        agent_id = agent_id_file.read_text(encoding="utf-8").strip()
+    except ValueError:
         checks.append({
-            "name": "Agent ID",
-            "passed": True,
-            "message": f"From .agent_id: {agent_id[:8]}...",
-            "critical": False,
-        })
-    else:
-        checks.append({
-            "name": "Agent ID",
+            "name": "Pipeline Agents",
             "passed": False,
-            "message": "Not found. Create an agent to continue.",
+            "message": "Not found. Create agents to continue.",
             "critical": False,
         })
     
@@ -489,18 +477,8 @@ def api_config_get():
         "MODEL_DEPLOYMENT_NAME": os.getenv("MODEL_DEPLOYMENT_NAME", ""),
         "BING_CONNECTION_NAME": os.getenv("BING_CONNECTION_NAME", ""),
         "AGENT_NAME": os.getenv("AGENT_NAME", "TSG-Builder"),
-        "PROMPT_STYLE": os.getenv("PROMPT_STYLE", DEFAULT_PROMPT_STYLE),
     }
-    # Include available prompt styles metadata
-    prompt_styles_info = {
-        key: {"name": val["name"], "description": val["description"]}
-        for key, val in PROMPT_STYLES.items()
-    }
-    return jsonify({
-        **config,
-        "prompt_styles": prompt_styles_info,
-        "default_prompt_style": DEFAULT_PROMPT_STYLE,
-    })
+    return jsonify(config)
 
 
 @app.route("/api/config", methods=["POST"])
@@ -520,7 +498,7 @@ def api_config_set():
             dotenv_path.touch()
         dotenv_path = str(dotenv_path.absolute())
     
-    allowed_keys = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME", "BING_CONNECTION_NAME", "AGENT_NAME", "PROMPT_STYLE"]
+    allowed_keys = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME", "BING_CONNECTION_NAME", "AGENT_NAME"]
     updated = []
     
     for key in allowed_keys:
@@ -542,13 +520,12 @@ def api_config_set():
 
 @app.route("/api/create-agent", methods=["POST"])
 def api_create_agent():
-    """Create the Azure AI Foundry agent."""
+    """Create all three pipeline agents (Researcher, Writer, Reviewer)."""
     # Validate required configuration
     endpoint = os.getenv("PROJECT_ENDPOINT")
     model = os.getenv("MODEL_DEPLOYMENT_NAME")
     conn_id = os.getenv("BING_CONNECTION_NAME")
     agent_name = os.getenv("AGENT_NAME", "TSG-Builder")
-    prompt_style = os.getenv("PROMPT_STYLE", DEFAULT_PROMPT_STYLE)
     
     missing = []
     if not endpoint:
@@ -567,42 +544,66 @@ def api_create_agent():
     try:
         project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
         
-        # Build tools list: Bing grounding + Microsoft Learn MCP
-        tools = []
-        
-        # Bing grounding for web/doc lookup
+        # Build tools for research agent (Bing + MCP)
+        research_tools = []
         bing_tool = BingGroundingTool(connection_id=conn_id)
-        tools.extend(bing_tool.definitions)
+        research_tools.extend(bing_tool.definitions)
         
-        # Microsoft Learn MCP for official documentation
         mcp_tool = McpTool(server_label="learn", server_url=LEARN_MCP_URL)
-        # Disable approval requirement so tools execute automatically
         mcp_tool.set_approval_mode("never")
-        tools.extend(mcp_tool.definitions)
+        research_tools.extend(mcp_tool.definitions)
         
-        # Get the appropriate instructions based on prompt style
-        agent_instructions = get_agent_instructions(prompt_style)
+        created_agents = {}
         
         with project:
-            agent = project.agents.create_agent(
+            # Create Researcher agent (with tools)
+            researcher = project.agents.create_agent(
                 model=model,
-                name=agent_name,
-                instructions=agent_instructions,
-                tools=tools,
+                name=f"{agent_name}-Researcher",
+                instructions=RESEARCH_STAGE_INSTRUCTIONS,
+                tools=research_tools,
                 tool_resources=mcp_tool.resources,
+                temperature=0,
             )
+            created_agents["researcher"] = researcher.id
+            
+            # Create Writer agent (no tools)
+            writer = project.agents.create_agent(
+                model=model,
+                name=f"{agent_name}-Writer",
+                instructions=WRITER_STAGE_INSTRUCTIONS,
+                tools=None,
+                temperature=0,
+            )
+            created_agents["writer"] = writer.id
+            
+            # Create Reviewer agent (no tools)
+            reviewer = project.agents.create_agent(
+                model=model,
+                name=f"{agent_name}-Reviewer",
+                instructions=REVIEW_STAGE_INSTRUCTIONS,
+                tools=None,
+                temperature=0,
+            )
+            created_agents["reviewer"] = reviewer.id
         
-        # Save agent ID
-        Path(".agent_id").write_text(agent.id + "\n", encoding="utf-8")
+        # Save all agent IDs
+        save_agent_ids(
+            researcher=created_agents["researcher"],
+            writer=created_agents["writer"],
+            reviewer=created_agents["reviewer"],
+            name_prefix=agent_name,
+        )
         
-        style_info = PROMPT_STYLES.get(prompt_style, PROMPT_STYLES[DEFAULT_PROMPT_STYLE])
         return jsonify({
             "success": True,
-            "agent_id": agent.id,
+            "agents": {
+                "researcher": created_agents["researcher"],
+                "writer": created_agents["writer"],
+                "reviewer": created_agents["reviewer"],
+            },
             "agent_name": agent_name,
-            "prompt_style": prompt_style,
-            "prompt_style_name": style_info["name"],
-            "message": f"Agent '{agent_name}' created with {style_info['name']} prompt style!",
+            "message": f"Created 3 pipeline agents: {agent_name}-Researcher, {agent_name}-Writer, {agent_name}-Reviewer",
         })
     
     except Exception as e:
@@ -638,151 +639,6 @@ def build_message_content(text: str, images: list[dict] | None = None) -> list |
         content_blocks.append(MessageInputImageUrlBlock(image_url=url_param))
     
     return content_blocks
-
-
-def generate_sse_events(notes: str, thread_id: str | None = None, answers: str | None = None, images: list[dict] | None = None) -> Generator[str, None, None]:
-    """Generator that yields SSE events during agent execution.
-    
-    Args:
-        notes: The troubleshooting notes text
-        thread_id: Optional existing thread ID for follow-up
-        answers: Optional answers to follow-up questions
-        images: Optional list of image dicts with 'data' (base64) and 'type' (mime type)
-    """
-    event_queue: queue.Queue = queue.Queue()
-    result_holder: dict[str, Any] = {"response": "", "error": None, "run_result": None}
-    
-    # Get the appropriate prompt builder based on configured style
-    prompt_style = os.getenv("PROMPT_STYLE", DEFAULT_PROMPT_STYLE)
-    prompt_builder = get_user_prompt_builder(prompt_style)
-    
-    def run_agent_thread():
-        try:
-            agent_id = get_agent_id()
-            project = get_project_client()
-            
-            # Create MCP tool with approval mode set to "never" for automatic tool execution
-            mcp_tool = McpTool(server_label="learn", server_url=LEARN_MCP_URL)
-            mcp_tool.set_approval_mode("never")
-            
-            with project:
-                if thread_id is None:
-                    # New generation - create thread
-                    thread = project.agents.threads.create()
-                    current_thread_id = thread.id
-                    
-                    # Send thread ID to client
-                    event_queue.put({
-                        "type": "thread_created",
-                        "data": {"thread_id": current_thread_id}
-                    })
-                    
-                    # Build and send the initial prompt using the configured style
-                    user_text = prompt_builder(notes, prior_tsg=None, user_answers=None)
-                    # Include images if provided (only on initial generation)
-                    user_content = build_message_content(user_text, images)
-                else:
-                    current_thread_id = thread_id
-                    # For follow-up answers, no images
-                    user_content = answers
-                
-                project.agents.messages.create(
-                    thread_id=current_thread_id,
-                    role="user",
-                    content=user_content,
-                )
-                
-                # Run with streaming, passing MCP tool resources for automatic execution
-                run_result = run_agent_with_streaming(
-                    project, current_thread_id, agent_id, event_queue,
-                    tool_resources=mcp_tool.resources
-                )
-                
-                result_holder["response"] = run_result.response_text
-                result_holder["thread_id"] = current_thread_id
-                result_holder["run_result"] = run_result
-                
-        except Exception as e:
-            # Include any available debug info in exception errors
-            error_data = {
-                "message": str(e),
-                "thread_id": result_holder.get("thread_id"),
-            }
-            if result_holder.get("run_result"):
-                error_data["run_id"] = result_holder["run_result"].run_id
-            result_holder["error"] = error_data
-            event_queue.put({"type": "error", "data": error_data})
-        finally:
-            event_queue.put(None)  # Signal end of events
-    
-    # Start agent in background thread
-    agent_thread = threading.Thread(target=run_agent_thread)
-    agent_thread.start()
-    
-    # Yield SSE events as they arrive
-    while True:
-        try:
-            event = event_queue.get(timeout=120)  # 2 minute timeout
-            if event is None:
-                break
-            
-            yield f"data: {json.dumps(event)}\n\n"
-            
-        except queue.Empty:
-            # Send keepalive
-            yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
-    
-    agent_thread.join()
-    
-    # Get debug info from run result if available
-    run_result = result_holder.get("run_result")
-    debug_info = {
-        "thread_id": result_holder.get("thread_id"),
-        "run_id": run_result.run_id if run_result else None,
-        "agent_id": os.getenv("AGENT_ID") or (Path(".agent_id").read_text(encoding="utf-8").strip() if Path(".agent_id").exists() else None),
-    }
-    
-    # Send final result
-    if result_holder["error"]:
-        error_data = result_holder["error"]
-        # Ensure debug info is in error response
-        if isinstance(error_data, dict):
-            error_data.update({k: v for k, v in debug_info.items() if v})
-        else:
-            error_data = {"message": str(error_data), **{k: v for k, v in debug_info.items() if v}}
-        yield f"data: {json.dumps({'type': 'error', 'data': error_data})}\n\n"
-    elif run_result and run_result.error:
-        # Agent run failed - include full error details
-        error_data = {
-            "message": run_result.error.get("message", "Agent run failed"),
-            **{k: v for k, v in debug_info.items() if v},
-            **{k: v for k, v in run_result.error.items() if k != "message" and v},
-        }
-        yield f"data: {json.dumps({'type': 'error', 'data': error_data})}\n\n"
-    else:
-        response_text = result_holder["response"]
-        tsg_block, questions_block = extract_blocks(response_text)
-        
-        if not tsg_block:
-            error_data = {
-                "message": "Agent did not produce a valid TSG. The agent response did not contain the expected TSG markers.",
-                "raw_response": response_text[:2000] if response_text else "(empty response)",
-                **{k: v for k, v in debug_info.items() if v},
-            }
-            yield f"data: {json.dumps({'type': 'error', 'data': error_data})}\n\n"
-        else:
-            has_questions = questions_block and questions_block.strip() != "NO_MISSING"
-            
-            # Store session
-            final_thread_id = result_holder.get("thread_id", thread_id)
-            if final_thread_id:
-                sessions[final_thread_id] = {
-                    "notes": notes,
-                    "current_tsg": tsg_block,
-                    "questions": questions_block if has_questions else None,
-                }
-            
-            yield f"data: {json.dumps({'type': 'result', 'data': {'thread_id': final_thread_id, 'tsg': tsg_block, 'questions': questions_block if has_questions else None, 'complete': not has_questions}})}\n\n"
 
 
 def generate_pipeline_sse_events(
@@ -874,11 +730,6 @@ def generate_pipeline_sse_events(
             yield f"data: {json.dumps({'type': 'error', 'data': {'message': result.error or 'Pipeline failed to produce TSG', 'stages_completed': [s.value for s in result.stages_completed]}})}\n\n"
 
 
-def use_pipeline_mode() -> bool:
-    """Check if multi-stage pipeline mode is enabled."""
-    return os.getenv("USE_PIPELINE", "true").lower() in ("true", "1", "yes")
-
-
 @app.route("/api/generate/stream", methods=["POST"])
 def api_generate_stream():
     """Start TSG generation with SSE streaming for real-time updates.
@@ -907,14 +758,8 @@ def api_generate_stream():
             if "type" not in img:
                 img["type"] = "image/png"
     
-    # Choose between pipeline and single-agent mode
-    if use_pipeline_mode():
-        generator = generate_pipeline_sse_events(notes, images=images)
-    else:
-        generator = generate_sse_events(notes, images=images)
-    
     return Response(
-        stream_with_context(generator),
+        stream_with_context(generate_pipeline_sse_events(notes, images=images)),
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -938,14 +783,8 @@ def api_answer_stream():
     
     notes = sessions[thread_id].get("notes", "")
     
-    # Choose between pipeline and single-agent mode
-    if use_pipeline_mode():
-        generator = generate_pipeline_sse_events(notes, thread_id, answers)
-    else:
-        generator = generate_sse_events(notes, thread_id, answers)
-    
     return Response(
-        stream_with_context(generator),
+        stream_with_context(generate_pipeline_sse_events(notes, thread_id, answers)),
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -954,124 +793,23 @@ def api_answer_stream():
     )
 
 
-@app.route("/api/generate", methods=["POST"])
-def api_generate():
-    """Start TSG generation from notes."""
-    data = request.get_json()
-    notes = data.get("notes", "").strip()
-    
-    if not notes:
-        return jsonify({"error": "No notes provided"}), 400
-    
-    try:
-        agent_id = get_agent_id()
-        project = get_project_client()
-        
-        with project:
-            # Create a new thread
-            thread = project.agents.threads.create()
-            thread_id = thread.id
-            
-            # Build and send the initial prompt
-            user_content = build_user_prompt(notes, prior_tsg=None, user_answers=None)
-            project.agents.messages.create(
-                thread_id=thread_id,
-                role="user",
-                content=user_content,
-            )
-            
-            # Run the agent
-            assistant_text = run_agent_and_get_response(project, thread_id, agent_id)
-            
-            tsg_block, questions_block = extract_blocks(assistant_text)
-            
-            if not tsg_block:
-                return jsonify({
-                    "error": "Agent did not produce a valid TSG. The agent response did not contain the expected TSG markers (<!-- TSG_BEGIN --> and <!-- TSG_END -->). Please retry or use a more capable model.",
-                    "raw_response": assistant_text[:2000] if assistant_text else "(empty response)"
-                }), 500
-            
-            # Determine if there are follow-up questions
-            has_questions = questions_block and questions_block.strip() != "NO_MISSING"
-            
-            # Store session for potential follow-up
-            sessions[thread_id] = {
-                "notes": notes,
-                "current_tsg": tsg_block,
-                "questions": questions_block if has_questions else None,
-            }
-            
-            return jsonify({
-                "thread_id": thread_id,
-                "tsg": tsg_block,
-                "questions": questions_block if has_questions else None,
-                "complete": not has_questions,
-            })
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/answer", methods=["POST"])
-def api_answer():
-    """Submit answers to follow-up questions."""
-    data = request.get_json()
-    thread_id = data.get("thread_id")
-    answers = data.get("answers", "").strip()
-    
-    if not thread_id or thread_id not in sessions:
-        return jsonify({"error": "Invalid or expired session"}), 400
-    
-    if not answers:
-        return jsonify({"error": "No answers provided"}), 400
-    
-    try:
-        agent_id = get_agent_id()
-        project = get_project_client()
-        session = sessions[thread_id]
-        
-        with project:
-            # Add answers as next message
-            project.agents.messages.create(
-                thread_id=thread_id,
-                role="user",
-                content=answers,
-            )
-            
-            # Run the agent again
-            assistant_text = run_agent_and_get_response(project, thread_id, agent_id)
-            
-            tsg_block, questions_block = extract_blocks(assistant_text)
-            
-            if not tsg_block:
-                return jsonify({
-                    "error": "Agent did not produce a valid TSG on refinement. The agent response did not contain the expected TSG markers.",
-                    "raw_response": assistant_text[:2000] if assistant_text else "(empty response)"
-                }), 500
-            
-            has_questions = questions_block and questions_block.strip() != "NO_MISSING"
-            
-            # Update session
-            session["current_tsg"] = tsg_block
-            session["questions"] = questions_block if has_questions else None
-            
-            return jsonify({
-                "thread_id": thread_id,
-                "tsg": tsg_block,
-                "questions": questions_block if has_questions else None,
-                "complete": not has_questions,
-            })
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
 @app.route("/api/session/<thread_id>", methods=["DELETE"])
 def api_delete_session(thread_id):
     """Clean up a session."""
     if thread_id in sessions:
         del sessions[thread_id]
     return jsonify({"success": True})
+
+
+@app.route("/api/example")
+def api_example():
+    """Return the example input file content."""
+    example_path = Path("examples/capability-host-input.txt")
+    if not example_path.exists():
+        return jsonify({"error": "Example file not found"}), 404
+    
+    content = example_path.read_text(encoding="utf-8")
+    return jsonify({"content": content})
 
 
 def main():
@@ -1083,11 +821,12 @@ def main():
         print("Please configure your .env file and restart.")
     
     try:
-        agent_id = get_agent_id()
-        print(f"Agent ID: {agent_id[:8]}...")
+        agent_ids = get_agent_ids()
+        prefix = agent_ids.get("name_prefix", "TSG")
+        print(f"Pipeline agents: 3 configured ({prefix})")
     except Exception as e:
         print(f"WARNING: {e}")
-        print("Run 'make create-agent' to create an agent before using the UI.")
+        print("Use the Setup wizard in the web UI to create agents.")
     
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"

@@ -719,7 +719,10 @@
         <div class="status-bar">
             <div class="status-indicator" id="statusIndicator"></div>
             <span id="statusText">Checking agent status...</span>
-            <button class="btn btn-secondary" id="setupBtn" onclick="openSetup()" style="margin-left: auto; padding: 6px 12px; font-size: 12px;">
+            <button class="btn btn-secondary" id="clearSessionBtn" onclick="clearSession()" disabled title="Clear current session and start fresh" style="margin-left: auto; padding: 6px 12px; font-size: 12px;">
+                🗑️ Clear Session
+            </button>
+            <button class="btn btn-secondary" id="setupBtn" onclick="openSetup()" style="padding: 6px 12px; font-size: 12px;">
                 ⚙️ Setup
             </button>
         </div>
@@ -941,7 +944,8 @@ Include:
                 
                 if (data.ready) {
                     indicator.className = 'status-indicator ready';
-                    text.textContent = `Agent ready (${data.agent.id})`;
+                    const prefix = data.agents?.name_prefix || 'TSG';
+                    text.textContent = `3 agents ready (${prefix})`;
                     btn.disabled = false;
                 } else {
                     indicator.className = 'status-indicator error';
@@ -1193,9 +1197,40 @@ Include:
             showSuccess('TSG saved with current content.');
         }
 
+        async function clearSession() {
+            // Clear server-side session if we have one
+            if (currentThreadId) {
+                try {
+                    await fetch(`/api/session/${currentThreadId}`, { method: 'DELETE' });
+                } catch (e) {
+                    // Ignore errors - just clearing local state
+                }
+            }
+            
+            // Reset local state
+            currentThreadId = null;
+            currentTSG = '';
+            
+            // Reset UI - clear input notes, output, and questions
+            document.getElementById('notesInput').value = '';
+            document.getElementById('tsgOutput').innerHTML = '<span style="color: var(--text-secondary);">Your generated TSG will appear here...</span>';
+            document.getElementById('copyBtn').disabled = true;
+            document.getElementById('clearSessionBtn').disabled = true;
+            document.getElementById('questionsPanel').classList.add('hidden');
+            document.getElementById('answersInput').value = '';
+            hideMessages();
+            
+            // Clear uploaded images
+            clearImages();
+            
+            showSuccess('Session cleared. Ready for a fresh start!');
+            setTimeout(() => hideMessages(), 3000);
+        }
+
         function displayTSG(tsg) {
             document.getElementById('tsgOutput').textContent = tsg;
             document.getElementById('copyBtn').disabled = false;
+            document.getElementById('clearSessionBtn').disabled = false;
         }
 
         function showQuestions(questions) {
@@ -1297,6 +1332,7 @@ Include:
                 '<span style="color: var(--text-secondary);">Your generated TSG will appear here...</span>';
             document.getElementById('questionsPanel').classList.add('hidden');
             document.getElementById('copyBtn').disabled = true;
+            document.getElementById('clearSessionBtn').disabled = true;
             hideMessages();
             currentThreadId = null;
             currentTSG = '';
@@ -1318,83 +1354,18 @@ Include:
             }
         }
 
-        function loadExample() {
-            document.getElementById('notesInput').value = `Problem/questions:
-
-When I try to create an Agent in my project (with the GA version in an Azure AI Foundry project, not a hub-based project), I can only use model deployments deployed in my current Azure AI Foundry resource, despite having connected Azure OpenAI resources. From: https://github.com/orgs/azure-ai-foundry/discussions/59
-
-1. When the OAI model is deployed on project level, the option to select a model is available when trying to create an agent from the studio. But the models deployed on the connected OpenAI resource does not show up. Is this a limitation?
-2. Even if we create the agent via SDK using a model deployment from the connected OpenAI resource, there is no option to select the deployments from the OpenAI resource. The only model available in the dropdown are the models deployed on the project level and not on the connect OAI resource level.
-
-Generally: "When using an Agent in my project, why can't I use it/see it with a model deployment in a connected Azure OpenAI resource?"
-
-
-Background:
-
-https://learn.microsoft.com/en-us/azure/ai-foundry/agents/environment-setup?view=foundry-classic
-https://learn.microsoft.com/en-us/azure/ai-foundry/agents/concepts/capability-hosts?view=foundry-classic
-https://learn.microsoft.com/en-us/azure/ai-foundry/what-is-azure-ai-foundry?view=foundry-classic#microsoft-foundry-portals
-
-
-Limitation:
-
-Known issue with Agents seeing connected OpenAI resource deployments in the UI. Agents deployed by template also can't use connected resources unless their capability host is configured to see that resource. This applies to Foundry Classic UI.
-
-There is a known feature gap with Agents being able to see connected OpenAI resource model deployments. Specifically, Currently, we lack a UX for managing capability hosts. (Classic Foundry UI).
-
-The project capability host is only configured by default with the project AI Services resource by default and in the templates we publish. It can be deleted/recreated to point to an Azure OpenAI resource instead of the AI Services resource so that all Agents in the project see the OpenAI resource deployments instead.
-
-
-Workaround:
-
-Create new capability host that points at an OpenAI resource instead of the AI Services resource using the aiServicesConnections property:
-https://github.com/orgs/azure-ai-foundry/discussions/59
-
-As of now there's no easy way to do this. However, this is a way.
-1. The connected OpenAI resource should be in the same region as the AIServices resource.
-2. You would need to create capability host. This could disrupt any existing agents under the AIServices resource.
-
-How to create capability host?
-Below is a python code - replace everywhere you see {something}.
-
-import requests
-import json
-from azure.identity import DefaultAzureCredential
-token = DefaultAzureCredential().get_token("https://management.azure.com/.default").token
-
-
-## Create account capability host
-url = "https://management.azure.com/subscriptions/{sub-id}/resourceGroups/{res-group-name}/providers/Microsoft.CognitiveServices/accounts/{ai-services-resource}/capabilityHosts/{any-cap-host-name}/"
-querystring = {"api-version":"2025-04-01-preview"}
-payload = {"properties": {"capabilityHostKind": "Agents"}}
-headers = {
-    "Authorization": f"Bearer {token}",
-    "Content-Type": "application/json",
-    "User-Agent": "insomnia/11.0.1"
-}
-response = requests.request("PUT", url, json=payload, headers=headers, params=querystring)
-print(response.text)
-
-## Create project capability host
-url = "https://management.azure.com/subscriptions/{sub-id}/resourceGroups/{res-group-name}/providers/Microsoft.CognitiveServices/accounts/{ai-services-resource}/projects/{project-name}/capabilityHosts/{any-proj-cap-host-name}/"
-querystring = {"api-version":"2025-04-01-preview"}
-payload = {"properties": {
-        "capabilityHostKind": "Agents",
-        "aiServicesConnections": ["{connection-name-of-aoai-resource}"]
-    }}
-headers = {
-    "Authorization": f"Bearer {token}",
-    "Content-Type": "application/json",
-    "User-Agent": "insomnia/11.0.1"
-}
-response = requests.request("PUT", url, json=payload, headers=headers, params=querystring)
-print(response.text)
-
-The above would let you use Agents ONLY with the connected AOAI resource mentioned in the "aiServicesConnections" parameter. You could update or delete the capability host to be able to use deployments from other AOAI resource connection or from the parent AIServices resource.
-
-From <https://github.com/orgs/azure-ai-foundry/discussions/59>
-
-NOTE: you cannot update a capability host, only delete and recreate.`;
+        async function loadExample() {
+            try {
+                const response = await fetch('/api/example');
+                const data = await response.json();
+                if (data.content) {
+                    document.getElementById('notesInput').value = data.content;
+                } else {
+                    showError('Failed to load example: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                showError('Failed to load example: ' + error.message);
+            }
         }
     </script>
 
@@ -1434,15 +1405,7 @@ NOTE: you cannot update a capability host, only delete and recreate.`;
                     <div class="form-group">
                         <label for="configAgentName">AGENT_NAME (optional)</label>
                         <input type="text" id="configAgentName" placeholder="TSG-Builder">
-                        <p class="hint">Custom name for your agent (default: TSG-Builder)</p>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="configPromptStyle">Prompt Style</label>
-                        <select id="configPromptStyle" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary); font-size: 14px;">
-                            <!-- Options populated dynamically -->
-                        </select>
-                        <p class="hint" id="promptStyleHint">Select based on your model deployment</p>
+                        <p class="hint">Custom name prefix for your pipeline agents (default: TSG-Builder)</p>
                     </div>
                     
                     <button class="btn btn-primary" onclick="saveConfig()" id="saveConfigBtn">
@@ -1471,23 +1434,23 @@ NOTE: you cannot update a capability host, only delete and recreate.`;
                     </button>
                 </div>
 
-                <!-- Step 3: Create Agent -->
+                <!-- Step 3: Create Agents -->
                 <div class="setup-section">
-                    <h3><span class="step-number">3</span> Create Agent</h3>
+                    <h3><span class="step-number">3</span> Create Agents</h3>
                     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
-                        Create the Azure AI Foundry agent with Bing Search and Microsoft Learn tools.
+                        Create the three pipeline agents (Researcher, Writer, Reviewer) with Azure AI Foundry.
                     </p>
                     
                     <div id="agentStatus">
                         <div id="noAgentInfo" class="validation-item warning">
                             <span class="validation-icon">⚠️</span>
-                            <span class="validation-name">No Agent</span>
-                            <span class="validation-message">Agent not created yet. Complete configuration and validation first.</span>
+                            <span class="validation-name">No Agents</span>
+                            <span class="validation-message">Agents not created yet. Complete configuration and validation first.</span>
                         </div>
                     </div>
                     
                     <button class="btn btn-success" onclick="createAgent()" id="createAgentBtn" disabled style="margin-top: 12px;">
-                        🤖 Create Agent
+                        🤖 Create Agents
                     </button>
                     <span id="agentCreateStatus" style="margin-left: 12px; font-size: 13px;"></span>
                 </div>
@@ -1525,39 +1488,6 @@ NOTE: you cannot update a capability host, only delete and recreate.`;
                 document.getElementById('configModel').value = config.MODEL_DEPLOYMENT_NAME || '';
                 document.getElementById('configBing').value = config.BING_CONNECTION_NAME || '';
                 document.getElementById('configAgentName').value = config.AGENT_NAME || 'TSG-Builder';
-                
-                // Populate prompt style dropdown
-                const promptStyleSelect = document.getElementById('configPromptStyle');
-                const promptStyleHint = document.getElementById('promptStyleHint');
-                promptStyleSelect.innerHTML = '';
-                
-                if (config.prompt_styles) {
-                    for (const [key, info] of Object.entries(config.prompt_styles)) {
-                        const option = document.createElement('option');
-                        option.value = key;
-                        option.textContent = info.name;
-                        option.title = info.description;
-                        if (key === (config.PROMPT_STYLE || config.default_prompt_style)) {
-                            option.selected = true;
-                        }
-                        promptStyleSelect.appendChild(option);
-                    }
-                    
-                    // Update hint when selection changes
-                    promptStyleSelect.addEventListener('change', () => {
-                        const selected = promptStyleSelect.value;
-                        const info = config.prompt_styles[selected];
-                        if (info) {
-                            promptStyleHint.textContent = info.description;
-                        }
-                    });
-                    
-                    // Set initial hint
-                    const currentStyle = config.PROMPT_STYLE || config.default_prompt_style;
-                    if (config.prompt_styles[currentStyle]) {
-                        promptStyleHint.textContent = config.prompt_styles[currentStyle].description;
-                    }
-                }
             } catch (error) {
                 console.error('Failed to load config:', error);
             }
@@ -1576,7 +1506,6 @@ NOTE: you cannot update a capability host, only delete and recreate.`;
                 MODEL_DEPLOYMENT_NAME: document.getElementById('configModel').value.trim(),
                 BING_CONNECTION_NAME: document.getElementById('configBing').value.trim(),
                 AGENT_NAME: document.getElementById('configAgentName').value.trim() || 'TSG-Builder',
-                PROMPT_STYLE: document.getElementById('configPromptStyle').value,
             };
             
             try {
@@ -1666,32 +1595,36 @@ NOTE: you cannot update a capability host, only delete and recreate.`;
                 const result = await response.json();
                 
                 if (result.success) {
-                    status.textContent = '✓ Agent created!';
+                    status.textContent = '✓ Agents created!';
                     status.style.color = 'var(--success)';
                     
                     agentStatusDiv.innerHTML = `
                         <div class="agent-info">
                             <span class="icon">🤖</span>
                             <div class="details">
-                                <div class="agent-name">${result.agent_name}</div>
-                                <div class="agent-id">ID: ${result.agent_id}</div>
+                                <div class="agent-name">3 Agents Ready (${result.agent_name})</div>
+                                <div class="agent-id" style="font-size: 0.75em;">
+                                    Researcher: ${result.agents.researcher.substring(0, 8)}...<br>
+                                    Writer: ${result.agents.writer.substring(0, 8)}...<br>
+                                    Reviewer: ${result.agents.reviewer.substring(0, 8)}...
+                                </div>
                             </div>
                         </div>
                     `;
                     
-                    btn.textContent = '✓ Agent Created';
+                    btn.textContent = '✓ Agents Created';
                     updateSetupOverallStatus();
                 } else {
                     status.textContent = '✗ ' + result.error;
                     status.style.color = 'var(--error)';
                     btn.disabled = false;
-                    btn.textContent = '🤖 Create Agent';
+                    btn.textContent = '🤖 Create Agents';
                 }
             } catch (error) {
                 status.textContent = '✗ ' + error.message;
                 status.style.color = 'var(--error)';
                 btn.disabled = false;
-                btn.textContent = '🤖 Create Agent';
+                btn.textContent = '🤖 Create Agents';
             }
         }
 
@@ -1713,18 +1646,23 @@ NOTE: you cannot update a capability host, only delete and recreate.`;
                     statusDiv.innerHTML = '<span>⏳</span> <span>Checking...</span>';
                 }
                 
-                // Update agent status display
-                if (data.agent && data.agent.exists) {
+                // Update agents status display
+                if (data.agents && data.agents.configured) {
+                    const prefix = data.agents.name_prefix || 'TSG';
                     document.getElementById('agentStatus').innerHTML = `
                         <div class="agent-info">
                             <span class="icon">🤖</span>
                             <div class="details">
-                                <div class="agent-name">Agent Ready</div>
-                                <div class="agent-id">ID: ${data.agent.id}</div>
+                                <div class="agent-name">3 Agents Ready (${prefix})</div>
+                                <div class="agent-id" style="font-size: 0.75em;">
+                                    Researcher: ${data.agents.researcher}<br>
+                                    Writer: ${data.agents.writer}<br>
+                                    Reviewer: ${data.agents.reviewer}
+                                </div>
                             </div>
                         </div>
                     `;
-                    document.getElementById('createAgentBtn').textContent = '✓ Agent Exists';
+                    document.getElementById('createAgentBtn').textContent = '✓ Agents Exist';
                 }
                 
             } catch (error) {

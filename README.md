@@ -13,7 +13,6 @@ Transform raw troubleshooting notes into structured **Technical Support Guides (
 - [Installation](#installation)
 - [Configuration](#configuration)
   - [Finding Your Configuration Values](#finding-your-configuration-values)
-- [CLI Usage](#cli-usage)
 - [Makefile Commands](#makefile-commands)
 - [How It Works](#how-it-works)
   - [Agent Research Phase](#agent-research-phase)
@@ -51,7 +50,7 @@ make ui
 The web UI will automatically open the setup wizard if configuration is needed. The setup wizard guides you through:
 1. **Configure** — Enter your Azure AI Foundry settings
 2. **Validate** — Verify authentication and connectivity
-3. **Create Agent** — Create the AI agent with one click
+3. **Create Agents** — Create the three pipeline agents (Researcher, Writer, Reviewer)
 
 ## Web UI
 
@@ -63,8 +62,10 @@ make ui
 
 Then open **http://localhost:5000** in your browser.
 
+> ⚠️ **Note**: This web UI is intended for local development use only. Do not expose it to the internet without adding proper authentication and security measures.
+
 **Features:**
-- ⚙️ **Built-in setup wizard** — Configure, validate, and create agent from the browser
+- ⚙️ **Built-in setup wizard** — Configure, validate, and create agents from the browser
 - 📝 Paste notes directly in the browser
 - �️ **Image support** — Attach screenshots via drag-and-drop, file picker, or paste
 - 🔄 Interactive follow-up questions
@@ -96,7 +97,7 @@ Images are sent to the AI agent for visual analysis, which is especially useful 
 | Resource | Purpose | How to Get |
 |----------|---------|------------|
 | **Azure AI Foundry Project** | Hosts the agent | [Create a project](https://learn.microsoft.com/azure/ai-foundry/how-to/create-projects) |
-| **Model Deployment** | LLM for the agent (e.g., `gpt-4.1` or `gpt-5.2`) | Deploy in your project |
+| **Model Deployment** | LLM for the agent (recommend `gpt-4.1`) | Deploy in your project |
 | **Bing Search Connection** | Web research capability | [Connect Bing Search](https://learn.microsoft.com/azure/ai-foundry/how-to/connections-add) |
 
 ### Local Requirements
@@ -134,36 +135,12 @@ cp .env-sample .env
 
 ## Configuration
 
-Configuration can be done in two ways:
-
-### Option 1: Via Web UI (Recommended)
-
 1. Run `make ui` and open http://localhost:5000
 2. Click the **⚙️ Setup** button (or it opens automatically)
 3. Enter your Azure configuration values
 4. Click **Save Configuration**
 5. Run **Validation** to verify everything works
-6. Click **Create Agent**
-
-### Option 2: Edit .env Manually
-
-Edit `.env` with your Azure configuration:
-
-```bash
-# Required: Your Azure AI Foundry project endpoint
-# Found in: Azure Portal > AI Foundry > Project > Overview
-PROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project
-
-# Required: Full resource ID of your Bing Search connection
-# Found in: AI Foundry Portal > Management Center > Connected Resources
-BING_CONNECTION_NAME=/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<account>/projects/<project>/connections/<bing-connection>
-
-# Required: Name of your model deployment (recommended: GPT 4.1 for now
-MODEL_DEPLOYMENT_NAME=gpt-4.1
-
-# Optional: Custom name for your agent (default: TSG-Builder)
-AGENT_NAME=TSG-Builder
-```
+6. Click **Create Agents**
 
 ### Finding Your Configuration Values
 
@@ -184,77 +161,16 @@ AGENT_NAME=TSG-Builder
 1. In AI Foundry Portal, go to Deployments
 2. Use the name of your deployed model (e.g., `gpt-4.1`)
 
-## CLI Usage
-
-The command-line interface is available as an alternative to the web UI.
-
-### Validate Setup
-
-```bash
-make validate
-# or
-python validate_setup.py
-```
-
-This checks:
-- ✓ Required environment variables
-- ✓ Azure authentication
-- ✓ Project connectivity
-- ✓ Python dependencies
-
-### Create the Agent
-
-```bash
-make create-agent
-# or
-python create_agent.py
-```
-
-This creates an agent with:
-- Bing Search tool for web research
-- Microsoft Learn MCP for official documentation
-- TSG generation instructions
-
-### Generate a TSG
-
-```bash
-# Interactive mode (paste notes)
-python ask_agent.py
-
-# From a file
-python ask_agent.py --notes-file your-notes.txt
-
-# Save output to file
-python ask_agent.py --notes-file your-notes.txt --output tsg-output.md
-
-# Using make
-make run NOTES_FILE=your-notes.txt
-```
-
-### Input Format
-
-Create a text file with your raw troubleshooting notes. Include:
-- Error messages and codes
-- Customer symptoms
-- Any known workarounds
-- Relevant links (GitHub issues, Teams threads, etc.)
-
-See `input-example.txt` for a sample input.
-
 ## Makefile Commands
 
 | Command | Description |
 |---------|-------------|
 | `make setup` | First-time setup (venv + deps + .env) |
 | `make ui` | **Start the web UI** at http://localhost:5000 |
-| `make validate` | Check environment configuration (CLI) |
-| `make create-agent` | Create the Azure AI agent (CLI) |
-| `make run` | Run with `input.txt` (CLI) |
-| `make run NOTES_FILE=x.txt` | Run with custom notes file (CLI) |
-| `make run-example` | Run with `input-example.txt` |
-| `make run-save` | Run and save output to `output.md` |
+| `make validate` | Check environment configuration (CLI troubleshooting) |
 | `make install` | Install dependencies only |
 | `make clean` | Remove venv and generated files |
+| `make lint` | Check Python syntax |
 | `make help` | Show all commands |
 
 ## How It Works
@@ -289,18 +205,6 @@ TSG Builder uses a **three-stage pipeline** for improved accuracy and reliabilit
 - **Fact-checking**: Claims match research (flags potential hallucinations)
 - **Auto-correction**: Fixes simple issues automatically
 - Retries up to 2x if validation fails
-
-### Single-Agent Mode (Legacy)
-
-You can disable the pipeline for legacy single-agent behavior:
-
-```bash
-# Via environment variable
-USE_PIPELINE=false make run
-
-# Via CLI flag
-python ask_agent.py --single-agent --notes-file input.txt
-```
 
 ### Agent Research Phase
 
@@ -349,6 +253,7 @@ If information is missing, the agent:
 - Run `make validate` to check all variables
 
 ### "Azure authentication failed"
+- Ensure Azure CLI is installed ([Install Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli))
 - Run `az login` to authenticate
 - Ensure your account has access to the AI Foundry project
 
@@ -357,12 +262,12 @@ If information is missing, the agent:
 - Check you have the "Azure AI User" role on the project
 
 ### "Agent not found"
-- Run `python create_agent.py` to create the agent
-- Check `.agent_id` file exists
+- Open the web UI and use the Setup wizard to create the agents
+- Check `.agent_ids.json` file exists
 
 ### Agent doesn't use tools / research
 - The agent instructions mandate research before output
-- If this persists, recreate the agent: `make clean && make create-agent`
+- If this persists, recreate the agent via the Setup wizard in the web UI
 
 ### TSG missing documentation links
 - The agent is instructed to include URLs from research in "Related Information"
@@ -418,16 +323,14 @@ If information is missing, the agent:
 
 | File | Purpose |
 |------|---------|
-| `create_agent.py` | Create the Azure AI Foundry agent |
-| `ask_agent.py` | CLI for TSG generation (supports pipeline & single-agent modes) |
-| `web_app.py` | Flask web UI server |
+| `web_app.py` | Flask web UI server (includes agent creation) |
 | `pipeline.py` | **Multi-stage pipeline orchestration** (Research → Write → Review) |
-| `validate_setup.py` | Validate environment configuration |
+| `validate_setup.py` | Validate environment configuration (CLI troubleshooting) |
 | `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
 | `Makefile` | Common operations |
 | `.env` | Your configuration (git-ignored) |
 | `.env-sample` | Configuration template |
-| `.agent_id` | Agent ID after creation |
+| `.agent_ids.json` | Pipeline agent IDs after creation |
 | `input-example.txt` | Example input notes |
 | `templates/index.html` | Web UI template |
 
