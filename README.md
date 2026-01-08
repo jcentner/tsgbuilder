@@ -18,16 +18,10 @@ TSG Builder was born out of this frustration. The idea: **you provide a raw dump
 - [Quick Start](#quick-start)
 - [Web UI](#web-ui)
 - [Prerequisites](#prerequisites)
-  - [Azure Resources Required](#azure-resources-required)
-  - [Local Requirements](#local-requirements)
 - [Installation](#installation)
 - [Configuration](#configuration)
-  - [Finding Your Configuration Values](#finding-your-configuration-values)
 - [Makefile Commands](#makefile-commands)
 - [How It Works](#how-it-works)
-  - [Agent Research Phase](#agent-research-phase)
-  - [Output Format](#output-format)
-  - [Iteration](#iteration)
 - [Troubleshooting](#troubleshooting)
 - [Architecture](#architecture)
 - [Files](#files)
@@ -187,9 +181,7 @@ cp .env-sample .env
 
 ## How It Works
 
-### Multi-Stage Pipeline (Default)
-
-TSG Builder uses a **three-stage pipeline** for improved accuracy and reliability:
+TSG Builder uses a **three-stage pipeline**: Research → Write → Review.
 
 ```
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
@@ -200,62 +192,13 @@ TSG Builder uses a **three-stage pipeline** for improved accuracy and reliabilit
   (Bing, MCP)       Just writes        & fact-checks
 ```
 
-#### Stage 1: Research
-- Searches **Microsoft Learn MCP** for official documentation
-- Searches **Bing** for GitHub issues, community discussions
-- Outputs a structured research report with URLs and key findings
-- **Has tool access** to ensure research actually happens
+1. **Research** — Searches Microsoft Learn and Bing for documentation, GitHub issues, and community solutions
+2. **Write** — Generates the TSG using only your notes + research (no tool access = no hallucinated searches)
+3. **Review** — Validates structure and fact-checks against research; auto-fixes or retries if needed
 
-#### Stage 2: Write
-- Receives research report + original notes
-- **No tool access** — prevents ad-hoc searches that could introduce errors
-- Creates TSG from template using only verified research
-- Inserts `{{MISSING::...}}` placeholders for case-specific gaps
+If information is missing, the agent inserts `{{MISSING::...}}` placeholders and asks follow-up questions.
 
-#### Stage 3: Review
-- **Structure validation**: All required sections and markers present
-- **Fact-checking**: Claims match research (flags potential hallucinations)
-- **Auto-correction**: Fixes simple issues automatically
-- Retries up to 2x if validation fails
-
-### Agent Research Phase
-
-The agent is instructed to **always research** before generating the TSG:
-
-1. **Microsoft Learn MCP** searches for:
-   - Azure service documentation
-   - Known limitations and workarounds
-   - Configuration guides
-
-2. **Bing Search** for:
-   - GitHub discussions and issues
-   - Community workarounds
-   - Stack Overflow solutions
-
-### Output Format
-
-The agent outputs:
-1. **TSG Block** - The complete markdown TSG
-2. **Questions Block** - Follow-up questions for missing info (or `NO_MISSING`)
-
-Output is wrapped in markers for parsing:
-```
-<!-- TSG_BEGIN -->
-[TSG markdown content]
-<!-- TSG_END -->
-
-<!-- QUESTIONS_BEGIN -->
-[Follow-up questions or NO_MISSING]
-<!-- QUESTIONS_END -->
-```
-
-### Iteration
-
-If information is missing, the agent:
-1. Inserts `{{MISSING::<SECTION>::<HINT>}}` placeholders
-2. Asks targeted follow-up questions
-3. Waits for your answers
-4. Regenerates the TSG with your input
+For detailed architecture information, see [docs/architecture.md](docs/architecture.md).
 
 ## Troubleshooting
 
@@ -286,49 +229,7 @@ If information is missing, the agent:
 
 ## Architecture
 
-### Multi-Stage Pipeline Architecture
-
-```
-┌─────────────────┐     
-│  Raw Notes      │     
-│  (input.txt)    │     
-└────────┬────────┘     
-         │
-         ▼
-┌────────────────────────────────────────────────────────────────────┐
-│                    TSG PIPELINE                                    │
-│  ┌──────────────────────────────────────────────────────────────┐ │
-│  │  Stage 1: RESEARCH (has tools)                               │ │
-│  │  - Microsoft Learn MCP → official docs, APIs, limits         │ │
-│  │  - Bing Search → GitHub issues, community solutions          │ │
-│  │  → Output: Structured research report with URLs              │ │
-│  └──────────────────────────────────────────────────────────────┘ │
-│                              │                                     │
-│                              ▼                                     │
-│  ┌──────────────────────────────────────────────────────────────┐ │
-│  │  Stage 2: WRITE (no tools)                                   │ │
-│  │  - Uses ONLY notes + research report                         │ │
-│  │  - Follows TSG template exactly                              │ │
-│  │  → Output: Draft TSG + {{MISSING::...}} placeholders         │ │
-│  └──────────────────────────────────────────────────────────────┘ │
-│                              │                                     │
-│                              ▼                                     │
-│  ┌──────────────────────────────────────────────────────────────┐ │
-│  │  Stage 3: REVIEW (no tools)                                  │ │
-│  │  - Structure validation (headings, markers)                  │ │
-│  │  - Fact-check against research (soft warnings)               │ │
-│  │  - Auto-fix simple issues, retry if needed                   │ │
-│  │  → Output: Validated TSG + review notes                      │ │
-│  └──────────────────────────────────────────────────────────────┘ │
-└────────────────────────────────────────────────────────────────────┘
-         │
-         ▼
-┌──────────────────────────────────────────┐
-│  Structured TSG (markdown)               │
-│  + Follow-up Questions OR NO_MISSING     │
-│  + Review warnings (if any)              │
-└──────────────────────────────────────────┘
-```
+See [docs/architecture.md](docs/architecture.md) for detailed pipeline architecture, stage descriptions, and design decisions.
 
 ## Files
 
