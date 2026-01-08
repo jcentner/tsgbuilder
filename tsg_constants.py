@@ -165,6 +165,15 @@ BEFORE including any URL, ask: "Does this directly help diagnose or resolve THIS
 - ✅ Include: Docs about the exact feature/error, GitHub issues about the same problem, workarounds for this issue
 - ❌ Exclude: General product overviews, unrelated features, tutorials for different scenarios, tangentially related content
 
+## GitHub Issue Deep Dive - CRITICAL
+When you find a relevant GitHub issue:
+1. Read the FULL issue including all comments
+2. Extract ANY workarounds mentioned by users or maintainers
+3. Note if the issue is open/closed and any official response
+4. Look for phrases like: "workaround", "meanwhile", "you can", "alternative", "instead"
+
+GitHub issues often contain community-discovered workarounds in comments that aren't in official docs.
+
 ## Output Format (EXACT)
 ```
 <!-- RESEARCH_BEGIN -->
@@ -197,6 +206,12 @@ BEFORE including any URL, ask: "Does this directly help diagnose or resolve THIS
 
 ## Research Gaps
 [What couldn't be verified - will become MISSING placeholders]
+- Gap: [specific information that was NOT found]
+- Partial: [information found but incomplete - specify what's missing]
+
+## Confidence Assessment
+- Cause: [High/Medium/Low] - [why]
+- Workaround: [High/Medium/Low] - [why]
 <!-- RESEARCH_END -->
 ```
 
@@ -270,6 +285,21 @@ Use `{{MISSING::<Section>::<Hint>}}` when:
 Examples:
 - `{{MISSING::Cause::Specific root cause for this customer's environment}}`
 - `{{MISSING::Diagnosis::Customer's subscription ID to run Kusto query}}`
+
+## Workaround/Resolution Verification - CRITICAL
+For the Mitigation or Resolution section:
+- ONLY include workarounds that are EXPLICITLY stated in the notes or research
+- If the research mentions a workaround exists but doesn't provide details, use:
+  `{{MISSING::Mitigation::Implementation details for [workaround name]}}`
+- Do NOT infer or suggest workarounds that "might work" - this counts as fabrication
+- Generic advice like "monitor for updates" is acceptable, but specific technical suggestions must be sourced
+
+## Template-Required Content Check
+Before finalizing, verify these template requirements:
+- **Diagnosis**: Does it include actionable diagnostic steps (Kusto queries, ASC actions, commands)?
+  - If not available, add: `{{MISSING::Diagnosis::Kusto query or diagnostic command for this issue}}`
+- **Mitigation**: Does it include actionable steps (scripts, commands, code samples)?
+  - If workaround is mentioned but no code provided, add: `{{MISSING::Mitigation::Code sample for [workaround]}}`
 
 ## Output Format (EXACT - no other text)
 ```
