@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TSG Builder</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         :root {
             --primary: #0078d4;
@@ -195,6 +196,64 @@
             font-size: 13px;
             white-space: pre-wrap;
             word-wrap: break-word;
+        }
+
+        .output-area.preview-mode {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 14px;
+            white-space: normal;
+        }
+
+        .output-area.preview-mode h1 { font-size: 1.8em; margin: 0.8em 0 0.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+        .output-area.preview-mode h2 { font-size: 1.5em; margin: 0.8em 0 0.4em; }
+        .output-area.preview-mode h3 { font-size: 1.25em; margin: 0.6em 0 0.3em; }
+        .output-area.preview-mode p { margin: 0.5em 0; }
+        .output-area.preview-mode ul, .output-area.preview-mode ol { margin: 0.5em 0; padding-left: 1.5em; }
+        .output-area.preview-mode li { margin: 0.25em 0; }
+        .output-area.preview-mode code { background: #e8e8e8; padding: 0.15em 0.4em; border-radius: 3px; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.9em; }
+        .output-area.preview-mode pre { background: #2d2d2d; color: #f8f8f2; padding: 12px; border-radius: 6px; overflow-x: auto; margin: 0.8em 0; }
+        .output-area.preview-mode pre code { background: transparent; padding: 0; color: inherit; }
+        .output-area.preview-mode table { border-collapse: collapse; width: 100%; margin: 0.8em 0; }
+        .output-area.preview-mode th, .output-area.preview-mode td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+        .output-area.preview-mode th { background: #f0f0f0; font-weight: 600; }
+        .output-area.preview-mode a { color: var(--primary); }
+        .output-area.preview-mode blockquote { border-left: 4px solid var(--primary); margin: 0.8em 0; padding-left: 1em; color: var(--text-secondary); }
+        .output-area.preview-mode input[type="checkbox"] { margin-right: 0.5em; }
+
+        .toggle-group {
+            display: flex;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .toggle-btn {
+            padding: 6px 12px;
+            border: none;
+            background: var(--card-bg);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .toggle-btn:not(:last-child) {
+            border-right: 1px solid var(--border);
+        }
+
+        .toggle-btn.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .toggle-btn:hover:not(.active) {
+            background: #f0f0f0;
+        }
+
+        .output-header-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
         }
 
         .questions-panel {
@@ -774,9 +833,15 @@ Include:
             <div class="card">
                 <div class="card-header">
                     <h2>📄 Generated TSG</h2>
-                    <button class="btn btn-secondary copy-btn" onclick="copyTSG()" id="copyBtn" disabled>
-                        📋 Copy
-                    </button>
+                    <div class="output-header-actions">
+                        <div class="toggle-group">
+                            <button class="toggle-btn active" id="rawToggle" onclick="setPreviewMode(false)">Raw</button>
+                            <button class="toggle-btn" id="previewToggle" onclick="setPreviewMode(true)">Preview</button>
+                        </div>
+                        <button class="btn btn-secondary copy-btn" onclick="copyTSG()" id="copyBtn" disabled>
+                            📋 Copy
+                        </button>
+                    </div>
                 </div>
                 <div class="card-body">
                     <div id="errorMessage" class="error-message hidden"></div>
@@ -825,6 +890,7 @@ Include:
         let currentThreadId = null;
         let currentTSG = '';
         let eventSource = null;
+        let isMarkdownPreview = localStorage.getItem('tsgPreviewMode') === 'true';
         
         // Image storage
         let uploadedImages = [];
@@ -834,7 +900,35 @@ Include:
         document.addEventListener('DOMContentLoaded', () => {
             checkStatus();
             initImageUpload();
+            initPreviewToggle();
         });
+
+        function initPreviewToggle() {
+            // Apply saved preference on load
+            if (isMarkdownPreview) {
+                document.getElementById('rawToggle').classList.remove('active');
+                document.getElementById('previewToggle').classList.add('active');
+                document.getElementById('tsgOutput').classList.add('preview-mode');
+            }
+        }
+
+        function setPreviewMode(preview) {
+            isMarkdownPreview = preview;
+            localStorage.setItem('tsgPreviewMode', preview);
+            
+            // Update toggle buttons
+            document.getElementById('rawToggle').classList.toggle('active', !preview);
+            document.getElementById('previewToggle').classList.toggle('active', preview);
+            
+            // Update output display
+            const output = document.getElementById('tsgOutput');
+            output.classList.toggle('preview-mode', preview);
+            
+            // Re-render current TSG if we have content
+            if (currentTSG) {
+                displayTSG(currentTSG);
+            }
+        }
         
         // Image upload functionality
         function initImageUpload() {
@@ -1228,7 +1322,12 @@ Include:
         }
 
         function displayTSG(tsg) {
-            document.getElementById('tsgOutput').textContent = tsg;
+            const output = document.getElementById('tsgOutput');
+            if (isMarkdownPreview) {
+                output.innerHTML = marked.parse(tsg);
+            } else {
+                output.textContent = tsg;
+            }
             document.getElementById('copyBtn').disabled = false;
             document.getElementById('clearSessionBtn').disabled = false;
         }

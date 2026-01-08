@@ -216,7 +216,6 @@ The agent is instructed to **always research** before generating the TSG:
    - Azure service documentation
    - Known limitations and workarounds
    - Configuration guides
-   - Capability hosts, agent setup (for AI Foundry issues)
 
 2. **Bing Search** for:
    - GitHub discussions and issues
