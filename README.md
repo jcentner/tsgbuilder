@@ -112,6 +112,8 @@ Images are sent to the AI agent for visual analysis, which is especially useful 
 - Azure CLI (logged in with `az login`)
 - Access to an Azure AI Foundry project
 
+> **Recommended**: Linux or WSL 2 (Make and other tools work out of the box).
+>
 > **Windows (PowerShell)**: Install Make and add to PATH:
 > ```powershell
 > winget install GnuWin32.Make
