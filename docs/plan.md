@@ -24,6 +24,36 @@ Add a background service that scans AVA Teams channels for new troubleshooting i
 
 - **Teams API authentication**: TBD - need to determine delegated vs application auth approach for Microsoft Graph API access to AVA channels.
 
+### Design Considerations
+
+**1. Post Filtering Logic**
+Not every AVA post is TSG-worthy. Need criteria for what to scan:
+- Only threads with replies/resolutions (not unanswered questions)
+- Posts marked resolved or with certain reactions
+- Posts older than X hours (to allow discussion to complete)
+
+**2. Thread Context Extraction**
+AVA threads can be long back-and-forth conversations. The `ava_parser.py` needs logic to extract:
+- Original problem statement
+- Final resolution/workaround
+- Relevant error messages or screenshots
+- Links to incidents/documentation mentioned
+
+**3. Scan Checkpointing**
+Track what's been scanned by persisting a watermark (last scanned timestamp or message ID) to avoid reprocessing.
+
+**4. Wiki Index Freshness**
+The comparison needs TSG content indexed. Options:
+- On-demand fetch (slower but always fresh)
+- Periodic cache refresh (faster but potentially stale)
+- Webhook on wiki changes (complex but ideal)
+
+**5. Deduplication**
+Same issue may appear in multiple AVA posts. Need fingerprinting to avoid duplicate queue entries.
+
+**6. Polling vs Webhooks**
+Microsoft Graph supports change notifications for channel messages, enabling near-real-time detection without constant polling. However, this requires a publicly accessible endpoint (ngrok for local dev, or a small Azure Function). **Recommendation:** Start with polling—it's simpler. Add webhooks later if delay or resource usage becomes problematic.
+
 ---
 
 #### Post-draft
