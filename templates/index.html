@@ -338,6 +338,17 @@
             border-left-color: var(--primary);
         }
 
+        .activity-item.stage-start {
+            border-left-color: var(--primary);
+            background: #e6f2ff;
+            font-weight: 500;
+        }
+
+        .activity-item.stage-complete {
+            border-left-color: var(--success);
+            background: #e6ffe6;
+        }
+
         .activity-item.tool {
             border-left-color: var(--success);
         }
@@ -1082,6 +1093,32 @@ Include:
                 clearActivity();
                 addActivity('🚀', 'Starting agent...', 'status');
                 
+                // Track last event time for "still working" indicator
+                let lastEventTime = Date.now();
+                let waitingInterval = null;
+                const startTime = Date.now();
+                
+                function updateWaitingIndicator() {
+                    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                    const sinceLast = Math.floor((Date.now() - lastEventTime) / 1000);
+                    if (sinceLast > 10) {
+                        const mins = Math.floor(elapsed / 60);
+                        const secs = elapsed % 60;
+                        const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+                        document.getElementById('loadingText').textContent = `⏳ Still working... (${timeStr} elapsed)`;
+                    }
+                }
+                
+                function cleanup() {
+                    if (waitingInterval) {
+                        clearInterval(waitingInterval);
+                        waitingInterval = null;
+                    }
+                }
+                
+                // Check every 5 seconds if we haven't received events
+                waitingInterval = setInterval(updateWaitingIndicator, 5000);
+                
                 // Use fetch with streaming for SSE
                 fetch(endpoint, {
                     method: 'POST',
@@ -1089,6 +1126,7 @@ Include:
                     body: JSON.stringify(body)
                 }).then(response => {
                     if (!response.ok) {
+                        cleanup();
                         return response.json().then(err => {
                             throw new Error(err.error || 'Request failed');
                         });
@@ -1107,7 +1145,14 @@ Include:
                             if (line.startsWith('data: ')) {
                                 try {
                                     const event = JSON.parse(line.slice(6));
-                                    handleStreamEvent(event, resolve, reject);
+                                    // Update last event time (except for keepalives)
+                                    if (event.type !== 'keepalive') {
+                                        lastEventTime = Date.now();
+                                    }
+                                    handleStreamEvent(event, 
+                                        (data) => { cleanup(); resolve(data); },
+                                        (err) => { cleanup(); reject(err); }
+                                    );
                                 } catch (e) {
                                     // Ignore parse errors for malformed events
                                 }
@@ -1118,6 +1163,7 @@ Include:
                     function read() {
                         reader.read().then(({ done, value }) => {
                             if (done) {
+                                cleanup();
                                 if (buffer.startsWith('data: ')) {
                                     try {
                                         const event = JSON.parse(buffer.slice(6));
@@ -1129,6 +1175,7 @@ Include:
                             processText(decoder.decode(value, { stream: true }));
                             read();
                         }).catch(err => {
+                            cleanup();
                             // Handle network errors (incomplete chunked read, connection reset, etc.)
                             const errorMsg = err.message || 'Unknown error';
                             if (errorMsg.includes('chunked') || errorMsg.includes('network') || errorMsg.includes('aborted')) {
@@ -1140,7 +1187,10 @@ Include:
                     }
                     
                     read();
-                }).catch(reject);
+                }).catch(err => {
+                    cleanup();
+                    reject(err);
+                });
             });
         }
 
@@ -1151,6 +1201,7 @@ Include:
                     break;
                     
                 case 'status':
+                    // Use icon from event data if provided, otherwise derive from status
                     const statusIcons = {
                         'queued': '⏳',
                         'in_progress': '🔄',
@@ -1158,14 +1209,44 @@ Include:
                         'completed': '✅',
                         'failed': '❌'
                     };
-                    const icon = statusIcons[event.data.status] || '•';
-                    addActivity(icon, event.data.message, 'status');
+                    const statusIcon = event.data.icon || statusIcons[event.data.status] || '•';
+                    addActivity(statusIcon, event.data.message, 'status');
+                    document.getElementById('loadingText').textContent = event.data.message;
+                    break;
+                
+                case 'stage_start':
+                    // New stage beginning
+                    addActivity(event.data.icon || '▶️', event.data.message, 'stage-start');
+                    document.getElementById('loadingText').textContent = event.data.message;
+                    break;
+                
+                case 'stage_complete':
+                    // Stage finished
+                    addActivity(event.data.icon || '✅', event.data.message, 'stage-complete');
+                    document.getElementById('loadingText').textContent = event.data.message;
+                    break;
+                
+                case 'progress':
+                    // Progress update (don't add to activity feed, just update loading text)
                     document.getElementById('loadingText').textContent = event.data.message;
                     break;
                     
                 case 'tool':
                     const toolClass = event.data.status === 'completed' ? 'tool completed' : 'tool';
-                    addActivity(event.data.icon, event.data.message, toolClass);
+                    addActivity(event.data.icon || '🔧', event.data.message, toolClass);
+                    // Also update loading text for tool calls
+                    if (event.data.status === 'running') {
+                        document.getElementById('loadingText').textContent = event.data.message;
+                    }
+                    break;
+                
+                case 'tool_call':
+                    // Legacy tool_call event - convert to new format
+                    const legacyIcon = event.data.type === 'mcp' ? '📚' : '🌐';
+                    const legacyMsg = event.data.status === 'completed' 
+                        ? `✅ ${event.data.name}` 
+                        : `${legacyIcon} ${event.data.name}...`;
+                    addActivity(event.data.status === 'completed' ? '✅' : legacyIcon, legacyMsg, 'tool');
                     break;
                     
                 case 'activity':

@@ -54,7 +54,58 @@ if TEST_MODE:
 app = Flask(__name__)
 
 # Store active sessions (thread_id -> session data)
+# Sessions are persisted to disk so they survive server restarts
+SESSIONS_DIR = Path(".sessions")
 sessions: dict[str, dict] = {}
+
+
+def _ensure_sessions_dir():
+    """Ensure the sessions directory exists."""
+    SESSIONS_DIR.mkdir(exist_ok=True)
+
+
+def _save_session(thread_id: str, data: dict):
+    """Persist a session to disk."""
+    _ensure_sessions_dir()
+    session_file = SESSIONS_DIR / f"{thread_id}.json"
+    try:
+        session_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"Warning: Failed to save session {thread_id}: {e}")
+
+
+def _load_session(thread_id: str) -> dict | None:
+    """Load a session from disk if it exists."""
+    session_file = SESSIONS_DIR / f"{thread_id}.json"
+    if session_file.exists():
+        try:
+            return json.loads(session_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"Warning: Failed to load session {thread_id}: {e}")
+    return None
+
+
+def _delete_session_file(thread_id: str):
+    """Delete a session file from disk."""
+    session_file = SESSIONS_DIR / f"{thread_id}.json"
+    try:
+        if session_file.exists():
+            session_file.unlink()
+    except Exception as e:
+        print(f"Warning: Failed to delete session file {thread_id}: {e}")
+
+
+def _load_all_sessions():
+    """Load all persisted sessions on startup."""
+    if not SESSIONS_DIR.exists():
+        return
+    for session_file in SESSIONS_DIR.glob("*.json"):
+        thread_id = session_file.stem
+        try:
+            sessions[thread_id] = json.loads(session_file.read_text(encoding="utf-8"))
+            print(f"Restored session: {thread_id}")
+        except Exception as e:
+            print(f"Warning: Failed to restore session {thread_id}: {e}")
 
 
 def get_project_client() -> AIProjectClient:
@@ -567,14 +618,16 @@ def generate_pipeline_sse_events(
         if result.success:
             has_questions = result.questions_content and result.questions_content.strip() != "NO_MISSING"
             
-            # Store session
+            # Store session (in memory and on disk)
             if result.thread_id:
-                sessions[result.thread_id] = {
+                session_data = {
                     "notes": notes,
                     "current_tsg": result.tsg_content,
                     "questions": result.questions_content if has_questions else None,
                     "research_report": result.research_report,
                 }
+                sessions[result.thread_id] = session_data
+                _save_session(result.thread_id, session_data)
             
             # Include review warnings if any
             review_warnings = []
@@ -634,8 +687,17 @@ def api_answer_stream():
     thread_id = data.get("thread_id")
     answers = data.get("answers", "").strip()
     
-    if not thread_id or thread_id not in sessions:
-        return jsonify({"error": "Invalid or expired session"}), 400
+    if not thread_id:
+        return jsonify({"error": "No session ID provided"}), 400
+    
+    # Try to load from disk if not in memory
+    if thread_id not in sessions:
+        loaded = _load_session(thread_id)
+        if loaded:
+            sessions[thread_id] = loaded
+            print(f"Restored session from disk: {thread_id}")
+        else:
+            return jsonify({"error": "Invalid or expired session"}), 400
     
     if not answers:
         return jsonify({"error": "No answers provided"}), 400
@@ -654,9 +716,10 @@ def api_answer_stream():
 
 @app.route("/api/session/<thread_id>", methods=["DELETE"])
 def api_delete_session(thread_id):
-    """Clean up a session."""
+    """Clean up a session (memory and disk)."""
     if thread_id in sessions:
         del sessions[thread_id]
+    _delete_session_file(thread_id)
     return jsonify({"success": True})
 
 
@@ -673,6 +736,11 @@ def api_example():
 
 def main():
     """Run the Flask development server."""
+    # Load persisted sessions from disk
+    _load_all_sessions()
+    if sessions:
+        print(f"📂 Restored {len(sessions)} session(s) from disk")
+    
     # Check configuration before starting
     endpoint = os.getenv("PROJECT_ENDPOINT")
     if not endpoint:

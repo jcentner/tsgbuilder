@@ -93,6 +93,14 @@ def process_pipeline_v2_stream(
     event_type = getattr(event, 'type', None)
     stage_name = stage.value.capitalize()
     
+    # Stage-specific icons
+    stage_icons = {
+        "research": "🔍",
+        "write": "✏️",
+        "review": "🔎",
+    }
+    stage_icon = stage_icons.get(stage.value, "•")
+    
     def send_event(event_type: str, data: dict):
         if event_queue:
             data["stage"] = stage.value
@@ -101,50 +109,142 @@ def process_pipeline_v2_stream(
     if event_type == "response.created":
         send_event("status", {
             "status": "in_progress",
-            "message": f"{stage_name}: Processing..."
+            "message": f"{stage_icon} {stage_name}: Processing...",
+            "icon": stage_icon,
+        })
+    
+    elif event_type == "response.in_progress":
+        # Model is actively working
+        send_event("status", {
+            "status": "in_progress",
+            "message": f"{stage_icon} {stage_name}: Model working...",
+            "icon": stage_icon,
         })
     
     elif event_type == "response.output_text.delta":
         delta = getattr(event, 'delta', '')
         if delta:
             response_text_parts.append(delta)
+            # Send periodic progress for long outputs (every ~500 chars)
+            total_len = sum(len(p) for p in response_text_parts)
+            if total_len % 500 < len(delta):
+                send_event("progress", {
+                    "message": f"{stage_icon} {stage_name}: Writing response... ({total_len:,} chars)",
+                    "chars": total_len,
+                })
     
     elif event_type == "response.output_item.added":
         item = getattr(event, 'item', None)
         if item and hasattr(item, 'type'):
-            if item.type == "mcp_call":
-                send_event("tool_call", {
+            item_type = item.type
+            if item_type == "mcp_call":
+                # Try to get the MCP tool name from the item
+                mcp_name = getattr(item, 'name', None) or "Microsoft Learn"
+                send_event("tool", {
                     "type": "mcp",
-                    "name": "MCP: Microsoft Learn",
+                    "icon": "📚",
+                    "name": mcp_name,
+                    "message": f"📚 Calling {mcp_name}...",
                     "status": "running"
                 })
-            elif item.type == "web_search_call":
-                send_event("tool_call", {
-                    "type": "bing_grounding",
+            elif item_type == "web_search_call":
+                # Try to get the search query
+                query_hint = ""
+                if hasattr(item, 'query'):
+                    query_hint = f": {item.query[:50]}..." if len(getattr(item, 'query', '')) > 50 else f": {item.query}"
+                send_event("tool", {
+                    "type": "bing",
+                    "icon": "🌐",
                     "name": "Bing Search",
+                    "message": f"🌐 Bing Search{query_hint}",
                     "status": "running"
+                })
+            elif item_type == "function_call":
+                func_name = getattr(item, 'name', 'function')
+                send_event("tool", {
+                    "type": "function",
+                    "icon": "⚙️",
+                    "name": func_name,
+                    "message": f"⚙️ Calling {func_name}...",
+                    "status": "running"
+                })
+            elif item_type == "message":
+                # Model is generating a message response
+                send_event("status", {
+                    "status": "in_progress",
+                    "message": f"{stage_icon} {stage_name}: Generating response...",
+                    "icon": stage_icon,
+                })
+            else:
+                # Log unknown item types for debugging
+                send_event("status", {
+                    "status": "in_progress", 
+                    "message": f"{stage_icon} {stage_name}: Processing ({item_type})...",
+                    "icon": stage_icon,
                 })
     
     elif event_type == "response.output_item.done":
         item = getattr(event, 'item', None)
         if item and hasattr(item, 'type'):
-            if item.type in ("mcp_call", "web_search_call"):
-                send_event("tool_call", {
-                    "type": item.type,
-                    "name": "Tool completed",
+            item_type = item.type
+            if item_type == "mcp_call":
+                mcp_name = getattr(item, 'name', None) or "Microsoft Learn"
+                send_event("tool", {
+                    "type": "mcp",
+                    "icon": "✅",
+                    "name": mcp_name,
+                    "message": f"✅ {mcp_name} complete",
+                    "status": "completed"
+                })
+                # After tool completes, indicate model is processing results
+                send_event("status", {
+                    "status": "in_progress",
+                    "message": f"{stage_icon} {stage_name}: Processing search results...",
+                    "icon": stage_icon,
+                })
+            elif item_type == "web_search_call":
+                send_event("tool", {
+                    "type": "bing",
+                    "icon": "✅",
+                    "name": "Bing Search",
+                    "message": "✅ Bing Search complete",
+                    "status": "completed"
+                })
+                send_event("status", {
+                    "status": "in_progress",
+                    "message": f"{stage_icon} {stage_name}: Processing search results...",
+                    "icon": stage_icon,
+                })
+            elif item_type == "function_call":
+                func_name = getattr(item, 'name', 'function')
+                send_event("tool", {
+                    "type": "function",
+                    "icon": "✅",
+                    "name": func_name,
+                    "message": f"✅ {func_name} complete",
                     "status": "completed"
                 })
     
     elif event_type == "response.completed":
         send_event("status", {
             "status": "completed",
-            "message": f"{stage_name}: Complete"
+            "message": f"✅ {stage_name}: Complete",
+            "icon": "✅",
         })
         # Get full output text if available
         if hasattr(event, 'response') and hasattr(event.response, 'output_text'):
             if event.response.output_text:
                 response_text_parts.clear()
                 response_text_parts.append(event.response.output_text)
+    
+    elif event_type == "response.failed":
+        error_msg = "Unknown error"
+        if hasattr(event, 'response') and hasattr(event.response, 'error'):
+            error_msg = str(event.response.error)
+        send_event("error", {
+            "message": f"❌ {stage_name} failed: {error_msg}",
+            "icon": "❌",
+        })
 
 
 class TSGPipeline:
@@ -298,7 +398,8 @@ class TSGPipeline:
                 with openai_client:
                     # --- Stage 1: Research ---
                     self._send_stage_event(PipelineStage.RESEARCH, "stage_start", {
-                        "message": "Starting research phase..."
+                        "message": "🔍 Research: Gathering documentation and references...",
+                        "icon": "🔍",
                     })
                     
                     research_report = ""
@@ -329,7 +430,8 @@ class TSGPipeline:
                             }
                         
                         self._send_stage_event(PipelineStage.RESEARCH, "stage_complete", {
-                            "message": "Research complete",
+                            "message": "✅ Research: Found documentation and references",
+                            "icon": "✅",
                             "has_content": bool(research_report),
                         })
                     else:
@@ -340,12 +442,14 @@ class TSGPipeline:
                         else:
                             research_report = "(Prior research not available for this follow-up)"
                         self._send_stage_event(PipelineStage.RESEARCH, "stage_complete", {
-                            "message": "Skipped (follow-up)",
+                            "message": "⏭️ Research: Using previous research (follow-up)",
+                            "icon": "⏭️",
                         })
                     
                     # --- Stage 2: Write ---
                     self._send_stage_event(PipelineStage.WRITE, "stage_start", {
-                        "message": "Writing TSG draft..."
+                        "message": "✏️ Write: Drafting TSG from notes and research...",
+                        "icon": "✏️",
                     })
                     
                     writer_prompt = build_writer_prompt(
@@ -373,12 +477,14 @@ class TSGPipeline:
                         }
                     
                     self._send_stage_event(PipelineStage.WRITE, "stage_complete", {
-                        "message": "Draft complete",
+                        "message": "✅ Write: TSG draft complete",
+                        "icon": "✅",
                     })
                     
                     # --- Stage 3: Review (with retry loop) ---
                     self._send_stage_event(PipelineStage.REVIEW, "stage_start", {
-                        "message": "Reviewing TSG quality..."
+                        "message": "🔎 Review: Validating structure and accuracy...",
+                        "icon": "🔎",
                     })
                     
                     draft_tsg = write_response
@@ -416,13 +522,15 @@ class TSGPipeline:
                                 elif review_result.get("corrected_tsg"):
                                     draft_tsg = review_result["corrected_tsg"]
                                     self._send_stage_event(PipelineStage.REVIEW, "status", {
-                                        "message": f"Auto-correcting issues (attempt {retry + 1})...",
+                                        "message": f"🔧 Review: Auto-correcting issues (attempt {retry + 1})...",
+                                        "icon": "🔧",
                                         "issues": review_result.get("accuracy_issues", []) + review_result.get("structure_issues", []),
                                     })
                                 else:
                                     final_tsg = draft_tsg
                                     self._send_stage_event(PipelineStage.REVIEW, "status", {
-                                        "message": "Review found issues (included as warnings)",
+                                        "message": "⚠️ Review: Found issues (included as warnings)",
+                                        "icon": "⚠️",
                                         "issues": review_result.get("accuracy_issues", []),
                                     })
                                     break
@@ -432,7 +540,8 @@ class TSGPipeline:
                         else:
                             if retry < self.MAX_RETRIES:
                                 self._send_stage_event(PipelineStage.REVIEW, "status", {
-                                    "message": f"Fixing structure issues (attempt {retry + 1})...",
+                                    "message": f"🔧 Review: Fixing structure issues (attempt {retry + 1})...",
+                                    "icon": "🔧",
                                     "issues": validation["issues"],
                                 })
                                 
