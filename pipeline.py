@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import queue
+import time
 import httpx
 from dataclasses import dataclass, field
 from enum import Enum
@@ -80,7 +81,8 @@ def process_pipeline_v2_stream(
     event,
     event_queue: queue.Queue | None,
     stage: PipelineStage,
-    response_text_parts: list[str]
+    response_text_parts: list[str],
+    timing_context: dict | None = None,
 ) -> None:
     """Process a v2 streaming event for pipeline stages.
     
@@ -89,6 +91,7 @@ def process_pipeline_v2_stream(
         event_queue: Optional queue for SSE events (None for non-streaming)
         stage: Current pipeline stage
         response_text_parts: List to accumulate response text
+        timing_context: Optional dict to track timing (keys: 'tool_start', 'stage_start')
     """
     event_type = getattr(event, 'type', None)
     stage_name = stage.value.capitalize()
@@ -107,6 +110,8 @@ def process_pipeline_v2_stream(
             event_queue.put({"type": event_type, "data": data})
     
     if event_type == "response.created":
+        if timing_context is not None:
+            timing_context['stage_start'] = time.time()
         send_event("status", {
             "status": "in_progress",
             "message": f"{stage_icon} {stage_name}: Processing...",
@@ -115,9 +120,15 @@ def process_pipeline_v2_stream(
     
     elif event_type == "response.in_progress":
         # Model is actively working
+        elapsed = ""
+        if timing_context and 'tool_end' in timing_context:
+            # Time since last tool completed (model thinking time)
+            thinking_time = time.time() - timing_context['tool_end']
+            if thinking_time > 2:
+                elapsed = f" ({thinking_time:.0f}s model processing)"
         send_event("status", {
             "status": "in_progress",
-            "message": f"{stage_icon} {stage_name}: Model working...",
+            "message": f"{stage_icon} {stage_name}: Model working...{elapsed}",
             "icon": stage_icon,
         })
     
@@ -137,6 +148,11 @@ def process_pipeline_v2_stream(
         item = getattr(event, 'item', None)
         if item and hasattr(item, 'type'):
             item_type = item.type
+            
+            # Track tool start time
+            if timing_context is not None and item_type in ('mcp_call', 'web_search_call', 'function_call'):
+                timing_context['tool_start'] = time.time()
+            
             if item_type == "mcp_call":
                 # Try to get the MCP tool name from the item
                 mcp_name = getattr(item, 'name', None) or "Microsoft Learn"
@@ -187,13 +203,21 @@ def process_pipeline_v2_stream(
         item = getattr(event, 'item', None)
         if item and hasattr(item, 'type'):
             item_type = item.type
+            
+            # Calculate tool elapsed time
+            tool_elapsed = ""
+            if timing_context and 'tool_start' in timing_context:
+                elapsed_sec = time.time() - timing_context['tool_start']
+                tool_elapsed = f" ({elapsed_sec:.1f}s)"
+                timing_context['tool_end'] = time.time()  # Track when tool finished for model thinking time
+            
             if item_type == "mcp_call":
                 mcp_name = getattr(item, 'name', None) or "Microsoft Learn"
                 send_event("tool", {
                     "type": "mcp",
                     "icon": "✅",
                     "name": mcp_name,
-                    "message": f"✅ {mcp_name} complete",
+                    "message": f"✅ {mcp_name} complete{tool_elapsed}",
                     "status": "completed"
                 })
                 # After tool completes, indicate model is processing results
@@ -207,7 +231,7 @@ def process_pipeline_v2_stream(
                     "type": "bing",
                     "icon": "✅",
                     "name": "Bing Search",
-                    "message": "✅ Bing Search complete",
+                    "message": f"✅ Bing Search complete{tool_elapsed}",
                     "status": "completed"
                 })
                 send_event("status", {
@@ -221,7 +245,7 @@ def process_pipeline_v2_stream(
                     "type": "function",
                     "icon": "✅",
                     "name": func_name,
-                    "message": f"✅ {func_name} complete",
+                    "message": f"✅ {func_name} complete{tool_elapsed}",
                     "status": "completed"
                 })
     
@@ -260,6 +284,7 @@ class TSGPipeline:
     """
     
     MAX_RETRIES = 2
+    RESEARCH_MAX_RETRIES = 2  # Extra retries for research due to Bing timeouts
     
     def __init__(
         self,
@@ -322,6 +347,7 @@ class TSGPipeline:
         Returns: (response_text, conversation_id)
         """
         response_text_parts: list[str] = []
+        timing_context: dict = {}  # Track timing for tool calls and model processing
         
         try:
             # Build kwargs for responses.create
@@ -347,7 +373,8 @@ class TSGPipeline:
                     event, 
                     self._event_queue, 
                     stage, 
-                    response_text_parts
+                    response_text_parts,
+                    timing_context,
                 )
                 
                 # Capture conversation ID from response if not already set
@@ -392,9 +419,9 @@ class TSGPipeline:
         try:
             with project:
                 # Get OpenAI client for v2 responses API with extended timeout
-                # Default httpx timeout is 5 min; extend to 10 min for long research phases
+                # Bing Search calls can take several minutes; extend to 15 min for long research phases
                 openai_client = project.get_openai_client()
-                openai_client.timeout = httpx.Timeout(600.0, connect=60.0)  # 10 min read, 1 min connect
+                openai_client.timeout = httpx.Timeout(900.0, connect=60.0)  # 15 min read, 1 min connect
                 with openai_client:
                     # --- Stage 1: Research ---
                     self._send_stage_event(PipelineStage.RESEARCH, "stage_start", {
@@ -407,13 +434,47 @@ class TSGPipeline:
                         # Only do research on initial generation, not follow-ups
                         research_prompt = build_research_prompt(notes)
                         
-                        research_response, research_conv_id = self._run_stage(
-                            project,
-                            openai_client,
-                            self.researcher_agent_name,
-                            PipelineStage.RESEARCH,
-                            research_prompt,
-                        )
+                        # Research stage has its own retry loop due to frequent Bing timeouts
+                        research_response = ""
+                        research_conv_id = ""
+                        last_research_error = None
+                        
+                        for research_attempt in range(self.RESEARCH_MAX_RETRIES + 1):
+                            try:
+                                if research_attempt > 0:
+                                    self._send_stage_event(PipelineStage.RESEARCH, "status", {
+                                        "message": f"🔄 Research: Retrying after timeout (attempt {research_attempt + 1})...",
+                                        "icon": "🔄",
+                                    })
+                                
+                                research_response, research_conv_id = self._run_stage(
+                                    project,
+                                    openai_client,
+                                    self.researcher_agent_name,
+                                    PipelineStage.RESEARCH,
+                                    research_prompt,
+                                )
+                                last_research_error = None
+                                break  # Success, exit retry loop
+                                
+                            except Exception as e:
+                                last_research_error = e
+                                error_str = str(e).lower()
+                                # Retry on timeout or connection errors
+                                is_retryable = any(x in error_str for x in ['timeout', 'timed out', 'connection', 'httpx'])
+                                
+                                if is_retryable and research_attempt < self.RESEARCH_MAX_RETRIES:
+                                    self._send_stage_event(PipelineStage.RESEARCH, "status", {
+                                        "message": f"⚠️ Research: Tool call timed out, will retry...",
+                                        "icon": "⚠️",
+                                    })
+                                    continue
+                                else:
+                                    # Non-retryable error or out of retries
+                                    raise
+                        
+                        if last_research_error:
+                            raise last_research_error
                         
                         research_report = extract_research_block(research_response)
                         if not research_report:
