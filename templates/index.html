@@ -1128,7 +1128,15 @@ Include:
                             }
                             processText(decoder.decode(value, { stream: true }));
                             read();
-                        }).catch(reject);
+                        }).catch(err => {
+                            // Handle network errors (incomplete chunked read, connection reset, etc.)
+                            const errorMsg = err.message || 'Unknown error';
+                            if (errorMsg.includes('chunked') || errorMsg.includes('network') || errorMsg.includes('aborted')) {
+                                reject(new Error('Connection lost during generation. This may be due to a timeout or network issue. Try again or use a shorter input.'));
+                            } else {
+                                reject(err);
+                            }
+                        });
                     }
                     
                     read();
@@ -1248,6 +1256,10 @@ Include:
 
             } catch (error) {
                 showError(error.message);
+                // Enable Clear Session so user can reset after errors
+                if (currentThreadId || document.getElementById('notesInput').value.trim()) {
+                    document.getElementById('clearSessionBtn').disabled = false;
+                }
             } finally {
                 showLoading(false);
             }
@@ -1281,6 +1293,8 @@ Include:
 
             } catch (error) {
                 showError(error.message);
+                // Enable Clear Session so user can reset after errors
+                document.getElementById('clearSessionBtn').disabled = false;
             } finally {
                 showLoading(false);
             }

@@ -546,14 +546,14 @@ def generate_pipeline_sse_events(
     # Yield SSE events as they arrive
     while True:
         try:
-            event = event_queue.get(timeout=360)  # 6 minute timeout for pipeline
+            event = event_queue.get(timeout=30)  # 30s keepalive interval to prevent connection drops
             if event is None:
                 break
             
             yield f"data: {json.dumps(event)}\n\n"
             
         except queue.Empty:
-            # Send keepalive
+            # Send keepalive to prevent connection timeout
             yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
     
     pipeline_thread.join()
