@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import queue
+import httpx
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -71,6 +72,8 @@ class PipelineResult:
     error: str | None = None
     stages_completed: list[PipelineStage] = field(default_factory=list)
     retry_count: int = 0
+    # Test mode: raw outputs from each stage
+    stage_outputs: dict = field(default_factory=dict)
 
 
 def process_pipeline_v2_stream(
@@ -166,6 +169,7 @@ class TSGPipeline:
         reviewer_agent_name: str,
         bing_connection_id: str | None = None,
         model_name: str | None = None,
+        test_mode: bool = False,
     ):
         self.project_endpoint = project_endpoint
         # v2: store agent names instead of IDs
@@ -174,6 +178,7 @@ class TSGPipeline:
         self.reviewer_agent_name = reviewer_agent_name
         self.bing_connection_id = bing_connection_id
         self.model_name = model_name or os.getenv("MODEL_DEPLOYMENT_NAME", "gpt-5.2")
+        self.test_mode = test_mode
         
         self._event_queue: queue.Queue | None = None
     
@@ -220,7 +225,6 @@ class TSGPipeline:
         
         try:
             # Build kwargs for responses.create
-            # GPT-5.2: Configure reasoning effort for improved deliberation
             stream_kwargs = {
                 "stream": True,
                 "input": user_message,
@@ -228,9 +232,6 @@ class TSGPipeline:
                     "agent": {
                         "name": agent_name,
                         "type": "agent_reference"
-                    },
-                    "reasoning": {
-                        "effort": "medium"  # GPT-5.2: medium reasoning for balanced speed/quality
                     }
                 }
             }
@@ -290,8 +291,11 @@ class TSGPipeline:
         
         try:
             with project:
-                # Get OpenAI client for v2 responses API
-                with project.get_openai_client() as openai_client:
+                # Get OpenAI client for v2 responses API with extended timeout
+                # Default httpx timeout is 5 min; extend to 10 min for long research phases
+                openai_client = project.get_openai_client()
+                openai_client.timeout = httpx.Timeout(600.0, connect=60.0)  # 10 min read, 1 min connect
+                with openai_client:
                     # --- Stage 1: Research ---
                     self._send_stage_event(PipelineStage.RESEARCH, "stage_start", {
                         "message": "Starting research phase..."
@@ -316,6 +320,13 @@ class TSGPipeline:
                         
                         result.research_report = research_report
                         result.stages_completed.append(PipelineStage.RESEARCH)
+                        
+                        # Test mode: capture raw research output
+                        if self.test_mode:
+                            result.stage_outputs["research"] = {
+                                "raw_response": research_response,
+                                "extracted_report": research_report,
+                            }
                         
                         self._send_stage_event(PipelineStage.RESEARCH, "stage_complete", {
                             "message": "Research complete",
@@ -354,6 +365,13 @@ class TSGPipeline:
                     result.thread_id = write_conv_id  # Store conversation ID
                     result.stages_completed.append(PipelineStage.WRITE)
                     
+                    # Test mode: capture raw writer output
+                    if self.test_mode:
+                        result.stage_outputs["write"] = {
+                            "raw_response": write_response,
+                            "prompt": writer_prompt,
+                        }
+                    
                     self._send_stage_event(PipelineStage.WRITE, "stage_complete", {
                         "message": "Draft complete",
                     })
@@ -366,6 +384,7 @@ class TSGPipeline:
                     draft_tsg = write_response
                     final_tsg = None
                     review_result = None
+                    review_response = None  # Track for test mode
                     
                     for retry in range(self.MAX_RETRIES + 1):
                         result.retry_count = retry
@@ -453,6 +472,14 @@ Please fix these issues and regenerate the TSG with correct format.
                     
                     result.stages_completed.append(PipelineStage.REVIEW)
                     
+                    # Test mode: capture review output
+                    if self.test_mode:
+                        result.stage_outputs["review"] = {
+                            "raw_response": review_response,
+                            "parsed_result": review_result,
+                            "final_draft": draft_tsg,
+                        }
+                    
                     if final_tsg:
                         tsg_content = ""
                         questions_content = ""
@@ -499,13 +526,16 @@ def run_pipeline(
     prior_tsg: str | None = None,
     user_answers: str | None = None,
     prior_research: str | None = None,
+    test_mode: bool = False,
 ) -> PipelineResult:
     """
     Convenience function to run the TSG pipeline.
     
     Loads configuration from environment variables and agent info from storage.
+    If test_mode=True, captures raw outputs from each stage and writes to a JSON file.
     """
     import json
+    from datetime import datetime
     from dotenv import load_dotenv
     load_dotenv()
     
@@ -547,12 +577,13 @@ def run_pipeline(
         reviewer_agent_name=reviewer_name,
         bing_connection_id=bing_connection_id,
         model_name=model_name,
+        test_mode=test_mode,
     )
     
     if event_queue:
         pipeline.set_event_queue(event_queue)
     
-    return pipeline.run(
+    result = pipeline.run(
         notes=notes,
         images=images,
         conversation_id=thread_id,  # v2: conversation_id instead of thread_id
@@ -560,3 +591,22 @@ def run_pipeline(
         user_answers=user_answers,
         prior_research=prior_research,
     )
+    
+    # Write test output file if in test mode
+    if test_mode and result.stage_outputs:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        test_output_file = Path(f"test_output_{timestamp}.json")
+        test_data = {
+            "timestamp": timestamp,
+            "success": result.success,
+            "input_notes": notes,
+            "stages_completed": [s.value for s in result.stages_completed],
+            "stage_outputs": result.stage_outputs,
+            "final_tsg": result.tsg_content,
+            "questions": result.questions_content,
+            "error": result.error,
+        }
+        test_output_file.write_text(json.dumps(test_data, indent=2), encoding="utf-8")
+        print(f"Test output written to: {test_output_file}")
+    
+    return result

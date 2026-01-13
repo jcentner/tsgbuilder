@@ -46,6 +46,11 @@ LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
 # Load environment variables
 load_dotenv(find_dotenv())
 
+# Check for test mode from environment variable
+TEST_MODE = os.getenv("TSG_TEST_MODE", "").strip() in ("1", "true", "True", "yes")
+if TEST_MODE:
+    print("🧪 Test mode enabled - stage outputs will be captured to test_output_*.json")
+
 app = Flask(__name__)
 
 # Store active sessions (thread_id -> session data)
@@ -525,6 +530,7 @@ def generate_pipeline_sse_events(
                 thread_id=thread_id,
                 prior_tsg=sessions.get(thread_id, {}).get("current_tsg") if thread_id else None,
                 user_answers=answers,
+                test_mode=TEST_MODE,
             )
             result_holder["result"] = result
         except Exception as e:
@@ -540,7 +546,7 @@ def generate_pipeline_sse_events(
     # Yield SSE events as they arrive
     while True:
         try:
-            event = event_queue.get(timeout=180)  # 3 minute timeout for pipeline
+            event = event_queue.get(timeout=360)  # 6 minute timeout for pipeline
             if event is None:
                 break
             

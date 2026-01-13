@@ -16,6 +16,7 @@ help:
 	@echo "                      Setup, validation, and agent creation are all"
 	@echo "                      available in the UI. The setup wizard opens"
 	@echo "                      automatically if configuration is needed."
+	@echo "                      Add TEST=1 to capture stage outputs to JSON file"
 	@echo ""
 	@echo "Utility commands:"
 	@echo "  make validate     - Validate environment configuration (CLI)"
@@ -26,6 +27,7 @@ help:
 	@echo ""
 	@echo "Example:"
 	@echo "  make setup && make ui    # Recommended: setup then open UI"
+	@echo "  make ui TEST=1           # Run with test output capture"
 	@echo "  make clean DELETE_AGENTS=1  # Clean and delete agents from Azure"
 
 setup: .venv install env-file
@@ -76,10 +78,13 @@ validate:
 
 ui:
 	@echo "Starting TSG Builder web UI..."
+ifdef TEST
+	@echo "Test mode enabled - stage outputs will be captured to test_output_*.json"
+endif
 	@if [ -d ".venv" ]; then \
-		.venv/bin/python web_app.py; \
+		TSG_TEST_MODE=$(TEST) .venv/bin/python web_app.py; \
 	else \
-		$(PYTHON) web_app.py; \
+		TSG_TEST_MODE=$(TEST) $(PYTHON) web_app.py; \
 	fi
 
 clean:
