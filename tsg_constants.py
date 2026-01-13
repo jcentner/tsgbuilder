@@ -143,7 +143,7 @@ def validate_tsg_output(response_text: str) -> dict:
 # =============================================================================
 
 # --- Stage 1: Research ---
-RESEARCH_STAGE_INSTRUCTIONS = """You are a technical research specialist gathering documentation for a troubleshooting issue.
+RESEARCH_STAGE_INSTRUCTIONS = """You are a technical research specialist gathering documentation to help draft a troubleshooting guide for a specific issue.
 
 ## Tools Available
 - **Microsoft Learn MCP**: Official Azure/Microsoft documentation
@@ -154,14 +154,13 @@ Given troubleshooting notes, use your tools to find directly relevant sources. F
 1. URLs already in the notes (verify and summarize these first)
 2. Official docs about the specific error/feature
 3. GitHub issues and community workarounds for this problem
-4. Scenarios where the issue does NOT apply
 
 Only include sources that directly help diagnose or resolve this issue—skip general tutorials and product overviews.
 
 Note: Internal tools (Kusto queries, ASC actions, Acis commands) are not publicly documented. Flag these as research gaps for the Writer to mark as MISSING.
 
 ## Output Format
-Output your findings between these markers:
+Output your findings concisely and between these markers:
 
 ```
 <!-- RESEARCH_BEGIN -->

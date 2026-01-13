@@ -149,8 +149,8 @@ def process_pipeline_v2_stream(
         if item and hasattr(item, 'type'):
             item_type = item.type
             
-            # Track tool start time
-            if timing_context is not None and item_type in ('mcp_call', 'web_search_call', 'function_call'):
+            # Track tool start time (include bing_grounding_call which is the actual Bing tool type)
+            if timing_context is not None and item_type in ('mcp_call', 'web_search_call', 'bing_grounding_call', 'function_call'):
                 timing_context['tool_start'] = time.time()
             
             if item_type == "mcp_call":
@@ -163,7 +163,8 @@ def process_pipeline_v2_stream(
                     "message": f"📚 Calling {mcp_name}...",
                     "status": "running"
                 })
-            elif item_type == "web_search_call":
+            elif item_type in ("web_search_call", "bing_grounding_call"):
+                # bing_grounding_call is the actual event type from Azure AI Foundry Bing tool
                 # Try to get the search query
                 query_hint = ""
                 if hasattr(item, 'query'):
@@ -226,7 +227,7 @@ def process_pipeline_v2_stream(
                     "message": f"{stage_icon} {stage_name}: Processing search results...",
                     "icon": stage_icon,
                 })
-            elif item_type == "web_search_call":
+            elif item_type in ("web_search_call", "bing_grounding_call"):
                 send_event("tool", {
                     "type": "bing",
                     "icon": "✅",
@@ -247,6 +248,19 @@ def process_pipeline_v2_stream(
                     "name": func_name,
                     "message": f"✅ {func_name} complete{tool_elapsed}",
                     "status": "completed"
+                })
+            
+            # Check for tool errors in the item
+            if hasattr(item, 'error') and item.error:
+                send_event("error", {
+                    "message": f"⚠️ Tool error: {item.error}",
+                    "icon": "⚠️",
+                })
+            if hasattr(item, 'status') and item.status == 'failed':
+                error_detail = getattr(item, 'error', 'unknown')
+                send_event("error", {
+                    "message": f"⚠️ Tool failed: {error_detail}",
+                    "icon": "⚠️",
                 })
     
     elif event_type == "response.completed":
@@ -269,6 +283,21 @@ def process_pipeline_v2_stream(
             "message": f"❌ {stage_name} failed: {error_msg}",
             "icon": "❌",
         })
+    
+    elif event_type == "error":
+        # Handle error events that may occur during tool processing
+        error_msg = getattr(event, 'message', None) or getattr(event, 'error', None) or str(event)
+        send_event("error", {
+            "message": f"❌ {stage_name} error: {error_msg}",
+            "icon": "❌",
+        })
+    
+    elif event_type and event_type.startswith("error"):
+        # Catch any other error-type events
+        send_event("error", {
+            "message": f"❌ {stage_name}: {event_type} - {event}",
+            "icon": "❌",
+        })
 
 
 class TSGPipeline:
@@ -284,7 +313,7 @@ class TSGPipeline:
     """
     
     MAX_RETRIES = 2
-    RESEARCH_MAX_RETRIES = 2  # Extra retries for research due to Bing timeouts
+    RESEARCH_MAX_RETRIES = 2  # Extra retries for research stage due to tool timeouts
     
     def __init__(
         self,
@@ -419,9 +448,8 @@ class TSGPipeline:
         try:
             with project:
                 # Get OpenAI client for v2 responses API with extended timeout
-                # Bing Search calls can take several minutes; extend to 15 min for long research phases
                 openai_client = project.get_openai_client()
-                openai_client.timeout = httpx.Timeout(900.0, connect=60.0)  # 15 min read, 1 min connect
+                openai_client.timeout = httpx.Timeout(600.0, connect=60.0)  # 10 min read, 1 min connect
                 with openai_client:
                     # --- Stage 1: Research ---
                     self._send_stage_event(PipelineStage.RESEARCH, "stage_start", {

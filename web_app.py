@@ -440,11 +440,14 @@ def api_create_agent():
         project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
         
         # Build tools for research agent (Bing + MCP) - v2 patterns
+        # Note: count limits the number of search results (default 5, max 50)
+        # Limiting to 5 to reduce response time and token load
         bing_tool = BingGroundingAgentTool(
             bing_grounding=BingGroundingSearchToolParameters(
                 search_configurations=[
                     BingGroundingSearchConfiguration(
-                        project_connection_id=conn_id
+                        project_connection_id=conn_id,
+                        count=5,  # Limit search results to reduce latency
                     )
                 ]
             )
@@ -456,7 +459,7 @@ def api_create_agent():
             require_approval="never",
         )
         
-        research_tools = [bing_tool, mcp_tool]
+        research_tools = [mcp_tool]
         
         created_agents = {}
         
