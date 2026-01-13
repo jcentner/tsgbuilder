@@ -17,13 +17,14 @@ from typing import Any
 
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
+from azure.ai.projects.models import MCPTool
+# TODO: Phase 5 will remove these v1 streaming imports
 from azure.ai.agents.models import (
     AgentEventHandler,
     MessageDeltaChunk,
     ThreadMessage,
     ThreadRun,
     RunStep,
-    McpTool,
 )
 
 from tsg_constants import (
@@ -248,18 +249,22 @@ class TSGPipeline:
             content=user_message,
         )
         
-        # Create MCP tool resources for automatic execution
-        mcp_tool = McpTool(server_label="learn", server_url=LEARN_MCP_URL)
-        mcp_tool.set_approval_mode("never")
+        # Create MCP tool for automatic execution (v2 pattern)
+        mcp_tool = MCPTool(
+            server_label="learn",
+            server_url=LEARN_MCP_URL,
+            require_approval="never",
+        )
         
         # Run with streaming
+        # TODO: Phase 5 will convert this to v2 responses.create(stream=True) pattern
         if self._event_queue:
             handler = PipelineEventHandler(self._event_queue, stage)
             with project.agents.runs.stream(
                 thread_id=thread_id,
                 agent_id=agent_id,
                 event_handler=handler,
-                tool_resources=mcp_tool.resources,
+                # Note: tool_resources not needed in v2, but keeping for v1 streaming compatibility
             ) as stream:
                 stream.until_done()
             return handler.response_text, thread_id
@@ -535,9 +540,15 @@ def run_pipeline(
     except (json.JSONDecodeError, IOError) as e:
         raise ValueError(f"Failed to load agent IDs: {e}") from e
     
-    researcher_id = agent_ids.get("researcher")
-    writer_id = agent_ids.get("writer")
-    reviewer_id = agent_ids.get("reviewer")
+    # Helper to extract agent ID from v1 (string) or v2 (dict with 'id') format
+    def get_agent_id(agent_info):
+        if isinstance(agent_info, dict):
+            return agent_info.get("id")
+        return agent_info  # v1 format: direct string ID
+    
+    researcher_id = get_agent_id(agent_ids.get("researcher"))
+    writer_id = get_agent_id(agent_ids.get("writer"))
+    reviewer_id = get_agent_id(agent_ids.get("reviewer"))
     
     if not all([researcher_id, writer_id, reviewer_id]):
         raise ValueError("Incomplete agent configuration. Re-run Setup wizard.")

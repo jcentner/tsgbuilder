@@ -141,18 +141,45 @@ def check_agent_ref() -> bool:
 
 
 def check_dependencies() -> bool:
-    """Check that required Python packages are installed."""
+    """Check that required Python packages are installed with correct versions."""
     print("\n[5/5] Checking Python dependencies...")
     
-    required_packages = [
-        ("azure.ai.projects", "azure-ai-projects"),
-        ("azure.ai.agents", "azure-ai-agents"),
+    all_ok = True
+    
+    # Check azure-ai-projects version (must be v2: 2.0.0b3+)
+    try:
+        import azure.ai.projects
+        version = azure.ai.projects.__version__
+        major = int(version.split(".")[0])
+        if major >= 2:
+            print_ok(f"azure-ai-projects {version} (v2 SDK ✓)")
+        else:
+            print_fail(f"azure-ai-projects {version} is v1 (classic Foundry)")
+            print("    Need v2 SDK: pip install --pre azure-ai-projects")
+            all_ok = False
+    except ImportError:
+        print_fail("azure-ai-projects is not installed. Run: pip install --pre azure-ai-projects")
+        all_ok = False
+    except (ValueError, IndexError):
+        print_warn(f"azure-ai-projects installed but couldn't parse version")
+    
+    # Check that azure-ai-agents is NOT installed (it forces classic mode)
+    try:
+        import azure.ai.agents
+        print_warn("azure-ai-agents is installed - this forces classic Foundry mode!")
+        print("    Recommend: pip uninstall azure-ai-agents")
+    except ImportError:
+        print_ok("azure-ai-agents not installed (good for v2)")
+    
+    # Check other required packages
+    other_packages = [
         ("azure.identity", "azure-identity"),
         ("dotenv", "python-dotenv"),
+        ("openai", "openai"),
+        ("flask", "flask"),
     ]
     
-    all_ok = True
-    for module_name, package_name in required_packages:
+    for module_name, package_name in other_packages:
         try:
             __import__(module_name)
             print_ok(f"{package_name} is installed")

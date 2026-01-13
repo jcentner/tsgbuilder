@@ -19,6 +19,14 @@ from flask import Flask, render_template, request, jsonify, Response, stream_wit
 from dotenv import load_dotenv, find_dotenv, set_key
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
+from azure.ai.projects.models import (
+    PromptAgentDefinition,
+    MCPTool,
+    BingGroundingAgentTool,
+    BingGroundingSearchToolParameters,
+    BingGroundingSearchConfiguration,
+)
+# TODO: Phase 5 will remove these v1 streaming imports
 from azure.ai.agents.models import (
     AgentEventHandler,
     MessageDeltaChunk,
@@ -28,11 +36,6 @@ from azure.ai.agents.models import (
     RunStepToolCallDetails,
     RunStepMcpToolCall,
     RunStepBingGroundingToolCall,
-    BingGroundingTool,
-    McpTool,
-    MessageImageUrlParam,
-    MessageInputTextBlock,
-    MessageInputImageUrlBlock,
 )
 
 from tsg_constants import (
@@ -206,9 +209,10 @@ AGENT_IDS_FILE = Path(".agent_ids.json")
 
 
 def get_agent_ids() -> dict:
-    """Get all pipeline agent IDs from JSON file.
+    """Get all pipeline agent info from JSON file.
     
     Returns dict with keys: researcher, writer, reviewer, name_prefix
+    Each agent value is a dict with: name, version, id (v2 format)
     Raises ValueError if agents not configured.
     """
     if not AGENT_IDS_FILE.exists():
@@ -224,8 +228,22 @@ def get_agent_ids() -> dict:
     return data
 
 
-def save_agent_ids(researcher: str, writer: str, reviewer: str, name_prefix: str):
-    """Save all pipeline agent IDs to JSON file."""
+def get_agent_id(agent_info) -> str | None:
+    """Extract agent ID from v1 (string) or v2 (dict with 'id') format.
+    
+    Args:
+        agent_info: Either a string (v1) or dict with 'id' key (v2)
+    
+    Returns:
+        The agent ID string, or None if not found
+    """
+    if isinstance(agent_info, dict):
+        return agent_info.get("id")
+    return agent_info  # v1 format: direct string ID
+
+
+def save_agent_ids(researcher: dict, writer: dict, reviewer: dict, name_prefix: str):
+    """Save all pipeline agent info to JSON file (v2 format with name/version/id)."""
     data = {
         "researcher": researcher,
         "writer": writer,
@@ -331,9 +349,13 @@ def api_status():
     try:
         agent_ids = get_agent_ids()
         result["agents"]["configured"] = True
-        result["agents"]["researcher"] = agent_ids.get("researcher", "")[:8] + "..."
-        result["agents"]["writer"] = agent_ids.get("writer", "")[:8] + "..."
-        result["agents"]["reviewer"] = agent_ids.get("reviewer", "")[:8] + "..."
+        # Handle v2 format (dict with name/version) vs v1 format (string ID)
+        for role in ["researcher", "writer", "reviewer"]:
+            agent_info = agent_ids.get(role, "")
+            if isinstance(agent_info, dict):
+                result["agents"][role] = agent_info.get("name", "")[:20] + "..."
+            else:
+                result["agents"][role] = str(agent_info)[:8] + "..."
         result["agents"]["name_prefix"] = agent_ids.get("name_prefix")
     except ValueError:
         result["agents"]["configured"] = False
@@ -544,50 +566,63 @@ def api_create_agent():
     try:
         project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
         
-        # Build tools for research agent (Bing + MCP)
-        research_tools = []
-        bing_tool = BingGroundingTool(connection_id=conn_id)
-        research_tools.extend(bing_tool.definitions)
+        # Build tools for research agent (Bing + MCP) - v2 patterns
+        bing_tool = BingGroundingAgentTool(
+            bing_grounding=BingGroundingSearchToolParameters(
+                search_configurations=[
+                    BingGroundingSearchConfiguration(
+                        project_connection_id=conn_id
+                    )
+                ]
+            )
+        )
         
-        mcp_tool = McpTool(server_label="learn", server_url=LEARN_MCP_URL)
-        mcp_tool.set_approval_mode("never")
-        research_tools.extend(mcp_tool.definitions)
+        mcp_tool = MCPTool(
+            server_label="learn",
+            server_url=LEARN_MCP_URL,
+            require_approval="never",
+        )
+        
+        research_tools = [bing_tool, mcp_tool]
         
         created_agents = {}
         
         with project:
-            # Create Researcher agent (with tools)
-            researcher = project.agents.create_agent(
-                model=model,
-                name=f"{agent_name}-Researcher",
-                instructions=RESEARCH_STAGE_INSTRUCTIONS,
-                tools=research_tools,
-                tool_resources=mcp_tool.resources,
-                temperature=0,
+            # Create Researcher agent (with tools) - v2 pattern
+            researcher = project.agents.create_version(
+                agent_name=f"{agent_name}-Researcher",
+                definition=PromptAgentDefinition(
+                    model=model,
+                    instructions=RESEARCH_STAGE_INSTRUCTIONS,
+                    tools=research_tools,
+                    temperature=0,
+                ),
             )
-            created_agents["researcher"] = researcher.id
+            created_agents["researcher"] = {"name": researcher.name, "version": researcher.version, "id": researcher.id}
             
-            # Create Writer agent (no tools)
-            writer = project.agents.create_agent(
-                model=model,
-                name=f"{agent_name}-Writer",
-                instructions=WRITER_STAGE_INSTRUCTIONS,
-                tools=None,
-                temperature=0,
+            # Create Writer agent (no tools) - v2 pattern
+            writer = project.agents.create_version(
+                agent_name=f"{agent_name}-Writer",
+                definition=PromptAgentDefinition(
+                    model=model,
+                    instructions=WRITER_STAGE_INSTRUCTIONS,
+                    temperature=0,
+                ),
             )
-            created_agents["writer"] = writer.id
+            created_agents["writer"] = {"name": writer.name, "version": writer.version, "id": writer.id}
             
-            # Create Reviewer agent (no tools)
-            reviewer = project.agents.create_agent(
-                model=model,
-                name=f"{agent_name}-Reviewer",
-                instructions=REVIEW_STAGE_INSTRUCTIONS,
-                tools=None,
-                temperature=0,
+            # Create Reviewer agent (no tools) - v2 pattern
+            reviewer = project.agents.create_version(
+                agent_name=f"{agent_name}-Reviewer",
+                definition=PromptAgentDefinition(
+                    model=model,
+                    instructions=REVIEW_STAGE_INSTRUCTIONS,
+                    temperature=0,
+                ),
             )
-            created_agents["reviewer"] = reviewer.id
+            created_agents["reviewer"] = {"name": reviewer.name, "version": reviewer.version, "id": reviewer.id}
         
-        # Save all agent IDs
+        # Save all agent IDs (v2 format with name + version)
         save_agent_ids(
             researcher=created_agents["researcher"],
             writer=created_agents["writer"],

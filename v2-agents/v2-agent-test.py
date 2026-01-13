@@ -137,67 +137,75 @@ def main():
                 test_question = "What is Azure AI Foundry?"
                 print(f"   User: {test_question}")
                 
-                # Create conversation with initial message
-                conversation = openai_client.conversations.create(
-                    items=[{
-                        "type": "message",
-                        "role": "user",
-                        "content": test_question
-                    }],
-                )
-                conversation_id = conversation.id
-                print(f"   Conversation ID: {conversation_id}")
+                try:
+                    # Create conversation with initial message
+                    conversation = openai_client.conversations.create(
+                        items=[{
+                            "type": "message",
+                            "role": "user",
+                            "content": test_question
+                        }],
+                    )
+                    conversation_id = conversation.id
+                    print(f"   Conversation ID: {conversation_id}")
+                    
+                    # Get response from agent
+                    response = openai_client.responses.create(
+                        conversation=conversation_id,
+                        extra_body={
+                            "agent": {
+                                "name": agent.name,
+                                "type": "agent_reference"
+                            }
+                        },
+                        input="",
+                    )
+                    
+                    print(f"\n   Agent response:")
+                    print("-" * 40)
+                    # Handle response output
+                    if hasattr(response, 'output_text') and response.output_text:
+                        print(response.output_text[:500])
+                        if len(response.output_text) > 500:
+                            print("... (truncated)")
+                    else:
+                        print(f"   Raw response: {response}")
+                    print("-" * 40)
+                    
+                    # Check if MCP tool was used
+                    if hasattr(response, 'output') and response.output:
+                        for item in response.output:
+                            if hasattr(item, 'type'):
+                                if item.type == 'mcp_call':
+                                    print(f"   ✅ MCP tool was invoked: {item}")
+                                elif item.type == 'mcp_approval_request':
+                                    print(f"   ⚠️ MCP approval requested (should be auto-approved)")
+                    
+                    print("\n✅ Agent test completed successfully!")
+                    
+                finally:
+                    # Cleanup conversation (inside openai_client context)
+                    if conversation_id:
+                        print("\n🧹 Cleaning up conversation...")
+                        try:
+                            openai_client.conversations.delete(conversation_id=conversation_id)
+                            print(f"   Deleted conversation: {conversation_id}")
+                        except Exception as cleanup_error:
+                            print(f"   Failed to delete conversation: {cleanup_error}")
+                        conversation_id = None
                 
-                # Get response from agent
-                response = openai_client.responses.create(
-                    conversation=conversation_id,
-                    extra_body={
-                        "agent": {
-                            "name": agent.name,
-                            "type": "agent_reference"
-                        }
-                    },
-                    input="",
-                )
-                
-                print(f"\n   Agent response:")
-                print("-" * 40)
-                # Handle response output
-                if hasattr(response, 'output_text') and response.output_text:
-                    print(response.output_text[:500])
-                    if len(response.output_text) > 500:
-                        print("... (truncated)")
-                else:
-                    print(f"   Raw response: {response}")
-                print("-" * 40)
-                
-                # Check if MCP tool was used
-                if hasattr(response, 'output') and response.output:
-                    for item in response.output:
-                        if hasattr(item, 'type'):
-                            if item.type == 'mcp_call':
-                                print(f"   ✅ MCP tool was invoked: {item}")
-                            elif item.type == 'mcp_approval_request':
-                                print(f"   ⚠️ MCP approval requested (should be auto-approved)")
-                
-                print("\n✅ Agent test completed successfully!")
-                
-                # Cleanup conversation
-                if conversation_id:
-                    print("\n🧹 Cleaning up conversation...")
-                    openai_client.conversations.delete(conversation_id=conversation_id)
-                    print(f"   Deleted conversation: {conversation_id}")
-                    conversation_id = None
-        
-        # Cleanup agent (outside the with block for openai_client)
-        if agent:
-            print("\n🧹 Cleaning up agent...")
-            project_client.agents.delete_version(
-                agent_name=agent.name,
-                agent_version=agent.version
-            )
-            print(f"   Deleted agent: {agent.name} (version {agent.version})")
-            agent = None
+            # Cleanup agent (inside project_client context, outside openai_client)
+            if agent:
+                print("\n🧹 Cleaning up agent...")
+                try:
+                    project_client.agents.delete_version(
+                        agent_name=agent.name,
+                        agent_version=agent.version
+                    )
+                    print(f"   Deleted agent: {agent.name} (version {agent.version})")
+                except Exception as cleanup_error:
+                    print(f"   Failed to delete agent: {cleanup_error}")
+                agent = None
         
         print("\n" + "=" * 60)
         print("✅ All tests passed! Agent appeared in NEW Foundry.")
@@ -214,26 +222,7 @@ def main():
         print(f"\n❌ ERROR: {e}")
         import traceback
         traceback.print_exc()
-        
-        # Attempt cleanup on error
-        print("\n🧹 Attempting cleanup after error...")
-        try:
-            if conversation_id and 'openai_client' in locals():
-                openai_client.conversations.delete(conversation_id=conversation_id)
-                print(f"   Deleted conversation: {conversation_id}")
-        except Exception as cleanup_error:
-            print(f"   Failed to delete conversation: {cleanup_error}")
-        
-        try:
-            if agent:
-                project_client.agents.delete_version(
-                    agent_name=agent.name,
-                    agent_version=agent.version
-                )
-                print(f"   Deleted agent: {agent.name}")
-        except Exception as cleanup_error:
-            print(f"   Failed to delete agent: {cleanup_error}")
-        
+        print("\n⚠️  Note: Cleanup may have failed. Check portal for orphaned agents.")
         sys.exit(1)
 
 
