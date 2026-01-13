@@ -218,6 +218,7 @@ class TSGPipeline:
         
         try:
             # Build kwargs for responses.create
+            # GPT-5.2: Configure reasoning effort for improved deliberation
             stream_kwargs = {
                 "stream": True,
                 "input": user_message,
@@ -225,6 +226,9 @@ class TSGPipeline:
                     "agent": {
                         "name": agent_name,
                         "type": "agent_reference"
+                    },
+                    "reasoning": {
+                        "effort": "medium"  # GPT-5.2: medium reasoning for balanced speed/quality
                     }
                 }
             }
