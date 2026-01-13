@@ -609,12 +609,23 @@ class TSGPipeline:
                                     final_tsg = draft_tsg
                                     break
                                 elif review_result.get("corrected_tsg"):
+                                    # Use the corrected TSG as the new draft
                                     draft_tsg = review_result["corrected_tsg"]
                                     self._send_stage_event(PipelineStage.REVIEW, "status", {
                                         "message": f"🔧 Review: Auto-correcting issues (attempt {retry + 1})...",
                                         "icon": "🔧",
                                         "issues": review_result.get("accuracy_issues", []) + review_result.get("structure_issues", []),
                                     })
+                                    # If this is the last retry, accept corrected TSG as final
+                                    if retry >= self.MAX_RETRIES:
+                                        final_tsg = draft_tsg
+                                        self._send_stage_event(PipelineStage.REVIEW, "status", {
+                                            "message": "⚠️ Review: Accepted corrected TSG with warnings",
+                                            "icon": "⚠️",
+                                            "issues": review_result.get("accuracy_issues", []),
+                                        })
+                                        break
+                                    # Otherwise continue loop to re-validate the corrected TSG
                                 else:
                                     final_tsg = draft_tsg
                                     self._send_stage_event(PipelineStage.REVIEW, "status", {

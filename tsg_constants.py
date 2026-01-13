@@ -59,12 +59,14 @@ TSG_END = "<!-- TSG_END -->"
 QUESTIONS_BEGIN = "<!-- QUESTIONS_BEGIN -->"
 QUESTIONS_END = "<!-- QUESTIONS_END -->"
 REQUIRED_DIAGNOSIS_LINE = "Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM."
+REQUIRED_TOC = "[[_TOC_]]"
 
 
 # --- Output Validation ---
 
 # Required TSG section headings (must appear exactly as written)
 REQUIRED_TSG_HEADINGS = [
+    "# **Title**",
     "# **Issue Description / Symptoms**",
     "# **When does the TSG not Apply**",
     "# **Diagnosis**",
@@ -100,6 +102,10 @@ def validate_tsg_output(response_text: str) -> dict:
         start = response_text.find(TSG_BEGIN) + len(TSG_BEGIN)
         end = response_text.find(TSG_END)
         tsg_content = response_text[start:end]
+    
+    # Check for required TOC
+    if REQUIRED_TOC not in tsg_content:
+        issues.append(f"Missing required table of contents: {REQUIRED_TOC}")
     
     # Check for required headings
     for heading in REQUIRED_TSG_HEADINGS:
@@ -229,7 +235,8 @@ Given troubleshooting notes and a research report, create a TSG following the pr
 2. For required content not found in notes or research, use: `{{MISSING::<Section>::<Hint>}}`
 3. Internal tools (Kusto queries, ASC actions, Acis commands) won't be in research—mark as MISSING
 4. Include only URLs that directly help diagnose or resolve this issue
-5. When including code samples with version numbers (api-version, SDK versions), verify against research. If research shows a different version or no version is documented, add a note or use MISSING
+5. When the user provides code samples in their notes, INCLUDE them in the TSG (in Mitigation or Resolution section). If api-version or SDK versions cannot be verified against official docs, add a caveat like "Note: Verify the api-version against official documentation before use."
+6. The TSG MUST start with `[[_TOC_]]` followed by `# **Title**` section
 
 ## Output Format
 ```
@@ -280,7 +287,8 @@ Review the draft TSG against the research and notes for:
 4. **Format**: Correct markers
 
 ## Required TSG Sections
-The TSG must contain these exact headings:
+The TSG must start with `[[_TOC_]]` and contain these exact headings:
+- # **Title**
 - # **Issue Description / Symptoms**
 - # **When does the TSG not Apply**
 - # **Diagnosis** (must include: "Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM.")

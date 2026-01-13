@@ -24,6 +24,9 @@ from azure.ai.projects.models import (
     BingGroundingAgentTool,
     BingGroundingSearchToolParameters,
     BingGroundingSearchConfiguration,
+    MessageInputTextBlock,
+    MessageInputImageUrlBlock,
+    MessageImageUrlParam,
 )
 
 from tsg_constants import (
@@ -59,6 +62,13 @@ SESSIONS_DIR = Path(".sessions")
 sessions: dict[str, dict] = {}
 
 
+def _is_valid_thread_id(thread_id: str) -> bool:
+    """Validate thread_id format to prevent path traversal attacks."""
+    if not thread_id:
+        return False
+    return thread_id.replace("-", "").replace("_", "").isalnum()
+
+
 def _ensure_sessions_dir():
     """Ensure the sessions directory exists."""
     SESSIONS_DIR.mkdir(exist_ok=True)
@@ -66,6 +76,9 @@ def _ensure_sessions_dir():
 
 def _save_session(thread_id: str, data: dict):
     """Persist a session to disk."""
+    if not _is_valid_thread_id(thread_id):
+        print(f"Warning: Invalid thread_id format, not saving: {thread_id}")
+        return
     _ensure_sessions_dir()
     session_file = SESSIONS_DIR / f"{thread_id}.json"
     try:
@@ -76,6 +89,8 @@ def _save_session(thread_id: str, data: dict):
 
 def _load_session(thread_id: str) -> dict | None:
     """Load a session from disk if it exists."""
+    if not _is_valid_thread_id(thread_id):
+        return None
     session_file = SESSIONS_DIR / f"{thread_id}.json"
     if session_file.exists():
         try:
@@ -87,6 +102,8 @@ def _load_session(thread_id: str) -> dict | None:
 
 def _delete_session_file(thread_id: str):
     """Delete a session file from disk."""
+    if not _is_valid_thread_id(thread_id):
+        return
     session_file = SESSIONS_DIR / f"{thread_id}.json"
     try:
         if session_file.exists():
@@ -459,7 +476,7 @@ def api_create_agent():
             require_approval="never",
         )
         
-        research_tools = [mcp_tool]
+        research_tools = [mcp_tool, bing_tool]
         
         created_agents = {}
         
@@ -693,6 +710,10 @@ def api_answer_stream():
     if not thread_id:
         return jsonify({"error": "No session ID provided"}), 400
     
+    # Sanitize thread_id to prevent path traversal attacks
+    if not thread_id.replace("-", "").replace("_", "").isalnum():
+        return jsonify({"error": "Invalid session ID format"}), 400
+    
     # Try to load from disk if not in memory
     if thread_id not in sessions:
         loaded = _load_session(thread_id)
@@ -720,6 +741,9 @@ def api_answer_stream():
 @app.route("/api/session/<thread_id>", methods=["DELETE"])
 def api_delete_session(thread_id):
     """Clean up a session (memory and disk)."""
+    # Sanitize thread_id to prevent path traversal attacks
+    if not _is_valid_thread_id(thread_id):
+        return jsonify({"error": "Invalid session ID format"}), 400
     if thread_id in sessions:
         del sessions[thread_id]
     _delete_session_file(thread_id)
