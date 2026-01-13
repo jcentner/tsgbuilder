@@ -24,9 +24,6 @@ from azure.ai.projects.models import (
     BingGroundingAgentTool,
     BingGroundingSearchToolParameters,
     BingGroundingSearchConfiguration,
-    MessageInputTextBlock,
-    MessageInputImageUrlBlock,
-    MessageImageUrlParam,
 )
 
 from tsg_constants import (
@@ -540,34 +537,6 @@ def api_create_agent():
             "success": False,
             "error": str(e),
         }), 500
-
-
-def build_message_content(text: str, images: list[dict] | None = None) -> list | str:
-    """Build message content with text and optional images.
-    
-    Args:
-        text: The text content of the message
-        images: Optional list of image dicts with 'data' (base64) and 'type' (mime type) keys
-        
-    Returns:
-        Either a string (text only) or list of content blocks (with images)
-    """
-    if not images:
-        return text
-    
-    # Build content blocks: text first, then images
-    content_blocks = [MessageInputTextBlock(text=text)]
-    
-    for img in images:
-        # Construct data URL from base64 data
-        mime_type = img.get("type", "image/png")
-        base64_data = img.get("data", "")
-        data_url = f"data:{mime_type};base64,{base64_data}"
-        
-        url_param = MessageImageUrlParam(url=data_url, detail="high")
-        content_blocks.append(MessageInputImageUrlBlock(image_url=url_param))
-    
-    return content_blocks
 
 
 def generate_pipeline_sse_events(
