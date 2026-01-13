@@ -230,6 +230,7 @@ Given troubleshooting notes and a research report, create a TSG following the pr
 2. For required content not found in notes or research, use: `{{MISSING::<Section>::<Hint>}}`
 3. Internal tools (Kusto queries, ASC actions, Acis commands) won't be in research—mark as MISSING
 4. Include only URLs that directly help diagnose or resolve this issue
+5. When including code samples with version numbers (api-version, SDK versions), verify against research. If research shows a different version or no version is documented, add a note or use MISSING
 
 ## Output Format
 ```
@@ -291,9 +292,28 @@ The TSG must contain these exact headings:
 - # **Related Information**
 - # **Tags or Prompts**
 
-## Required Markers
-- <!-- TSG_BEGIN --> and <!-- TSG_END -->
-- <!-- QUESTIONS_BEGIN --> and <!-- QUESTIONS_END -->
+## CRITICAL: Output Structure
+
+The Writer outputs TWO separate blocks that MUST remain separate:
+
+1. **TSG Content** (between TSG markers):
+   ```
+   <!-- TSG_BEGIN -->
+   [Complete TSG with all sections including "# **Questions to Ask the Customer**"]
+   <!-- TSG_END -->
+   ```
+
+2. **Follow-up Questions for TSG Author** (AFTER TSG_END, for pipeline iteration):
+   ```
+   <!-- QUESTIONS_BEGIN -->
+   [List of questions for each {{MISSING::...}} placeholder]
+   OR exactly: NO_MISSING
+   <!-- QUESTIONS_END -->
+   ```
+
+⚠️ WARNING: The `<!-- QUESTIONS_BEGIN/END -->` markers MUST remain OUTSIDE and AFTER `<!-- TSG_END -->`. These markers are parsed by the pipeline to show a follow-up dialog to the TSG author. Do NOT move them inside the TSG content.
+
+The "# **Questions to Ask the Customer**" TSG section is for CSS engineers to ask customers during troubleshooting. It is COMPLETELY DIFFERENT from the `<!-- QUESTIONS_BEGIN -->` block which asks the TSG author for missing info.
 
 ## Output Format
 ```
@@ -310,9 +330,12 @@ The TSG must contain these exact headings:
 <!-- REVIEW_END -->
 ```
 
-## Auto-Correction
-If issues are fixable (missing markers, wrong heading format, irrelevant URLs), provide the corrected TSG.
-If issues require re-research or major rewrite, set `corrected_tsg: null`.
+## Auto-Correction Rules
+1. If issues are fixable (wrong heading format, irrelevant URLs), provide the corrected TSG
+2. If issues require re-research or major rewrite, set `corrected_tsg: null`
+3. **NEVER move `<!-- QUESTIONS_BEGIN/END -->` markers** — they must stay after `<!-- TSG_END -->`
+4. **Do NOT add new MISSING placeholders** — only validate existing ones are appropriate
+5. When correcting, preserve the original structure: TSG content first, then questions block
 """
 
 REVIEW_USER_PROMPT_TEMPLATE = """Review this TSG draft.
