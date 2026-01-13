@@ -68,6 +68,8 @@ make ui
 
 Then open **http://localhost:5000** in your browser.
 
+> ⏱️ **Timing**: A full run (Research → Write → Review) typically takes **2–5 minutes** depending on the complexity of your input and the amount of research needed. The UI shows real-time progress for each stage.
+
 > ⚠️ **Note**: This web UI is intended for local development use only. Do not expose it to the internet without adding proper authentication and security measures.
 
 > ⚠️ **Note**: This tool uses an Azure AI Agent to search the internet. Be mindful of customer data; it should never be in your input notes or input images. 
@@ -239,6 +241,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed pipeline architect
 | `.env` | Your configuration (git-ignored) |
 | `.env-sample` | Configuration template |
 | `.agent_ids.json` | Pipeline agent IDs after creation |
+| `.sessions/` | Persisted sessions for follow-up questions (git-ignored) |
 | `input-example.txt` | Example input notes |
 | `templates/index.html` | Web UI template |
 
