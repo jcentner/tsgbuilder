@@ -1697,15 +1697,23 @@ Include:
                     status.textContent = '✓ Agents created!';
                     status.style.color = 'var(--success)';
                     
+                    // Handle v2 format (object with name/version) or v1 format (string ID)
+                    const getAgentDisplay = (agent) => {
+                        if (typeof agent === 'object' && agent.name) {
+                            return agent.name.substring(0, 20);
+                        }
+                        return String(agent).substring(0, 8);
+                    };
+                    
                     agentStatusDiv.innerHTML = `
                         <div class="agent-info">
                             <span class="icon">🤖</span>
                             <div class="details">
                                 <div class="agent-name">3 Agents Ready (${result.agent_name})</div>
                                 <div class="agent-id" style="font-size: 0.75em;">
-                                    Researcher: ${result.agents.researcher.substring(0, 8)}...<br>
-                                    Writer: ${result.agents.writer.substring(0, 8)}...<br>
-                                    Reviewer: ${result.agents.reviewer.substring(0, 8)}...
+                                    Researcher: ${getAgentDisplay(result.agents.researcher)}...<br>
+                                    Writer: ${getAgentDisplay(result.agents.writer)}...<br>
+                                    Reviewer: ${getAgentDisplay(result.agents.reviewer)}...
                                 </div>
                             </div>
                         </div>

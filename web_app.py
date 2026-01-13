@@ -26,17 +26,6 @@ from azure.ai.projects.models import (
     BingGroundingSearchToolParameters,
     BingGroundingSearchConfiguration,
 )
-# TODO: Phase 5 will remove these v1 streaming imports
-from azure.ai.agents.models import (
-    AgentEventHandler,
-    MessageDeltaChunk,
-    ThreadMessage,
-    ThreadRun,
-    RunStep,
-    RunStepToolCallDetails,
-    RunStepMcpToolCall,
-    RunStepBingGroundingToolCall,
-)
 
 from tsg_constants import (
     TSG_BEGIN,
@@ -64,136 +53,79 @@ app = Flask(__name__)
 sessions: dict[str, dict] = {}
 
 
-class SSEEventHandler(AgentEventHandler):
-    """Event handler that queues events for SSE streaming."""
+def process_v2_stream_event(event, event_queue: queue.Queue, response_text_parts: list) -> None:
+    """Process a v2 streaming event and queue appropriate SSE events.
     
-    def __init__(self, event_queue: queue.Queue, thread_id: str = ""):
-        super().__init__()
-        self.event_queue = event_queue
-        self.response_text = ""
-        self._current_status = ""
-        self._thread_id = thread_id
-        self._run_id = ""
-        self._last_error = None
+    Args:
+        event: The streaming event from responses.create(stream=True)
+        event_queue: Queue to send SSE events
+        response_text_parts: List to accumulate response text
+    """
+    event_type = getattr(event, 'type', None)
     
-    def _send_event(self, event_type: str, data: dict):
-        """Queue an event for SSE streaming."""
-        self.event_queue.put({"type": event_type, "data": data})
+    if event_type == "response.created":
+        event_queue.put({"type": "status", "data": {
+            "status": "in_progress",
+            "message": "Agent is working...",
+            "response_id": getattr(event.response, 'id', None) if hasattr(event, 'response') else None
+        }})
     
-    def on_thread_run(self, run: ThreadRun) -> None:
-        """Called when the run status changes."""
-        # Track the run ID for debugging
-        if run.id and not self._run_id:
-            self._run_id = run.id
-            self._send_event("debug_info", {
-                "thread_id": self._thread_id,
-                "run_id": run.id,
-            })
-        
-        if run.status != self._current_status:
-            self._current_status = run.status
-            self._send_event("status", {
-                "status": run.status,
-                "message": self._get_status_message(run.status)
-            })
-        
-        if run.status == "failed":
-            # Capture detailed error information
-            error_details = {
-                "message": str(run.last_error) if run.last_error else "Unknown error",
-                "thread_id": self._thread_id,
-                "run_id": run.id,
-            }
-            # Try to extract more error details if available
-            if run.last_error:
-                if hasattr(run.last_error, "code"):
-                    error_details["error_code"] = run.last_error.code
-                if hasattr(run.last_error, "message"):
-                    error_details["error_message"] = run.last_error.message
-            self._last_error = error_details
-            self._send_event("error", error_details)
+    elif event_type == "response.output_text.delta":
+        # Accumulate streamed text
+        delta = getattr(event, 'delta', '')
+        if delta:
+            response_text_parts.append(delta)
     
-    def _get_status_message(self, status: str) -> str:
-        """Get a user-friendly status message."""
-        messages = {
-            "queued": "Request queued...",
-            "in_progress": "Agent is working...",
-            "requires_action": "Processing tool results...",
-            "completed": "Generation complete",
-            "failed": "Generation failed",
-            "cancelled": "Generation cancelled",
-            "expired": "Request expired",
-        }
-        return messages.get(status, status)
+    elif event_type == "response.output_item.added":
+        item = getattr(event, 'item', None)
+        if item and hasattr(item, 'type'):
+            if item.type == "mcp_call":
+                event_queue.put({"type": "tool", "data": {
+                    "tool": "Microsoft Learn",
+                    "icon": "📚",
+                    "status": "running",
+                    "message": "Using Microsoft Learn..."
+                }})
+            elif item.type == "web_search_call":
+                event_queue.put({"type": "tool", "data": {
+                    "tool": "Bing Search",
+                    "icon": "🔍",
+                    "status": "running",
+                    "message": "Using Bing Search..."
+                }})
     
-    def on_run_step(self, step: RunStep) -> None:
-        """Called when a run step is created or updated."""
-        if step.type == "tool_calls" and hasattr(step, "step_details"):
-            self._handle_tool_calls(step)
-        elif step.type == "message_creation":
-            if step.status == "in_progress":
-                self._send_event("activity", {
-                    "activity": "generating",
-                    "message": "Generating response..."
-                })
+    elif event_type == "response.output_item.done":
+        item = getattr(event, 'item', None)
+        if item and hasattr(item, 'type'):
+            if item.type == "mcp_call":
+                event_queue.put({"type": "tool", "data": {
+                    "tool": "Microsoft Learn",
+                    "icon": "✓",
+                    "status": "completed",
+                    "message": "Microsoft Learn completed"
+                }})
+            elif item.type == "web_search_call":
+                event_queue.put({"type": "tool", "data": {
+                    "tool": "Bing Search",
+                    "icon": "✓",
+                    "status": "completed",
+                    "message": "Bing Search completed"
+                }})
     
-    def _handle_tool_calls(self, step: RunStep) -> None:
-        """Extract and display tool call information."""
-        if not isinstance(step.step_details, RunStepToolCallDetails):
-            return
-        
-        for tool_call in step.step_details.tool_calls:
-            tool_name = None
-            tool_icon = "🔧"
-            
-            if isinstance(tool_call, RunStepMcpToolCall):
-                tool_name = "Microsoft Learn"
-                tool_icon = "📚"
-            elif isinstance(tool_call, RunStepBingGroundingToolCall):
-                tool_name = "Bing Search"
-                tool_icon = "🔍"
-            elif hasattr(tool_call, "type"):
-                tool_name = str(tool_call.type).replace("_", " ").title()
-            
-            if tool_name:
-                if step.status == "in_progress":
-                    self._send_event("tool", {
-                        "tool": tool_name,
-                        "icon": tool_icon,
-                        "status": "running",
-                        "message": f"Using {tool_name}..."
-                    })
-                elif step.status == "completed":
-                    self._send_event("tool", {
-                        "tool": tool_name,
-                        "icon": "✓",
-                        "status": "completed",
-                        "message": f"{tool_name} completed"
-                    })
+    elif event_type == "response.completed":
+        event_queue.put({"type": "status", "data": {
+            "status": "completed",
+            "message": "Generation complete"
+        }})
+        # Get full output text if available
+        if hasattr(event, 'response') and hasattr(event.response, 'output_text'):
+            if event.response.output_text:
+                response_text_parts.clear()
+                response_text_parts.append(event.response.output_text)
     
-    def on_message_delta(self, delta: MessageDeltaChunk) -> None:
-        """Called when message content is streamed."""
-        if delta.text:
-            self.response_text += delta.text
-    
-    def on_thread_message(self, message: ThreadMessage) -> None:
-        """Called when a complete message is available."""
-        if message.role == "assistant" and message.content:
-            for content_item in message.content:
-                if hasattr(content_item, "text") and content_item.text:
-                    self.response_text = content_item.text.value
-    
-    def on_error(self, data: str) -> None:
-        """Called when an error occurs."""
-        self._send_event("error", {"message": data})
-    
-    def on_done(self) -> None:
-        """Called when the stream is complete."""
-        self._send_event("done", {"message": "Agent completed"})
-    
-    def on_unhandled_event(self, event_type: str, event_data: Any) -> None:
-        """Handle any events not covered by other methods."""
-        pass
+    elif event_type == "error":
+        error_msg = getattr(event, 'message', str(event))
+        event_queue.put({"type": "error", "data": {"message": error_msg}})
 
 
 def get_project_client() -> AIProjectClient:
@@ -269,38 +201,79 @@ def extract_blocks(content: str) -> tuple[str, str]:
 class AgentRunResult:
     """Result of an agent run, including response and debug info."""
     response_text: str
-    thread_id: str
-    run_id: str
+    conversation_id: str  # v2: conversations instead of threads
+    response_id: str  # v2: response ID instead of run ID
     error: dict | None = None
 
 
-def run_agent_with_streaming(
-    project: AIProjectClient, 
-    thread_id: str, 
-    agent_id: str,
+def run_agent_with_v2_streaming(
+    project: AIProjectClient,
+    agent_name: str,
+    user_message: str,
     event_queue: queue.Queue,
-    tool_resources: Any = None
+    conversation_id: str | None = None,
 ) -> AgentRunResult:
-    """Run the agent with streaming and queue events for SSE."""
-    handler = SSEEventHandler(event_queue, thread_id=thread_id)
+    """Run the agent with v2 streaming and queue events for SSE.
     
-    # Build streaming run kwargs
-    stream_kwargs = {
-        "thread_id": thread_id,
-        "agent_id": agent_id,
-        "event_handler": handler,
-    }
-    if tool_resources is not None:
-        stream_kwargs["tool_resources"] = tool_resources
+    Uses the new Foundry v2 API pattern:
+    - openai_client.responses.create(stream=True, ...)
+    - Agents referenced by name, not ID
+    """
+    response_text_parts: list[str] = []
+    response_id = ""
+    error_info = None
     
-    with project.agents.runs.stream(**stream_kwargs) as stream:
-        stream.until_done()
+    with project.get_openai_client() as openai_client:
+        try:
+            # Build the input for the response
+            # If we have a conversation, add to it; otherwise create new
+            stream_kwargs = {
+                "stream": True,
+                "input": user_message,
+                "extra_body": {
+                    "agent": {
+                        "name": agent_name,
+                        "type": "agent_reference"
+                    }
+                }
+            }
+            
+            if conversation_id:
+                stream_kwargs["extra_body"]["conversation"] = conversation_id
+            
+            # Send status
+            event_queue.put({"type": "status", "data": {
+                "status": "queued",
+                "message": "Request queued..."
+            }})
+            
+            # Stream the response
+            stream_response = openai_client.responses.create(**stream_kwargs)
+            
+            for event in stream_response:
+                process_v2_stream_event(event, event_queue, response_text_parts)
+                
+                # Capture response ID and conversation ID from response.created
+                if getattr(event, 'type', None) == "response.created":
+                    if hasattr(event, 'response'):
+                        response_id = getattr(event.response, 'id', '') or ''
+                        # Get conversation ID if available
+                        conv_id = getattr(event.response, 'conversation_id', None)
+                        if conv_id:
+                            conversation_id = conv_id
+            
+            # Send done event
+            event_queue.put({"type": "done", "data": {"message": "Agent completed"}})
+            
+        except Exception as e:
+            error_info = {"message": str(e)}
+            event_queue.put({"type": "error", "data": error_info})
     
     return AgentRunResult(
-        response_text=handler.response_text,
-        thread_id=thread_id,
-        run_id=handler._run_id,
-        error=handler._last_error,
+        response_text="".join(response_text_parts),
+        conversation_id=conversation_id or "",
+        response_id=response_id,
+        error=error_info,
     )
 
 
@@ -633,6 +606,7 @@ def api_create_agent():
         return jsonify({
             "success": True,
             "agents": {
+                # Return v2 format (dict) - frontend handles display
                 "researcher": created_agents["researcher"],
                 "writer": created_agents["writer"],
                 "reviewer": created_agents["reviewer"],

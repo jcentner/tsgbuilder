@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import queue
-import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -18,14 +17,6 @@ from typing import Any
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import MCPTool
-# TODO: Phase 5 will remove these v1 streaming imports
-from azure.ai.agents.models import (
-    AgentEventHandler,
-    MessageDeltaChunk,
-    ThreadMessage,
-    ThreadRun,
-    RunStep,
-)
 
 from tsg_constants import (
     # Markers
@@ -85,94 +76,75 @@ class PipelineResult:
     retry_count: int = 0
 
 
-class PipelineEventHandler(AgentEventHandler):
-    """Event handler that queues events for pipeline stage execution."""
+def process_pipeline_v2_stream(
+    event,
+    event_queue: queue.Queue | None,
+    stage: PipelineStage,
+    response_text_parts: list[str]
+) -> None:
+    """Process a v2 streaming event for pipeline stages.
     
-    def __init__(self, event_queue: queue.Queue, stage: PipelineStage):
-        super().__init__()
-        self.event_queue = event_queue
-        self.stage = stage
-        self.response_text = ""
-        self._current_status = ""
-        self._run_id = None
-        self._last_error = None
+    Args:
+        event: The streaming event from responses.create(stream=True)
+        event_queue: Optional queue for SSE events (None for non-streaming)
+        stage: Current pipeline stage
+        response_text_parts: List to accumulate response text
+    """
+    event_type = getattr(event, 'type', None)
+    stage_name = stage.value.capitalize()
     
-    def _send_event(self, event_type: str, data: dict):
-        data["stage"] = self.stage.value
-        self.event_queue.put({"type": event_type, "data": data})
+    def send_event(event_type: str, data: dict):
+        if event_queue:
+            data["stage"] = stage.value
+            event_queue.put({"type": event_type, "data": data})
     
-    def on_thread_run(self, run: ThreadRun) -> None:
-        self._run_id = run.id
-        if run.status != self._current_status:
-            self._current_status = run.status
-            self._send_event("status", {
-                "status": run.status,
-                "message": self._get_status_message(run.status)
-            })
-        
-        if run.status == "failed":
-            error_info = {"message": "Agent run failed"}
-            if hasattr(run, "last_error") and run.last_error:
-                error_info["code"] = getattr(run.last_error, "code", None)
-                error_info["message"] = getattr(run.last_error, "message", str(run.last_error))
-            self._last_error = error_info
+    if event_type == "response.created":
+        send_event("status", {
+            "status": "in_progress",
+            "message": f"{stage_name}: Processing..."
+        })
     
-    def _get_status_message(self, status: str) -> str:
-        stage_name = self.stage.value.capitalize()
-        messages = {
-            "queued": f"{stage_name}: Queued...",
-            "in_progress": f"{stage_name}: Processing...",
-            "requires_action": f"{stage_name}: Executing tools...",
-            "completed": f"{stage_name}: Complete",
-            "failed": f"{stage_name}: Failed",
-        }
-        return messages.get(status, f"{stage_name}: {status}")
+    elif event_type == "response.output_text.delta":
+        delta = getattr(event, 'delta', '')
+        if delta:
+            response_text_parts.append(delta)
     
-    def on_run_step(self, step: RunStep) -> None:
-        if step.type == "tool_calls" and hasattr(step, "step_details"):
-            self._handle_tool_calls(step)
+    elif event_type == "response.output_item.added":
+        item = getattr(event, 'item', None)
+        if item and hasattr(item, 'type'):
+            if item.type == "mcp_call":
+                send_event("tool_call", {
+                    "type": "mcp",
+                    "name": "MCP: Microsoft Learn",
+                    "status": "running"
+                })
+            elif item.type == "web_search_call":
+                send_event("tool_call", {
+                    "type": "bing_grounding",
+                    "name": "Bing Search",
+                    "status": "running"
+                })
     
-    def _handle_tool_calls(self, step: RunStep) -> None:
-        if not hasattr(step.step_details, "tool_calls"):
-            return
-        for tool_call in step.step_details.tool_calls:
-            tool_type = getattr(tool_call, "type", "unknown")
-            tool_info = {"type": tool_type}
-            
-            # Extract tool-specific info
-            if hasattr(tool_call, "bing_grounding"):
-                queries = []
-                if hasattr(tool_call.bing_grounding, "requesturl"):
-                    queries.append(tool_call.bing_grounding.requesturl)
-                tool_info["queries"] = queries
-                tool_info["name"] = "Bing Search"
-            elif hasattr(tool_call, "mcp"):
-                mcp = tool_call.mcp
-                tool_info["server"] = getattr(mcp, "server_label", "unknown")
-                tool_info["tool"] = getattr(mcp, "tool_name", "unknown")
-                tool_info["name"] = f"MCP: {tool_info['tool']}"
-            
-            self._send_event("tool_call", tool_info)
+    elif event_type == "response.output_item.done":
+        item = getattr(event, 'item', None)
+        if item and hasattr(item, 'type'):
+            if item.type in ("mcp_call", "web_search_call"):
+                send_event("tool_call", {
+                    "type": item.type,
+                    "name": "Tool completed",
+                    "status": "completed"
+                })
     
-    def on_message_delta(self, delta: MessageDeltaChunk) -> None:
-        if delta.text:
-            self.response_text += delta.text
-    
-    def on_thread_message(self, message: ThreadMessage) -> None:
-        if message.role == "assistant" and message.content:
-            for content_part in message.content:
-                if hasattr(content_part, "text") and content_part.text:
-                    if hasattr(content_part.text, "value"):
-                        self.response_text = content_part.text.value
-    
-    def on_error(self, data: str) -> None:
-        self._last_error = {"message": data}
-    
-    def on_done(self) -> None:
-        pass
-    
-    def on_unhandled_event(self, event_type: str, event_data: Any) -> None:
-        pass
+    elif event_type == "response.completed":
+        send_event("status", {
+            "status": "completed",
+            "message": f"{stage_name}: Complete"
+        })
+        # Get full output text if available
+        if hasattr(event, 'response') and hasattr(event.response, 'output_text'):
+            if event.response.output_text:
+                response_text_parts.clear()
+                response_text_parts.append(event.response.output_text)
 
 
 class TSGPipeline:
@@ -192,18 +164,19 @@ class TSGPipeline:
     def __init__(
         self,
         project_endpoint: str,
-        researcher_agent_id: str,
-        writer_agent_id: str,
-        reviewer_agent_id: str,
+        researcher_agent_name: str,
+        writer_agent_name: str,
+        reviewer_agent_name: str,
         bing_connection_id: str | None = None,
         model_name: str | None = None,
     ):
         self.project_endpoint = project_endpoint
-        self.researcher_agent_id = researcher_agent_id
-        self.writer_agent_id = writer_agent_id
-        self.reviewer_agent_id = reviewer_agent_id
+        # v2: store agent names instead of IDs
+        self.researcher_agent_name = researcher_agent_name
+        self.writer_agent_name = writer_agent_name
+        self.reviewer_agent_name = reviewer_agent_name
         self.bing_connection_id = bing_connection_id
-        self.model_name = model_name or os.getenv("MODEL_DEPLOYMENT_NAME", "gpt-4.1")
+        self.model_name = model_name or os.getenv("MODEL_DEPLOYMENT_NAME", "gpt-5.2")
         
         self._event_queue: queue.Queue | None = None
     
@@ -227,74 +200,72 @@ class TSGPipeline:
     def _run_stage(
         self,
         project: AIProjectClient,
-        agent_id: str,
+        openai_client,
+        agent_name: str,
         stage: PipelineStage,
         user_message: str,
-        thread_id: str | None = None,
+        conversation_id: str | None = None,
     ) -> tuple[str, str]:
         """
-        Run a single pipeline stage.
+        Run a single pipeline stage using v2 responses API.
         
-        Returns: (response_text, thread_id)
+        Args:
+            project: AIProjectClient instance
+            openai_client: OpenAI client from project.get_openai_client()
+            agent_name: Name of the agent to run
+            stage: Current pipeline stage
+            user_message: User prompt for this stage
+            conversation_id: Optional existing conversation ID
+        
+        Returns: (response_text, conversation_id)
         """
-        # Create thread if needed
-        if thread_id is None:
-            thread = project.agents.threads.create()
-            thread_id = thread.id
+        response_text_parts: list[str] = []
         
-        # Send user message
-        project.agents.messages.create(
-            thread_id=thread_id,
-            role="user",
-            content=user_message,
-        )
-        
-        # Create MCP tool for automatic execution (v2 pattern)
-        mcp_tool = MCPTool(
-            server_label="learn",
-            server_url=LEARN_MCP_URL,
-            require_approval="never",
-        )
-        
-        # Run with streaming
-        # TODO: Phase 5 will convert this to v2 responses.create(stream=True) pattern
-        if self._event_queue:
-            handler = PipelineEventHandler(self._event_queue, stage)
-            with project.agents.runs.stream(
-                thread_id=thread_id,
-                agent_id=agent_id,
-                event_handler=handler,
-                # Note: tool_resources not needed in v2, but keeping for v1 streaming compatibility
-            ) as stream:
-                stream.until_done()
-            return handler.response_text, thread_id
-        else:
-            # Non-streaming fallback
-            run = project.agents.runs.create(
-                thread_id=thread_id,
-                agent_id=agent_id,
-            )
-            while run.status in ("queued", "in_progress", "requires_action"):
-                time.sleep(0.5)
-                run = project.agents.runs.retrieve(thread_id=thread_id, run_id=run.id)
+        try:
+            # Build kwargs for responses.create
+            stream_kwargs = {
+                "stream": True,
+                "input": user_message,
+                "extra_body": {
+                    "agent": {
+                        "name": agent_name,
+                        "type": "agent_reference"
+                    }
+                }
+            }
             
-            if run.status == "failed":
-                raise RuntimeError(f"Stage {stage.value} failed: {run.last_error}")
+            if conversation_id:
+                stream_kwargs["extra_body"]["conversation"] = conversation_id
             
-            # Get response
-            messages = project.agents.messages.list(thread_id=thread_id)
-            for msg in messages:
-                if msg.role == "assistant" and msg.content:
-                    for part in msg.content:
-                        if hasattr(part, "text") and part.text:
-                            return part.text.value, thread_id
-            return "", thread_id
+            # Stream the response
+            stream_response = openai_client.responses.create(**stream_kwargs)
+            
+            for event in stream_response:
+                process_pipeline_v2_stream(
+                    event, 
+                    self._event_queue, 
+                    stage, 
+                    response_text_parts
+                )
+                
+                # Capture conversation ID from response if not already set
+                if not conversation_id and getattr(event, 'type', None) == "response.created":
+                    if hasattr(event, 'response'):
+                        conv_id = getattr(event.response, 'conversation_id', None)
+                        if conv_id:
+                            conversation_id = conv_id
+            
+            return "".join(response_text_parts), conversation_id or ""
+            
+        except Exception as e:
+            self._send_stage_event(stage, "error", {"message": str(e)})
+            raise RuntimeError(f"Stage {stage.value} failed: {e}") from e
     
     def run(
         self,
         notes: str,
         images: list[dict] | None = None,
-        thread_id: str | None = None,
+        conversation_id: str | None = None,
         prior_tsg: str | None = None,
         user_answers: str | None = None,
     ) -> PipelineResult:
@@ -304,149 +275,141 @@ class TSGPipeline:
         Args:
             notes: Raw troubleshooting notes
             images: Optional images (base64 encoded) - used in research stage
-            thread_id: Optional existing thread for follow-up
+            conversation_id: Optional existing conversation ID for follow-up (v2)
             prior_tsg: Optional prior TSG for iteration
             user_answers: Optional answers to follow-up questions
             
         Returns:
             PipelineResult with TSG content and metadata
         """
-        result = PipelineResult(success=False, thread_id=thread_id or "")
+        result = PipelineResult(success=False, thread_id=conversation_id or "")
         project = self._get_project_client()
         
         try:
             with project:
-                # --- Stage 1: Research ---
-                self._send_stage_event(PipelineStage.RESEARCH, "stage_start", {
-                    "message": "Starting research phase..."
-                })
-                
-                research_report = ""
-                if not user_answers:
-                    # Only do research on initial generation, not follow-ups
-                    research_prompt = build_research_prompt(notes)
-                    # Note: Images are intentionally not passed to the research stage.
-                    # Research gathers general documentation; images contain case-specific
-                    # details (screenshots, errors) that are analyzed in the Write stage.
+                # Get OpenAI client for v2 responses API
+                with project.get_openai_client() as openai_client:
+                    # --- Stage 1: Research ---
+                    self._send_stage_event(PipelineStage.RESEARCH, "stage_start", {
+                        "message": "Starting research phase..."
+                    })
                     
-                    research_response, research_thread_id = self._run_stage(
-                        project,
-                        self.researcher_agent_id,
-                        PipelineStage.RESEARCH,
-                        research_prompt,
+                    research_report = ""
+                    if not user_answers:
+                        # Only do research on initial generation, not follow-ups
+                        research_prompt = build_research_prompt(notes)
+                        
+                        research_response, research_conv_id = self._run_stage(
+                            project,
+                            openai_client,
+                            self.researcher_agent_name,
+                            PipelineStage.RESEARCH,
+                            research_prompt,
+                        )
+                        
+                        research_report = extract_research_block(research_response)
+                        if not research_report:
+                            research_report = research_response
+                        
+                        result.research_report = research_report
+                        result.stages_completed.append(PipelineStage.RESEARCH)
+                        
+                        self._send_stage_event(PipelineStage.RESEARCH, "stage_complete", {
+                            "message": "Research complete",
+                            "has_content": bool(research_report),
+                        })
+                    else:
+                        research_report = "(Follow-up - using prior research context)"
+                        self._send_stage_event(PipelineStage.RESEARCH, "stage_complete", {
+                            "message": "Skipped (follow-up)",
+                        })
+                    
+                    # --- Stage 2: Write ---
+                    self._send_stage_event(PipelineStage.WRITE, "stage_start", {
+                        "message": "Writing TSG draft..."
+                    })
+                    
+                    writer_prompt = build_writer_prompt(
+                        notes=notes,
+                        research=research_report,
+                        prior_tsg=prior_tsg,
+                        user_answers=user_answers,
                     )
                     
-                    research_report = extract_research_block(research_response)
-                    if not research_report:
-                        # Use full response if markers missing
-                        research_report = research_response
+                    write_response, write_conv_id = self._run_stage(
+                        project,
+                        openai_client,
+                        self.writer_agent_name,
+                        PipelineStage.WRITE,
+                        writer_prompt,
+                    )
+                    result.thread_id = write_conv_id  # Store conversation ID
+                    result.stages_completed.append(PipelineStage.WRITE)
                     
-                    result.research_report = research_report
-                    result.stages_completed.append(PipelineStage.RESEARCH)
-                    
-                    self._send_stage_event(PipelineStage.RESEARCH, "stage_complete", {
-                        "message": "Research complete",
-                        "has_content": bool(research_report),
+                    self._send_stage_event(PipelineStage.WRITE, "stage_complete", {
+                        "message": "Draft complete",
                     })
-                else:
-                    # For follow-ups, skip research and use a placeholder
-                    research_report = "(Follow-up - using prior research context)"
-                    self._send_stage_event(PipelineStage.RESEARCH, "stage_complete", {
-                        "message": "Skipped (follow-up)",
+                    
+                    # --- Stage 3: Review (with retry loop) ---
+                    self._send_stage_event(PipelineStage.REVIEW, "stage_start", {
+                        "message": "Reviewing TSG quality..."
                     })
-                
-                # --- Stage 2: Write ---
-                self._send_stage_event(PipelineStage.WRITE, "stage_start", {
-                    "message": "Writing TSG draft..."
-                })
-                
-                writer_prompt = build_writer_prompt(
-                    notes=notes,
-                    research=research_report,
-                    prior_tsg=prior_tsg,
-                    user_answers=user_answers,
-                )
-                
-                write_response, write_thread_id = self._run_stage(
-                    project,
-                    self.writer_agent_id,
-                    PipelineStage.WRITE,
-                    writer_prompt,
-                )
-                result.thread_id = write_thread_id
-                result.stages_completed.append(PipelineStage.WRITE)
-                
-                self._send_stage_event(PipelineStage.WRITE, "stage_complete", {
-                    "message": "Draft complete",
-                })
-                
-                # --- Stage 3: Review (with retry loop) ---
-                self._send_stage_event(PipelineStage.REVIEW, "stage_start", {
-                    "message": "Reviewing TSG quality..."
-                })
-                
-                draft_tsg = write_response
-                final_tsg = None
-                review_result = None
-                
-                for retry in range(self.MAX_RETRIES + 1):
-                    result.retry_count = retry
                     
-                    # First validate structure programmatically
-                    validation = validate_tsg_output(draft_tsg)
+                    draft_tsg = write_response
+                    final_tsg = None
+                    review_result = None
                     
-                    if validation["valid"]:
-                        # Structure OK - now do LLM review for accuracy
-                        review_prompt = build_review_prompt(
-                            draft_tsg=draft_tsg,
-                            research=research_report,
-                            notes=notes,
-                        )
+                    for retry in range(self.MAX_RETRIES + 1):
+                        result.retry_count = retry
                         
-                        review_response, _ = self._run_stage(
-                            project,
-                            self.reviewer_agent_id,
-                            PipelineStage.REVIEW,
-                            review_prompt,
-                        )
+                        validation = validate_tsg_output(draft_tsg)
                         
-                        review_result = extract_review_block(review_response)
-                        result.review_result = review_result
-                        
-                        if review_result:
-                            if review_result.get("approved", False):
-                                # Approved!
-                                final_tsg = draft_tsg
-                                break
-                            elif review_result.get("corrected_tsg"):
-                                # Auto-corrected
-                                draft_tsg = review_result["corrected_tsg"]
-                                self._send_stage_event(PipelineStage.REVIEW, "status", {
-                                    "message": f"Auto-correcting issues (attempt {retry + 1})...",
-                                    "issues": review_result.get("accuracy_issues", []) + review_result.get("structure_issues", []),
-                                })
+                        if validation["valid"]:
+                            review_prompt = build_review_prompt(
+                                draft_tsg=draft_tsg,
+                                research=research_report,
+                                notes=notes,
+                            )
+                            
+                            review_response, _ = self._run_stage(
+                                project,
+                                openai_client,
+                                self.reviewer_agent_name,
+                                PipelineStage.REVIEW,
+                                review_prompt,
+                            )
+                            
+                            review_result = extract_review_block(review_response)
+                            result.review_result = review_result
+                            
+                            if review_result:
+                                if review_result.get("approved", False):
+                                    final_tsg = draft_tsg
+                                    break
+                                elif review_result.get("corrected_tsg"):
+                                    draft_tsg = review_result["corrected_tsg"]
+                                    self._send_stage_event(PipelineStage.REVIEW, "status", {
+                                        "message": f"Auto-correcting issues (attempt {retry + 1})...",
+                                        "issues": review_result.get("accuracy_issues", []) + review_result.get("structure_issues", []),
+                                    })
+                                else:
+                                    final_tsg = draft_tsg
+                                    self._send_stage_event(PipelineStage.REVIEW, "status", {
+                                        "message": "Review found issues (included as warnings)",
+                                        "issues": review_result.get("accuracy_issues", []),
+                                    })
+                                    break
                             else:
-                                # Issues but no auto-fix - use as-is with warnings
                                 final_tsg = draft_tsg
-                                self._send_stage_event(PipelineStage.REVIEW, "status", {
-                                    "message": "Review found issues (included as warnings)",
-                                    "issues": review_result.get("accuracy_issues", []),
-                                })
                                 break
                         else:
-                            # Couldn't parse review - accept draft
-                            final_tsg = draft_tsg
-                            break
-                    else:
-                        # Structure invalid - try to fix with writer
-                        if retry < self.MAX_RETRIES:
-                            self._send_stage_event(PipelineStage.REVIEW, "status", {
-                                "message": f"Fixing structure issues (attempt {retry + 1})...",
-                                "issues": validation["issues"],
-                            })
-                            
-                            # Send fix request to writer
-                            fix_prompt = f"""Your TSG had structure issues:
+                            if retry < self.MAX_RETRIES:
+                                self._send_stage_event(PipelineStage.REVIEW, "status", {
+                                    "message": f"Fixing structure issues (attempt {retry + 1})...",
+                                    "issues": validation["issues"],
+                                })
+                                
+                                fix_prompt = f"""Your TSG had structure issues:
 {chr(10).join(f'- {issue}' for issue in validation['issues'])}
 
 Please fix these issues and regenerate the TSG with correct format.
@@ -455,50 +418,48 @@ Please fix these issues and regenerate the TSG with correct format.
 {draft_tsg}
 </prior_tsg>
 """
-                            draft_tsg, _ = self._run_stage(
-                                project,
-                                self.writer_agent_id,
-                                PipelineStage.WRITE,
-                                fix_prompt,
-                                write_thread_id,
-                            )
-                        else:
-                            # Max retries - use last draft
-                            final_tsg = draft_tsg
-                            break
-                
-                result.stages_completed.append(PipelineStage.REVIEW)
-                
-                # Extract final blocks
-                if final_tsg:
-                    # Extract TSG and questions from the final output
-                    tsg_content = ""
-                    questions_content = ""
+                                draft_tsg, _ = self._run_stage(
+                                    project,
+                                    openai_client,
+                                    self.writer_agent_name,
+                                    PipelineStage.WRITE,
+                                    fix_prompt,
+                                    write_conv_id,
+                                )
+                            else:
+                                final_tsg = draft_tsg
+                                break
                     
-                    if TSG_BEGIN in final_tsg and TSG_END in final_tsg:
-                        start = final_tsg.find(TSG_BEGIN) + len(TSG_BEGIN)
-                        end = final_tsg.find(TSG_END)
-                        tsg_content = final_tsg[start:end].strip()
+                    result.stages_completed.append(PipelineStage.REVIEW)
                     
-                    if QUESTIONS_BEGIN in final_tsg and QUESTIONS_END in final_tsg:
-                        start = final_tsg.find(QUESTIONS_BEGIN) + len(QUESTIONS_BEGIN)
-                        end = final_tsg.find(QUESTIONS_END)
-                        questions_content = final_tsg[start:end].strip()
+                    if final_tsg:
+                        tsg_content = ""
+                        questions_content = ""
+                        
+                        if TSG_BEGIN in final_tsg and TSG_END in final_tsg:
+                            start = final_tsg.find(TSG_BEGIN) + len(TSG_BEGIN)
+                            end = final_tsg.find(TSG_END)
+                            tsg_content = final_tsg[start:end].strip()
+                        
+                        if QUESTIONS_BEGIN in final_tsg and QUESTIONS_END in final_tsg:
+                            start = final_tsg.find(QUESTIONS_BEGIN) + len(QUESTIONS_BEGIN)
+                            end = final_tsg.find(QUESTIONS_END)
+                            questions_content = final_tsg[start:end].strip()
+                        
+                        result.tsg_content = tsg_content
+                        result.questions_content = questions_content
+                        result.success = bool(tsg_content)
                     
-                    result.tsg_content = tsg_content
-                    result.questions_content = questions_content
-                    result.success = bool(tsg_content)
-                
-                self._send_stage_event(PipelineStage.REVIEW, "stage_complete", {
-                    "message": "Review complete",
-                    "approved": review_result.get("approved", False) if review_result else False,
-                })
-                
-                self._send_stage_event(PipelineStage.COMPLETE, "pipeline_complete", {
-                    "success": result.success,
-                    "stages": [s.value for s in result.stages_completed],
-                    "retries": result.retry_count,
-                })
+                    self._send_stage_event(PipelineStage.REVIEW, "stage_complete", {
+                        "message": "Review complete",
+                        "approved": review_result.get("approved", False) if review_result else False,
+                    })
+                    
+                    self._send_stage_event(PipelineStage.COMPLETE, "pipeline_complete", {
+                        "success": result.success,
+                        "stages": [s.value for s in result.stages_completed],
+                        "retries": result.retry_count,
+                    })
                 
         except Exception as e:
             result.error = str(e)
@@ -520,7 +481,7 @@ def run_pipeline(
     """
     Convenience function to run the TSG pipeline.
     
-    Loads configuration from environment variables and agent IDs from storage.
+    Loads configuration from environment variables and agent info from storage.
     """
     import json
     from dotenv import load_dotenv
@@ -530,37 +491,38 @@ def run_pipeline(
     if not endpoint:
         raise ValueError("PROJECT_ENDPOINT environment variable required")
     
-    # Load agent IDs from storage
+    # Load agent info from storage
     agent_ids_file = Path(".agent_ids.json")
     if not agent_ids_file.exists():
         raise ValueError("No agents configured. Use the web UI Setup wizard first.")
     
     try:
-        agent_ids = json.loads(agent_ids_file.read_text(encoding="utf-8"))
+        agent_data = json.loads(agent_ids_file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, IOError) as e:
-        raise ValueError(f"Failed to load agent IDs: {e}") from e
+        raise ValueError(f"Failed to load agent info: {e}") from e
     
-    # Helper to extract agent ID from v1 (string) or v2 (dict with 'id') format
-    def get_agent_id(agent_info):
+    # Helper to extract agent name from v1 (string ID) or v2 (dict with 'name') format
+    def get_agent_name(agent_info):
         if isinstance(agent_info, dict):
-            return agent_info.get("id")
-        return agent_info  # v1 format: direct string ID
+            return agent_info.get("name")
+        # v1 format: return None, caller must handle
+        return None
     
-    researcher_id = get_agent_id(agent_ids.get("researcher"))
-    writer_id = get_agent_id(agent_ids.get("writer"))
-    reviewer_id = get_agent_id(agent_ids.get("reviewer"))
+    researcher_name = get_agent_name(agent_data.get("researcher"))
+    writer_name = get_agent_name(agent_data.get("writer"))
+    reviewer_name = get_agent_name(agent_data.get("reviewer"))
     
-    if not all([researcher_id, writer_id, reviewer_id]):
-        raise ValueError("Incomplete agent configuration. Re-run Setup wizard.")
+    if not all([researcher_name, writer_name, reviewer_name]):
+        raise ValueError("Incomplete agent configuration (v2 format with names required). Re-run Setup wizard.")
     
     bing_connection_id = os.getenv("BING_CONNECTION_NAME")
     model_name = os.getenv("MODEL_DEPLOYMENT_NAME")
     
     pipeline = TSGPipeline(
         project_endpoint=endpoint,
-        researcher_agent_id=researcher_id,
-        writer_agent_id=writer_id,
-        reviewer_agent_id=reviewer_id,
+        researcher_agent_name=researcher_name,
+        writer_agent_name=writer_name,
+        reviewer_agent_name=reviewer_name,
         bing_connection_id=bing_connection_id,
         model_name=model_name,
     )
@@ -571,7 +533,7 @@ def run_pipeline(
     return pipeline.run(
         notes=notes,
         images=images,
-        thread_id=thread_id,
+        conversation_id=thread_id,  # v2: conversation_id instead of thread_id
         prior_tsg=prior_tsg,
         user_answers=user_answers,
     )
