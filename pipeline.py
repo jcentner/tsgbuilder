@@ -23,6 +23,8 @@ from tsg_constants import (
     TSG_END,
     QUESTIONS_BEGIN,
     QUESTIONS_END,
+    # Template
+    TSG_TEMPLATE,
     # Stage instructions
     RESEARCH_STAGE_INSTRUCTIONS,
     WRITER_STAGE_INSTRUCTIONS,
@@ -267,6 +269,7 @@ class TSGPipeline:
         conversation_id: str | None = None,
         prior_tsg: str | None = None,
         user_answers: str | None = None,
+        prior_research: str | None = None,
     ) -> PipelineResult:
         """
         Run the complete TSG generation pipeline.
@@ -277,6 +280,7 @@ class TSGPipeline:
             conversation_id: Optional existing conversation ID for follow-up (v2)
             prior_tsg: Optional prior TSG for iteration
             user_answers: Optional answers to follow-up questions
+            prior_research: Optional prior research report for follow-up iterations
             
         Returns:
             PipelineResult with TSG content and metadata
@@ -318,7 +322,12 @@ class TSGPipeline:
                             "has_content": bool(research_report),
                         })
                     else:
-                        research_report = "(Follow-up - using prior research context)"
+                        # Follow-up: use prior research if provided, otherwise note it's unavailable
+                        if prior_research:
+                            research_report = prior_research
+                            result.research_report = prior_research
+                        else:
+                            research_report = "(Prior research not available for this follow-up)"
                         self._send_stage_event(PipelineStage.RESEARCH, "stage_complete", {
                             "message": "Skipped (follow-up)",
                         })
@@ -408,10 +417,23 @@ class TSGPipeline:
                                     "issues": validation["issues"],
                                 })
                                 
+                                # Include full context so Writer can properly fix the TSG
                                 fix_prompt = f"""Your TSG had structure issues:
 {chr(10).join(f'- {issue}' for issue in validation['issues'])}
 
 Please fix these issues and regenerate the TSG with correct format.
+
+<template>
+{TSG_TEMPLATE}
+</template>
+
+<notes>
+{notes}
+</notes>
+
+<research>
+{research_report}
+</research>
 
 <prior_tsg>
 {draft_tsg}
@@ -476,6 +498,7 @@ def run_pipeline(
     thread_id: str | None = None,
     prior_tsg: str | None = None,
     user_answers: str | None = None,
+    prior_research: str | None = None,
 ) -> PipelineResult:
     """
     Convenience function to run the TSG pipeline.
@@ -535,4 +558,5 @@ def run_pipeline(
         conversation_id=thread_id,  # v2: conversation_id instead of thread_id
         prior_tsg=prior_tsg,
         user_answers=user_answers,
+        prior_research=prior_research,
     )

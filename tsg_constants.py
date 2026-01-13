@@ -156,7 +156,7 @@ Given troubleshooting notes about an issue, research using your tools and output
 - Call tools before outputting any content
 - Parallelize independent searches (Learn MCP + Bing) when possible to reduce latency
 - Prefer tools over internal knowledge for:
-  - Fresh or user-specific data
+  - Current documentation and known issues
   - Specific URLs, document titles, or issue IDs
 - After each tool call, briefly note: what was found, source URL, and any follow-up needed
 </tool_usage_rules>
@@ -225,8 +225,20 @@ GitHub issues often contain community-discovered workarounds in comments that ar
 ## Cause Analysis
 [One paragraph: what the research says about why this issue occurs]
 
+## Customer-Safe Root Cause
+[A concise explanation suitable to share with customers - no internal details]
+
 ## Solutions/Workarounds Found
 [Specific solutions from research, with sources]
+
+## Scope / When This Doesn't Apply
+[Scenarios where this issue does NOT occur, e.g., specific configurations, versions, or environments that are unaffected]
+
+## Suggested Customer Questions
+[Questions to ask the customer to gather more diagnostic info, based on what research indicates is needed]
+
+## Suggested Tags/Keywords
+[Terms that would help support engineers find this TSG: error codes, feature names, symptoms]
 
 ## Research Gaps
 [What couldn't be verified - will become MISSING placeholders]
@@ -238,6 +250,8 @@ GitHub issues often contain community-discovered workarounds in comments that ar
 - Workaround: [High/Medium/Low] - [why]
 <!-- RESEARCH_END -->
 ```
+
+Note: Internal diagnostic tools (Kusto queries, ASC actions, Acis commands) are not publicly documented. Do not search for these - the Writer will mark them as MISSING for internal teams to fill.
 
 ## Quality Check
 - Only include sources you actually retrieved via tool calls
@@ -269,6 +283,9 @@ RESEARCH_USER_PROMPT_TEMPLATE = """Research the following troubleshooting topic 
 - The exact features/APIs/services mentioned in the notes
 - Known issues or limitations for this specific scenario
 - Workarounds others have found for this problem
+- Scenarios where this issue does NOT apply (for "When TSG not Apply" section)
+- Customer-facing questions that help diagnose the issue
+- Keywords and error codes for searchability
 </focus_areas>
 """
 
@@ -347,8 +364,9 @@ For the Mitigation or Resolution section:
 
 ## Template-Required Content Check
 Before finalizing, verify each template section has content from notes/research or a MISSING placeholder:
-- **Diagnosis**: Does it include actionable diagnostic steps (Kusto queries, ASC actions, commands)?
-  - If not available in notes or research: `{{MISSING::Diagnosis::Diagnostic steps not found}}`
+- **Diagnosis**: Does it include actionable diagnostic steps?
+  - Internal tools (Kusto queries, ASC actions, Acis commands) are not in public research—use: `{{MISSING::Diagnosis::Internal diagnostic query/command needed}}`
+  - External diagnostic steps from research can be included
 - **Mitigation**: Does it include actionable steps (scripts, commands, code samples)?
   - If not available in notes or research: `{{MISSING::Mitigation::Resolution steps not found}}`
 - **Cause**: Is the root cause identified?
@@ -473,9 +491,10 @@ Output a JSON review result:
 - [ ] Flag and remove any URL that doesn't pass: "Would a support engineer need this to fix this issue?"
 
 ### Completeness Check
-- [ ] Case-specific info not in notes uses {{MISSING::...}}
+- [ ] Required template content not in notes AND not in research uses {{MISSING::...}}
 - [ ] Questions block matches placeholders (or NO_MISSING if none)
 - [ ] No placeholder where research provided verified info
+- [ ] Internal-only content (Kusto queries, ASC actions) appropriately marked MISSING
 
 ### Auto-Correction
 If issues are fixable (irrelevant URLs, missing marker, wrong heading format), provide the corrected TSG in "corrected_tsg".
