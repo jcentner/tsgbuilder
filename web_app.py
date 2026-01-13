@@ -12,7 +12,6 @@ import os
 import threading
 import queue
 from pathlib import Path
-from dataclasses import dataclass
 from typing import Any, Generator
 
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
@@ -51,81 +50,6 @@ app = Flask(__name__)
 
 # Store active sessions (thread_id -> session data)
 sessions: dict[str, dict] = {}
-
-
-def process_v2_stream_event(event, event_queue: queue.Queue, response_text_parts: list) -> None:
-    """Process a v2 streaming event and queue appropriate SSE events.
-    
-    Args:
-        event: The streaming event from responses.create(stream=True)
-        event_queue: Queue to send SSE events
-        response_text_parts: List to accumulate response text
-    """
-    event_type = getattr(event, 'type', None)
-    
-    if event_type == "response.created":
-        event_queue.put({"type": "status", "data": {
-            "status": "in_progress",
-            "message": "Agent is working...",
-            "response_id": getattr(event.response, 'id', None) if hasattr(event, 'response') else None
-        }})
-    
-    elif event_type == "response.output_text.delta":
-        # Accumulate streamed text
-        delta = getattr(event, 'delta', '')
-        if delta:
-            response_text_parts.append(delta)
-    
-    elif event_type == "response.output_item.added":
-        item = getattr(event, 'item', None)
-        if item and hasattr(item, 'type'):
-            if item.type == "mcp_call":
-                event_queue.put({"type": "tool", "data": {
-                    "tool": "Microsoft Learn",
-                    "icon": "📚",
-                    "status": "running",
-                    "message": "Using Microsoft Learn..."
-                }})
-            elif item.type == "web_search_call":
-                event_queue.put({"type": "tool", "data": {
-                    "tool": "Bing Search",
-                    "icon": "🔍",
-                    "status": "running",
-                    "message": "Using Bing Search..."
-                }})
-    
-    elif event_type == "response.output_item.done":
-        item = getattr(event, 'item', None)
-        if item and hasattr(item, 'type'):
-            if item.type == "mcp_call":
-                event_queue.put({"type": "tool", "data": {
-                    "tool": "Microsoft Learn",
-                    "icon": "✓",
-                    "status": "completed",
-                    "message": "Microsoft Learn completed"
-                }})
-            elif item.type == "web_search_call":
-                event_queue.put({"type": "tool", "data": {
-                    "tool": "Bing Search",
-                    "icon": "✓",
-                    "status": "completed",
-                    "message": "Bing Search completed"
-                }})
-    
-    elif event_type == "response.completed":
-        event_queue.put({"type": "status", "data": {
-            "status": "completed",
-            "message": "Generation complete"
-        }})
-        # Get full output text if available
-        if hasattr(event, 'response') and hasattr(event.response, 'output_text'):
-            if event.response.output_text:
-                response_text_parts.clear()
-                response_text_parts.append(event.response.output_text)
-    
-    elif event_type == "error":
-        error_msg = getattr(event, 'message', str(event))
-        event_queue.put({"type": "error", "data": {"message": error_msg}})
 
 
 def get_project_client() -> AIProjectClient:
@@ -195,86 +119,6 @@ def extract_blocks(content: str) -> tuple[str, str]:
         return s[i + len(start) : j].strip()
 
     return between(content, TSG_BEGIN, TSG_END), between(content, QUESTIONS_BEGIN, QUESTIONS_END)
-
-
-@dataclass
-class AgentRunResult:
-    """Result of an agent run, including response and debug info."""
-    response_text: str
-    conversation_id: str  # v2: conversations instead of threads
-    response_id: str  # v2: response ID instead of run ID
-    error: dict | None = None
-
-
-def run_agent_with_v2_streaming(
-    project: AIProjectClient,
-    agent_name: str,
-    user_message: str,
-    event_queue: queue.Queue,
-    conversation_id: str | None = None,
-) -> AgentRunResult:
-    """Run the agent with v2 streaming and queue events for SSE.
-    
-    Uses the new Foundry v2 API pattern:
-    - openai_client.responses.create(stream=True, ...)
-    - Agents referenced by name, not ID
-    """
-    response_text_parts: list[str] = []
-    response_id = ""
-    error_info = None
-    
-    with project.get_openai_client() as openai_client:
-        try:
-            # Build the input for the response
-            # If we have a conversation, add to it; otherwise create new
-            stream_kwargs = {
-                "stream": True,
-                "input": user_message,
-                "extra_body": {
-                    "agent": {
-                        "name": agent_name,
-                        "type": "agent_reference"
-                    }
-                }
-            }
-            
-            if conversation_id:
-                stream_kwargs["extra_body"]["conversation"] = conversation_id
-            
-            # Send status
-            event_queue.put({"type": "status", "data": {
-                "status": "queued",
-                "message": "Request queued..."
-            }})
-            
-            # Stream the response
-            stream_response = openai_client.responses.create(**stream_kwargs)
-            
-            for event in stream_response:
-                process_v2_stream_event(event, event_queue, response_text_parts)
-                
-                # Capture response ID and conversation ID from response.created
-                if getattr(event, 'type', None) == "response.created":
-                    if hasattr(event, 'response'):
-                        response_id = getattr(event.response, 'id', '') or ''
-                        # Get conversation ID if available
-                        conv_id = getattr(event.response, 'conversation_id', None)
-                        if conv_id:
-                            conversation_id = conv_id
-            
-            # Send done event
-            event_queue.put({"type": "done", "data": {"message": "Agent completed"}})
-            
-        except Exception as e:
-            error_info = {"message": str(e)}
-            event_queue.put({"type": "error", "data": error_info})
-    
-    return AgentRunResult(
-        response_text="".join(response_text_parts),
-        conversation_id=conversation_id or "",
-        response_id=response_id,
-        error=error_info,
-    )
 
 
 @app.route("/")
@@ -369,7 +213,7 @@ def api_validate():
     # 2. Check environment variables
     required_vars = [
         ("PROJECT_ENDPOINT", "Azure AI Foundry project endpoint"),
-        ("MODEL_DEPLOYMENT_NAME", "Model deployment name (e.g., gpt-4.1)"),
+        ("MODEL_DEPLOYMENT_NAME", "Model deployment name (e.g., gpt-5.2)"),
         ("BING_CONNECTION_NAME", "Bing Search connection resource ID"),
     ]
     

@@ -16,7 +16,6 @@ from typing import Any
 
 from azure.identity import DefaultAzureCredential
 from azure.ai.projects import AIProjectClient
-from azure.ai.projects.models import MCPTool
 
 from tsg_constants import (
     # Markers
@@ -37,10 +36,6 @@ from tsg_constants import (
     extract_research_block,
     extract_review_block,
 )
-
-
-# Microsoft Learn MCP URL
-LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
 
 
 class PipelineStage(Enum):

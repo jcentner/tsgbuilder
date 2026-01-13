@@ -30,7 +30,7 @@ TSG Builder was born out of this frustration. The idea: **you provide a raw dump
 
 ## Overview
 
-TSG Builder uses an Azure AI Foundry Agent (classic API) to:
+TSG Builder uses Azure AI Foundry v2 Agents to:
 1. **Research** the issue using Bing Search and Microsoft Learn MCP
 2. **Generate** a structured TSG following your team's template
 3. **Iterate** by asking follow-up questions for missing information
@@ -104,7 +104,7 @@ Images are sent to the AI agent for visual analysis, which is especially useful 
 | Resource | Purpose | How to Get |
 |----------|---------|------------|
 | **Azure AI Foundry Project** | Hosts the agent | [Create a project](https://learn.microsoft.com/azure/ai-foundry/how-to/create-projects) |
-| **Model Deployment** | LLM for the agent (designed for `gpt-4.1`) | Deploy in your project |
+| **Model Deployment** | LLM for the agent (recommended: `gpt-5.2`) | Deploy in your project |
 | **Bing Search Connection** | Web research capability | [Connect Bing Search](https://learn.microsoft.com/azure/ai-foundry/how-to/connections-add) |
 
 ### Local Requirements
@@ -161,7 +161,7 @@ Run `make ui` and open http://localhost:5000
 
 #### MODEL_DEPLOYMENT_NAME
 1. In AI Foundry Portal, go to Deployments
-2. Use the name of your deployed model (e.g., `gpt-4.1`)
+2. Use the name of your deployed model (e.g., `gpt-5.2`)
 
 ## Makefile Commands
 

@@ -1,8 +1,0 @@
-# Azure AI Foundry v2 Agent SDK
-# IMPORTANT: This uses azure-ai-projects>=2.0.0b3 (NOT 1.0.0 which is v1/classic)
-# Do NOT add azure-ai-agents - that package forces classic Foundry mode
-
-azure-ai-projects>=2.0.0b3
-azure-identity>=1.19.0
-python-dotenv>=1.0.0
-openai>=1.0.0
