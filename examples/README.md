@@ -15,13 +15,12 @@ This directory contains example input files, expected outputs, and test run resu
 
 | File | Description |
 |------|-------------|
-| `capability-host-expected.md` | Reference TSG output for capability-host-input |
+| `capability-host-expected.md` | Reference TSG (ground truth, written by a human) for capability-host-input |
+| `sample-output.md` | Output TSG for capability-host-input, written by TSG Builder |
 
 ### Test Run Results
 
-| File | Description |
-|------|-------------|
-| `E2E-test_*.md` | End-to-end test outputs from various dates |
+JSON files named `test_output_{date}_{time}` show full end-to-end capture of test runs. 
 
 ## Usage
 
