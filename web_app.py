@@ -670,9 +670,19 @@ def api_generate_stream():
             - data: str - Base64-encoded image data (without data URL prefix)
             - type: str - MIME type (e.g., "image/png", "image/jpeg")
     """
+    # Debug: log request details to compare browser vs curl
+    print(f"[DEBUG] /api/generate/stream request:")
+    print(f"  User-Agent: {request.headers.get('User-Agent', 'N/A')[:80]}")
+    print(f"  Accept: {request.headers.get('Accept', 'N/A')}")
+    print(f"  Content-Type: {request.headers.get('Content-Type', 'N/A')}")
+    print(f"  Connection: {request.headers.get('Connection', 'N/A')}")
+    
     data = request.get_json()
     notes = data.get("notes", "").strip()
     images = data.get("images", None)  # List of {data: base64, type: mime_type}
+    
+    print(f"  Notes length: {len(notes)}")
+    print(f"  Has images: {bool(images)}")
     
     if not notes:
         return jsonify({"error": "No notes provided"}), 400
@@ -779,6 +789,25 @@ def api_example():
     
     content = example_path.read_text(encoding="utf-8")
     return jsonify({"content": content})
+
+
+@app.route("/api/debug/threads")
+def api_debug_threads():
+    """Debug endpoint: show active threads and runs."""
+    import threading
+    threads = []
+    for t in threading.enumerate():
+        threads.append({
+            "name": t.name,
+            "daemon": t.daemon,
+            "alive": t.is_alive(),
+        })
+    return jsonify({
+        "thread_count": threading.active_count(),
+        "threads": threads,
+        "active_runs": list(active_runs.keys()),
+        "sessions": list(sessions.keys()),
+    })
 
 
 def main():

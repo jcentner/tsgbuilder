@@ -82,9 +82,9 @@ ifdef TEST
 	@echo "Test mode enabled - stage outputs will be captured to test_output_*.json"
 endif
 	@if [ -d ".venv" ]; then \
-		TSG_TEST_MODE=$(TEST) .venv/bin/python web_app.py; \
+		TSG_TEST_MODE=$(TEST) PIPELINE_VERBOSE=1 .venv/bin/python web_app.py; \
 	else \
-		TSG_TEST_MODE=$(TEST) $(PYTHON) web_app.py; \
+		TSG_TEST_MODE=$(TEST) PIPELINE_VERBOSE=1 $(PYTHON) web_app.py; \
 	fi
 
 clean:

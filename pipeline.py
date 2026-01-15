@@ -167,6 +167,10 @@ def process_pipeline_v2_stream(
         if item and hasattr(item, 'type'):
             item_type = item.type
             
+            # Debug: log all output_item.added events
+            if verbose:
+                print(f"[VERBOSE][{stage_name}] output_item.added: type={item_type}, item={item}")
+            
             # Track tool start time (include bing_grounding_call which is the actual Bing tool type)
             if timing_context is not None and item_type in ('mcp_call', 'web_search_call', 'bing_grounding_call', 'function_call'):
                 timing_context['tool_start'] = time.time()
