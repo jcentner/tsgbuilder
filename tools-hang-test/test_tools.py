@@ -115,64 +115,73 @@ def run_test(
     try:
         print("Starting streaming response...\n")
         
-        with openai_client.responses.create(
-            agent=agent_name,
-            input=prompt,
-            stream=True,
-        ) as stream:
-            for event in stream:
-                now = time.time()
-                elapsed = now - start_time
-                since_last = now - last_event_time
-                
-                event_type = getattr(event, 'type', 'unknown')
-                
-                # Log significant events
-                if event_type == 'response.output_item.added':
-                    item = getattr(event, 'item', None)
-                    if item:
-                        item_type = getattr(item, 'type', 'unknown')
-                        if item_type == 'function_call':
-                            func_name = getattr(item, 'name', 'unknown')
-                            print(f"[{elapsed:6.1f}s] 🔧 Tool call started: {func_name}")
-                            tool_calls.append({
-                                'name': func_name,
-                                'start': elapsed,
-                                'end': None,
-                            })
-                
-                elif event_type == 'response.output_item.done':
-                    item = getattr(event, 'item', None)
-                    if item:
-                        item_type = getattr(item, 'type', 'unknown')
-                        if item_type == 'function_call':
-                            func_name = getattr(item, 'name', 'unknown')
-                            # Find matching tool call and mark end
-                            for tc in reversed(tool_calls):
-                                if tc['name'] == func_name and tc['end'] is None:
-                                    tc['end'] = elapsed
-                                    duration = tc['end'] - tc['start']
-                                    print(f"[{elapsed:6.1f}s] ✅ Tool call complete: {func_name} ({duration:.1f}s)")
-                                    break
-                
-                elif event_type == 'response.completed':
-                    print(f"[{elapsed:6.1f}s] 🏁 Response completed")
-                
-                elif event_type == 'response.failed':
-                    error = getattr(event, 'response', None)
-                    error_msg = getattr(error, 'error', None) if error else 'Unknown error'
-                    print(f"[{elapsed:6.1f}s] ❌ Response failed: {error_msg}")
-                
-                # Warn if long gap between events
-                if since_last > 30:
-                    print(f"[{elapsed:6.1f}s] ⚠️  Long gap: {since_last:.1f}s since last event")
-                
-                last_event_time = now
-                
-                # Timeout check
-                if elapsed > timeout:
-                    print(f"\n⏰ TIMEOUT: {timeout}s exceeded")
-                    break
+        # Use extra_body pattern from pipeline.py
+        stream_kwargs = {
+            "stream": True,
+            "input": prompt,
+            "extra_body": {
+                "agent": {
+                    "name": agent_name,
+                    "type": "agent_reference"
+                }
+            }
+        }
+        
+        stream_response = openai_client.responses.create(**stream_kwargs)
+        
+        for event in stream_response:
+            now = time.time()
+            elapsed = now - start_time
+            since_last = now - last_event_time
+            
+            event_type = getattr(event, 'type', 'unknown')
+            
+            # Log significant events
+            if event_type == 'response.output_item.added':
+                item = getattr(event, 'item', None)
+                if item:
+                    item_type = getattr(item, 'type', 'unknown')
+                    if item_type == 'function_call':
+                        func_name = getattr(item, 'name', 'unknown')
+                        print(f"[{elapsed:6.1f}s] 🔧 Tool call started: {func_name}")
+                        tool_calls.append({
+                            'name': func_name,
+                            'start': elapsed,
+                            'end': None,
+                        })
+            
+            elif event_type == 'response.output_item.done':
+                item = getattr(event, 'item', None)
+                if item:
+                    item_type = getattr(item, 'type', 'unknown')
+                    if item_type == 'function_call':
+                        func_name = getattr(item, 'name', 'unknown')
+                        # Find matching tool call and mark end
+                        for tc in reversed(tool_calls):
+                            if tc['name'] == func_name and tc['end'] is None:
+                                tc['end'] = elapsed
+                                duration = tc['end'] - tc['start']
+                                print(f"[{elapsed:6.1f}s] ✅ Tool call complete: {func_name} ({duration:.1f}s)")
+                                break
+            
+            elif event_type == 'response.completed':
+                print(f"[{elapsed:6.1f}s] 🏁 Response completed")
+            
+            elif event_type == 'response.failed':
+                error = getattr(event, 'response', None)
+                error_msg = getattr(error, 'error', None) if error else 'Unknown error'
+                print(f"[{elapsed:6.1f}s] ❌ Response failed: {error_msg}")
+            
+            # Warn if long gap between events
+            if since_last > 30:
+                print(f"[{elapsed:6.1f}s] ⚠️  Long gap: {since_last:.1f}s since last event")
+            
+            last_event_time = now
+            
+            # Timeout check
+            if elapsed > timeout:
+                print(f"\n⏰ TIMEOUT: {timeout}s exceeded")
+                break
         
         total_time = time.time() - start_time
         print(f"\n{'='*60}")

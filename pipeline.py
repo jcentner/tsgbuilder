@@ -465,7 +465,18 @@ class TSGPipeline:
             with project:
                 # Get OpenAI client for v2 responses API with extended timeout
                 openai_client = project.get_openai_client()
-                openai_client.timeout = httpx.Timeout(600.0, connect=60.0)  # 10 min read, 1 min connect
+                # Timeout config:
+                #   - connect: 60s to establish connection
+                #   - read: 600s (10 min) between data chunks (not total stream time)
+                #   - write: 60s to send request data
+                #   - pool: 120s to acquire connection from pool (prevents indefinite hang)
+                openai_client.timeout = httpx.Timeout(
+                    timeout=600.0,  # Default for all operations
+                    connect=60.0,
+                    read=600.0,
+                    write=60.0,
+                    pool=120.0,  # Prevent hanging if connection pool exhausted
+                )
                 with openai_client:
                     # --- Stage 1: Research ---
                     self._check_cancelled()  # Check before each stage
