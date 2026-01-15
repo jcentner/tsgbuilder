@@ -11,6 +11,7 @@ import json
 import os
 import threading
 import queue
+import uuid
 from pathlib import Path
 from typing import Any, Generator
 
@@ -38,7 +39,7 @@ from tsg_constants import (
 )
 
 # Import pipeline for multi-stage generation
-from pipeline import run_pipeline
+from pipeline import run_pipeline, CancelledError
 
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
@@ -57,6 +58,10 @@ app = Flask(__name__)
 # Sessions are persisted to disk so they survive server restarts
 SESSIONS_DIR = Path(".sessions")
 sessions: dict[str, dict] = {}
+
+# Track active runs for cancellation support
+# Maps run_id -> threading.Event (set = cancelled)
+active_runs: dict[str, threading.Event] = {}
 
 
 def _is_valid_thread_id(thread_id: str) -> bool:
@@ -543,7 +548,8 @@ def generate_pipeline_sse_events(
     notes: str,
     thread_id: str | None = None,
     answers: str | None = None,
-    images: list[dict] | None = None
+    images: list[dict] | None = None,
+    run_id: str | None = None,
 ) -> Generator[str, None, None]:
     """Generator that yields SSE events during multi-stage pipeline execution.
     
@@ -557,9 +563,18 @@ def generate_pipeline_sse_events(
         thread_id: Optional existing thread ID for follow-up
         answers: Optional answers to follow-up questions
         images: Optional list of image dicts with 'data' (base64) and 'type' (mime type)
+        run_id: Unique identifier for this run (for cancellation support)
     """
+    # Generate run_id if not provided
+    if not run_id:
+        run_id = str(uuid.uuid4())
+    
+    # Create cancel event for this run
+    cancel_event = threading.Event()
+    active_runs[run_id] = cancel_event
+    
     event_queue: queue.Queue = queue.Queue()
-    result_holder: dict[str, Any] = {"result": None, "error": None}
+    result_holder: dict[str, Any] = {"result": None, "error": None, "cancelled": False}
     
     def run_pipeline_thread():
         try:
@@ -571,8 +586,12 @@ def generate_pipeline_sse_events(
                 prior_tsg=sessions.get(thread_id, {}).get("current_tsg") if thread_id else None,
                 user_answers=answers,
                 test_mode=TEST_MODE,
+                cancel_event=cancel_event,
             )
             result_holder["result"] = result
+        except CancelledError:
+            result_holder["cancelled"] = True
+            event_queue.put({"type": "cancelled", "data": {"message": "Run cancelled by user"}})
         except Exception as e:
             result_holder["error"] = str(e)
             event_queue.put({"type": "error", "data": {"message": str(e)}})
@@ -583,23 +602,33 @@ def generate_pipeline_sse_events(
     pipeline_thread = threading.Thread(target=run_pipeline_thread)
     pipeline_thread.start()
     
+    # Send run_id to client immediately so it can cancel if needed
+    yield f"data: {json.dumps({'type': 'run_started', 'data': {'run_id': run_id}})}\n\n"
+    
     # Yield SSE events as they arrive
-    while True:
-        try:
-            event = event_queue.get(timeout=30)  # 30s keepalive interval to prevent connection drops
-            if event is None:
-                break
-            
-            yield f"data: {json.dumps(event)}\n\n"
-            
-        except queue.Empty:
-            # Send keepalive to prevent connection timeout
-            yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
+    try:
+        while True:
+            try:
+                event = event_queue.get(timeout=30)  # 30s keepalive interval to prevent connection drops
+                if event is None:
+                    break
+                
+                yield f"data: {json.dumps(event)}\n\n"
+                
+            except queue.Empty:
+                # Send keepalive to prevent connection timeout
+                yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
+    finally:
+        # Clean up: remove from active runs when generator exits
+        # (this happens when client disconnects or stream completes)
+        active_runs.pop(run_id, None)
     
     pipeline_thread.join()
     
-    # Send final result
-    if result_holder["error"]:
+    # Send final result (unless cancelled)
+    if result_holder["cancelled"]:
+        yield f"data: {json.dumps({'type': 'cancelled', 'data': {'message': 'Run cancelled'}})}\n\n"
+    elif result_holder["error"]:
         yield f"data: {json.dumps({'type': 'error', 'data': {'message': result_holder['error']}})}\n\n"
     elif result_holder["result"]:
         result = result_holder["result"]
@@ -618,9 +647,9 @@ def generate_pipeline_sse_events(
                 sessions[result.thread_id] = session_data
                 _save_session(result.thread_id, session_data)
             
-            # Include review warnings if any
+            # Include review warnings if any (regardless of approved status)
             review_warnings = []
-            if result.review_result and not result.review_result.get("approved", True):
+            if result.review_result:
                 review_warnings = (
                     result.review_result.get("accuracy_issues", []) +
                     result.review_result.get("suggestions", [])
@@ -705,6 +734,28 @@ def api_answer_stream():
             "X-Accel-Buffering": "no",
         }
     )
+
+
+@app.route("/api/cancel/<run_id>", methods=["POST"])
+def api_cancel_run(run_id):
+    """Cancel an active pipeline run.
+    
+    The run will stop at the next cancellation checkpoint (between stages or retries).
+    Note: This cannot interrupt an in-flight Azure API call, but will prevent the next stage from starting.
+    """
+    # Validate run_id format (UUID)
+    try:
+        uuid.UUID(run_id)
+    except ValueError:
+        return jsonify({"error": "Invalid run ID format"}), 400
+    
+    cancel_event = active_runs.get(run_id)
+    if not cancel_event:
+        return jsonify({"error": "Run not found or already completed"}), 404
+    
+    # Set the cancel event - pipeline will check this at next checkpoint
+    cancel_event.set()
+    return jsonify({"success": True, "message": "Cancellation requested"})
 
 
 @app.route("/api/session/<thread_id>", methods=["DELETE"])

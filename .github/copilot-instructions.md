@@ -191,9 +191,9 @@ Every TSG must:
 
 ### Warning Flow
 
-1. **Pipeline** returns `review_result` with issues
-2. **Web App** extracts `accuracy_issues` + `suggestions` into `warnings` array
-3. **UI** displays warnings in a banner (does NOT insert into TSG)
+1. **Pipeline** returns `review_result` with `accuracy_issues` and `suggestions` (regardless of `approved` status)
+2. **Web App** extracts both into `warnings` array
+3. **UI** displays warnings in a banner below the TSG output (before follow-up questions)
 
 ### Warnings Must NOT
 
@@ -246,15 +246,11 @@ This is **correct behavior** if the content exists in user notes. Research gaps 
 
 This is **correct behavior**. `approved: false` with issues means "TSG is structurally valid but has warnings." The pipeline accepts it and surfaces warnings to the user.
 
-### Warnings not appearing in UI
-
-Check that `templates/index.html` handles `data.warnings` in the result event handler. As of this writing, this is a known gap that needs implementation.
-
 ---
 
 ## Known Gaps / TODOs
 
-- [ ] UI does not display `data.warnings` from API response
 - [ ] Research stage "Research Gaps" wording could be clearer (informational vs actionable)
 - [ ] Review stage may flag user-provided content as accuracy issues incorrectly
 - [ ] Test mode outputs to repo root; need to change this to output to examples/ directory
+- [ ] Refactor javascript and CSS out of `index.html` into separate files for maintainability

@@ -173,6 +173,25 @@
             background: var(--border);
         }
 
+        .btn-cancel {
+            background: transparent;
+            color: var(--error);
+            border: 1px solid var(--error);
+            padding: 4px 12px;
+            font-size: 12px;
+            margin-left: auto;
+        }
+
+        .btn-cancel:hover {
+            background: var(--error);
+            color: white;
+        }
+
+        .btn-cancel:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .btn-success {
             background: var(--success);
             color: white;
@@ -296,6 +315,7 @@
             display: flex;
             align-items: center;
             gap: 12px;
+            width: 100%;
         }
 
         .spinner {
@@ -402,6 +422,38 @@
             border-radius: 6px;
             color: var(--success);
             margin-bottom: 16px;
+        }
+
+        .warning-banner {
+            padding: 12px 16px;
+            background: #fff8e5;
+            border: 1px solid var(--warning);
+            border-radius: 6px;
+            color: #5c4813;
+            margin-bottom: 16px;
+        }
+
+        .warning-banner h4 {
+            color: var(--warning);
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .warning-banner ul {
+            margin: 0;
+            padding-left: 20px;
+            font-size: 13px;
+        }
+
+        .warning-banner li {
+            margin-bottom: 4px;
+        }
+
+        .warning-banner li:last-child {
+            margin-bottom: 0;
         }
 
         .hidden {
@@ -862,6 +914,9 @@ Include:
                         <div class="loading-header">
                             <div class="spinner"></div>
                             <span id="loadingText">Generating TSG... This may take a minute.</span>
+                            <button class="btn btn-cancel" id="cancelBtn" onclick="cancelRun()" title="Cancel this run">
+                                ✕ Cancel
+                            </button>
                         </div>
                         <div class="activity-feed" id="activityFeed">
                             <!-- Activity items will be added here -->
@@ -871,6 +926,9 @@ Include:
                     <div class="output-area" id="tsgOutput">
                         <span style="color: var(--text-secondary);">Your generated TSG will appear here...</span>
                     </div>
+
+                    <!-- Review Warnings Banner -->
+                    <div id="warningBanner" class="warning-banner hidden"></div>
 
                     <!-- Follow-up Questions Panel -->
                     <div id="questionsPanel" class="questions-panel hidden">
@@ -906,6 +964,9 @@ Include:
         // Image storage
         let uploadedImages = [];
         const MAX_IMAGES = 10;
+
+        // Run cancellation support
+        let currentRunId = null;
 
         // Check agent status on load
         document.addEventListener('DOMContentLoaded', () => {
@@ -1196,8 +1257,24 @@ Include:
 
         function handleStreamEvent(event, resolve, reject) {
             switch (event.type) {
+                case 'run_started':
+                    // Store run ID for cancellation support
+                    currentRunId = event.data.run_id;
+                    // Enable cancel button now that we have a run ID
+                    const cancelBtn = document.getElementById('cancelBtn');
+                    cancelBtn.disabled = false;
+                    cancelBtn.textContent = '✕ Cancel';
+                    break;
+                
                 case 'thread_created':
                     currentThreadId = event.data.thread_id;
+                    break;
+                
+                case 'cancelled':
+                    // Run was cancelled by user
+                    currentRunId = null;
+                    addActivity('🛑', 'Run cancelled by user', 'status');
+                    reject(new Error('Generation cancelled'));
                     break;
                     
                 case 'status':
@@ -1254,6 +1331,7 @@ Include:
                     break;
                     
                 case 'error':
+                    currentRunId = null;  // Clear run ID on error
                     addActivity('❌', event.data.message, 'error');
                     // Build comprehensive error message with debug info
                     let errorMsg = event.data.message;
@@ -1286,6 +1364,7 @@ Include:
                     break;
                     
                 case 'result':
+                    currentRunId = null;  // Clear run ID on success
                     currentThreadId = event.data.thread_id;
                     currentTSG = event.data.tsg;
                     resolve(event.data);
@@ -1298,6 +1377,31 @@ Include:
                 case 'keepalive':
                     // Ignore keepalives
                     break;
+            }
+        }
+
+        async function cancelRun() {
+            if (!currentRunId) {
+                console.log('No active run to cancel');
+                return;
+            }
+            
+            const cancelBtn = document.getElementById('cancelBtn');
+            cancelBtn.disabled = true;
+            cancelBtn.textContent = 'Cancelling...';
+            
+            try {
+                const response = await fetch(`/api/cancel/${currentRunId}`, {
+                    method: 'POST',
+                });
+                
+                if (!response.ok) {
+                    const err = await response.json();
+                    console.error('Cancel failed:', err.error);
+                }
+                // The stream will receive a 'cancelled' event and handle cleanup
+            } catch (error) {
+                console.error('Cancel request failed:', error);
             }
         }
 
@@ -1328,6 +1432,11 @@ Include:
                 const data = await generateTSGWithStreaming('/api/generate/stream', requestBody);
                 
                 displayTSG(data.tsg);
+
+                // Show any warnings from the review stage
+                if (data.warnings && data.warnings.length > 0) {
+                    showWarnings(data.warnings);
+                }
 
                 if (data.questions && !data.complete) {
                     showQuestions(data.questions);
@@ -1363,6 +1472,11 @@ Include:
                 });
 
                 displayTSG(data.tsg);
+
+                // Show any warnings from the review stage
+                if (data.warnings && data.warnings.length > 0) {
+                    showWarnings(data.warnings);
+                }
 
                 if (data.questions && !data.complete) {
                     showQuestions(data.questions);
@@ -1435,13 +1549,21 @@ Include:
         function showLoading(show) {
             const loading = document.getElementById('loadingIndicator');
             const btn = document.getElementById('generateBtn');
+            const cancelBtn = document.getElementById('cancelBtn');
             
             if (show) {
                 loading.classList.remove('hidden');
                 btn.disabled = true;
+                // Reset cancel button state (will be enabled when run_started event arrives)
+                cancelBtn.disabled = true;
+                cancelBtn.textContent = '✕ Cancel';
+                // Clear activity feed for new run
+                document.getElementById('activityFeed').innerHTML = '';
             } else {
                 loading.classList.add('hidden');
                 btn.disabled = false;
+                // Clear run ID when loading hides
+                currentRunId = null;
             }
         }
 
@@ -1518,6 +1640,19 @@ Include:
         function hideMessages() {
             document.getElementById('errorMessage').classList.add('hidden');
             document.getElementById('successMessage').classList.add('hidden');
+            document.getElementById('warningBanner').classList.add('hidden');
+        }
+
+        function showWarnings(warnings) {
+            if (!warnings || warnings.length === 0) return;
+            
+            const el = document.getElementById('warningBanner');
+            const warningItems = warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('');
+            el.innerHTML = `
+                <h4>⚠️ Review Notes</h4>
+                <ul>${warningItems}</ul>
+            `;
+            el.classList.remove('hidden');
         }
 
         function clearInput() {

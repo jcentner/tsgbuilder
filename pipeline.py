@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import queue
 import time
+import threading
 import httpx
 from dataclasses import dataclass, field
 from enum import Enum
@@ -40,6 +41,11 @@ from tsg_constants import (
     extract_research_block,
     extract_review_block,
 )
+
+
+class CancelledError(Exception):
+    """Raised when a pipeline run is cancelled by the user."""
+    pass
 
 
 class PipelineStage(Enum):
@@ -324,6 +330,7 @@ class TSGPipeline:
         bing_connection_id: str | None = None,
         model_name: str | None = None,
         test_mode: bool = False,
+        cancel_event: threading.Event | None = None,
     ):
         self.project_endpoint = project_endpoint
         # v2: store agent names instead of IDs
@@ -333,12 +340,18 @@ class TSGPipeline:
         self.bing_connection_id = bing_connection_id
         self.model_name = model_name or os.getenv("MODEL_DEPLOYMENT_NAME", "gpt-5.2")
         self.test_mode = test_mode
+        self._cancel_event = cancel_event
         
         self._event_queue: queue.Queue | None = None
     
     def set_event_queue(self, event_queue: queue.Queue):
         """Set the event queue for SSE streaming."""
         self._event_queue = event_queue
+    
+    def _check_cancelled(self) -> None:
+        """Check if the run has been cancelled, raise CancelledError if so."""
+        if self._cancel_event and self._cancel_event.is_set():
+            raise CancelledError("Run cancelled by user")
     
     def _send_stage_event(self, stage: PipelineStage, event_type: str, data: dict):
         """Send a stage-specific event."""
@@ -446,12 +459,16 @@ class TSGPipeline:
         project = self._get_project_client()
         
         try:
+            # Check for cancellation before starting
+            self._check_cancelled()
+            
             with project:
                 # Get OpenAI client for v2 responses API with extended timeout
                 openai_client = project.get_openai_client()
                 openai_client.timeout = httpx.Timeout(600.0, connect=60.0)  # 10 min read, 1 min connect
                 with openai_client:
                     # --- Stage 1: Research ---
+                    self._check_cancelled()  # Check before each stage
                     self._send_stage_event(PipelineStage.RESEARCH, "stage_start", {
                         "message": "🔍 Research: Gathering documentation and references...",
                         "icon": "🔍",
@@ -468,6 +485,7 @@ class TSGPipeline:
                         last_research_error = None
                         
                         for research_attempt in range(self.RESEARCH_MAX_RETRIES + 1):
+                            self._check_cancelled()  # Check before each retry attempt
                             try:
                                 if research_attempt > 0:
                                     self._send_stage_event(PipelineStage.RESEARCH, "status", {
@@ -536,6 +554,7 @@ class TSGPipeline:
                         })
                     
                     # --- Stage 2: Write ---
+                    self._check_cancelled()  # Check before write stage
                     self._send_stage_event(PipelineStage.WRITE, "stage_start", {
                         "message": "✏️ Write: Drafting TSG from notes and research...",
                         "icon": "✏️",
@@ -571,6 +590,7 @@ class TSGPipeline:
                     })
                     
                     # --- Stage 3: Review (with retry loop) ---
+                    self._check_cancelled()  # Check before review stage
                     self._send_stage_event(PipelineStage.REVIEW, "stage_start", {
                         "message": "🔎 Review: Validating structure and accuracy...",
                         "icon": "🔎",
@@ -582,6 +602,7 @@ class TSGPipeline:
                     review_response = None  # Track for test mode
                     
                     for retry in range(self.MAX_RETRIES + 1):
+                        self._check_cancelled()  # Check before each review retry
                         result.retry_count = retry
                         
                         validation = validate_tsg_output(draft_tsg)
@@ -736,12 +757,14 @@ def run_pipeline(
     user_answers: str | None = None,
     prior_research: str | None = None,
     test_mode: bool = False,
+    cancel_event: threading.Event | None = None,
 ) -> PipelineResult:
     """
     Convenience function to run the TSG pipeline.
     
     Loads configuration from environment variables and agent info from storage.
     If test_mode=True, captures raw outputs from each stage and writes to a JSON file.
+    If cancel_event is provided and set, the pipeline will stop at the next checkpoint.
     """
     import json
     from datetime import datetime
@@ -787,6 +810,7 @@ def run_pipeline(
         bing_connection_id=bing_connection_id,
         model_name=model_name,
         test_mode=test_mode,
+        cancel_event=cancel_event,
     )
     
     if event_queue:
