@@ -382,6 +382,20 @@
             background: #fde7e9;
         }
 
+        .activity-item.rate-limit {
+            border-left-color: var(--warning);
+            background: #fff4ce;
+        }
+
+        .activity-item.rate-limit .activity-icon {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
         @keyframes slideIn {
             from {
                 opacity: 0;
@@ -1331,28 +1345,42 @@ Include:
                     break;
                     
                 case 'error':
-                    currentRunId = null;  // Clear run ID on error
-                    addActivity('❌', event.data.message, 'error');
-                    // Build comprehensive error message with debug info
-                    let errorMsg = event.data.message;
+                    // Check if this is a retryable error (rate limit) vs fatal error
+                    const isRateLimit = event.data.error_type === 'rate_limit';
+                    const isMcpError = event.data.error_type === 'mcp_error';
                     
-                    // Add debug info section
-                    const debugParts = [];
-                    if (event.data.thread_id) debugParts.push(`Thread ID: ${event.data.thread_id}`);
-                    if (event.data.run_id) debugParts.push(`Run ID: ${event.data.run_id}`);
-                    if (event.data.agent_id) debugParts.push(`Agent ID: ${event.data.agent_id}`);
-                    if (event.data.error_code) debugParts.push(`Error Code: ${event.data.error_code}`);
+                    if (isRateLimit) {
+                        // Rate limit - show warning style, don't reject yet
+                        addActivity(event.data.icon || '⏳', event.data.message, 'rate-limit');
+                        document.getElementById('loadingText').textContent = event.data.message;
+                    } else if (isMcpError && !event.data.message.includes('failed')) {
+                        // Non-fatal MCP error - show warning
+                        addActivity(event.data.icon || '⚠️', event.data.message, 'error');
+                    } else {
+                        // Fatal error - reject the promise
+                        currentRunId = null;  // Clear run ID on error
+                        addActivity('❌', event.data.message, 'error');
+                        // Build comprehensive error message with debug info
+                        let errorMsg = event.data.message;
                     
-                    if (debugParts.length > 0) {
-                        errorMsg += '\n\n--- Debug Information ---\n' + debugParts.join('\n');
+                        // Add debug info section
+                        const debugParts = [];
+                        if (event.data.thread_id) debugParts.push(`Thread ID: ${event.data.thread_id}`);
+                        if (event.data.run_id) debugParts.push(`Run ID: ${event.data.run_id}`);
+                        if (event.data.agent_id) debugParts.push(`Agent ID: ${event.data.agent_id}`);
+                        if (event.data.error_code) debugParts.push(`Error Code: ${event.data.error_code}`);
+                    
+                        if (debugParts.length > 0) {
+                            errorMsg += '\n\n--- Debug Information ---\n' + debugParts.join('\n');
+                        }
+                    
+                        // Include raw_response if available
+                        if (event.data.raw_response) {
+                            errorMsg += '\n\n--- Raw Agent Response ---\n' + event.data.raw_response;
+                        }
+                    
+                        reject(new Error(errorMsg));
                     }
-                    
-                    // Include raw_response if available
-                    if (event.data.raw_response) {
-                        errorMsg += '\n\n--- Raw Agent Response ---\n' + event.data.raw_response;
-                    }
-                    
-                    reject(new Error(errorMsg));
                     break;
                 
                 case 'debug_info':

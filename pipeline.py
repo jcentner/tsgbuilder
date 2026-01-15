@@ -98,9 +98,21 @@ def process_pipeline_v2_stream(
         stage: Current pipeline stage
         response_text_parts: List to accumulate response text
         timing_context: Optional dict to track timing (keys: 'tool_start', 'stage_start')
+    
+    Set PIPELINE_VERBOSE=1 environment variable to log all events for debugging.
     """
+    # Verbose logging for debugging hangs
+    verbose = os.getenv("PIPELINE_VERBOSE", "").lower() in ("1", "true", "yes")
+    
     event_type = getattr(event, 'type', None)
     stage_name = stage.value.capitalize()
+    
+    # Log all events when verbose mode is enabled
+    if verbose:
+        elapsed = 0.0
+        if timing_context and 'stage_start' in timing_context:
+            elapsed = time.time() - timing_context['stage_start']
+        print(f"[VERBOSE][{stage_name}][{elapsed:6.1f}s] {event_type}")
     
     # Stage-specific icons
     stage_icons = {
@@ -258,16 +270,46 @@ def process_pipeline_v2_stream(
             
             # Check for tool errors in the item
             if hasattr(item, 'error') and item.error:
-                send_event("error", {
-                    "message": f"⚠️ Tool error: {item.error}",
-                    "icon": "⚠️",
-                })
+                error_text = str(item.error)
+                # Provide user-friendly messages for common errors
+                if '429' in error_text or 'Too Many Requests' in error_text:
+                    if 'mcp' in error_text.lower() or 'learn.microsoft.com' in error_text.lower():
+                        send_event("error", {
+                            "message": f"⏳ Microsoft Learn rate limited (429) - will retry",
+                            "icon": "⏳",
+                            "error_type": "rate_limit",
+                        })
+                    else:
+                        send_event("error", {
+                            "message": f"⏳ Rate limited (429) - will retry",
+                            "icon": "⏳",
+                            "error_type": "rate_limit",
+                        })
+                elif 'mcp' in error_text.lower() or 'learn.microsoft.com' in error_text.lower():
+                    send_event("error", {
+                        "message": f"⚠️ Microsoft Learn error: {error_text[:150]}",
+                        "icon": "⚠️",
+                        "error_type": "mcp_error",
+                    })
+                else:
+                    send_event("error", {
+                        "message": f"⚠️ Tool error: {item.error}",
+                        "icon": "⚠️",
+                    })
             if hasattr(item, 'status') and item.status == 'failed':
-                error_detail = getattr(item, 'error', 'unknown')
-                send_event("error", {
-                    "message": f"⚠️ Tool failed: {error_detail}",
-                    "icon": "⚠️",
-                })
+                error_detail = str(getattr(item, 'error', 'unknown'))
+                # Same user-friendly handling for failed status
+                if '429' in error_detail or 'Too Many Requests' in error_detail:
+                    send_event("error", {
+                        "message": f"⏳ Tool rate limited - will retry",
+                        "icon": "⏳",
+                        "error_type": "rate_limit",
+                    })
+                else:
+                    send_event("error", {
+                        "message": f"⚠️ Tool failed: {error_detail[:150]}",
+                        "icon": "⚠️",
+                    })
     
     elif event_type == "response.completed":
         send_event("status", {
@@ -319,7 +361,7 @@ class TSGPipeline:
     """
     
     MAX_RETRIES = 2
-    RESEARCH_MAX_RETRIES = 2  # Extra retries for research stage due to tool timeouts
+    RESEARCH_MAX_RETRIES = 3  # Extra retries for research stage due to tool timeouts and rate limits
     
     def __init__(
         self,
@@ -407,10 +449,32 @@ class TSGPipeline:
             if conversation_id:
                 stream_kwargs["extra_body"]["conversation"] = conversation_id
             
+            # Verbose logging for debugging hangs
+            verbose = os.getenv("PIPELINE_VERBOSE", "").lower() in ("1", "true", "yes")
+            
             # Stream the response
             stream_response = openai_client.responses.create(**stream_kwargs)
             
+            event_count = 0
+            last_event_time = time.time()
+            last_event_type = None
+            
             for event in stream_response:
+                event_count += 1
+                now = time.time()
+                wait_time = now - last_event_time
+                event_type = getattr(event, 'type', None)
+                
+                # Log when we've been waiting a long time for an event
+                if verbose and wait_time > 5:
+                    print(f"[VERBOSE][{stage.value}] ⚠️ Long wait: {wait_time:.1f}s after event #{event_count-1} ({last_event_type})")
+                
+                if verbose:
+                    print(f"[VERBOSE][{stage.value}] Event #{event_count}: {event_type} (waited {wait_time:.1f}s)")
+                
+                last_event_time = now
+                last_event_type = event_type
+                
                 process_pipeline_v2_stream(
                     event, 
                     self._event_queue, 
@@ -420,11 +484,14 @@ class TSGPipeline:
                 )
                 
                 # Capture conversation ID from response if not already set
-                if not conversation_id and getattr(event, 'type', None) == "response.created":
+                if not conversation_id and event_type == "response.created":
                     if hasattr(event, 'response'):
                         conv_id = getattr(event.response, 'conversation_id', None)
                         if conv_id:
                             conversation_id = conv_id
+            
+            if verbose:
+                print(f"[VERBOSE][{stage.value}] ✅ Stream complete: {event_count} events")
             
             return "".join(response_text_parts), conversation_id or ""
             
@@ -517,17 +584,53 @@ class TSGPipeline:
                             except Exception as e:
                                 last_research_error = e
                                 error_str = str(e).lower()
-                                # Retry on timeout or connection errors
-                                is_retryable = any(x in error_str for x in ['timeout', 'timed out', 'connection', 'httpx'])
                                 
-                                if is_retryable and research_attempt < self.RESEARCH_MAX_RETRIES:
+                                # Categorize the error for appropriate handling
+                                is_rate_limit = any(x in error_str for x in ['429', 'rate limit', 'too many requests'])
+                                is_mcp_error = 'mcp' in error_str or 'learn.microsoft.com' in error_str
+                                is_timeout = any(x in error_str for x in ['timeout', 'timed out', 'connection', 'httpx'])
+                                is_retryable = is_rate_limit or is_timeout
+                                
+                                # Send user-friendly error status
+                                if is_rate_limit and is_mcp_error:
+                                    self._send_stage_event(PipelineStage.RESEARCH, "status", {
+                                        "message": f"⚠️ Research: Microsoft Learn rate limited (429), waiting to retry...",
+                                        "icon": "⏳",
+                                    })
+                                elif is_mcp_error:
+                                    self._send_stage_event(PipelineStage.RESEARCH, "status", {
+                                        "message": f"⚠️ Research: Microsoft Learn error, will retry...",
+                                        "icon": "⚠️",
+                                    })
+                                elif is_rate_limit:
+                                    self._send_stage_event(PipelineStage.RESEARCH, "status", {
+                                        "message": f"⚠️ Research: Rate limited (429), waiting to retry...",
+                                        "icon": "⏳",
+                                    })
+                                elif is_timeout:
                                     self._send_stage_event(PipelineStage.RESEARCH, "status", {
                                         "message": f"⚠️ Research: Tool call timed out, will retry...",
                                         "icon": "⚠️",
                                     })
+                                
+                                if is_retryable and research_attempt < self.RESEARCH_MAX_RETRIES:
+                                    # Backoff: wait longer for rate limits
+                                    if is_rate_limit:
+                                        import time as time_module
+                                        wait_time = 30 * (research_attempt + 1)  # 30s, 60s, 90s
+                                        self._send_stage_event(PipelineStage.RESEARCH, "status", {
+                                            "message": f"⏳ Research: Waiting {wait_time}s before retry...",
+                                            "icon": "⏳",
+                                        })
+                                        time_module.sleep(wait_time)
                                     continue
                                 else:
-                                    # Non-retryable error or out of retries
+                                    # Non-retryable error or out of retries - send descriptive error
+                                    if is_mcp_error:
+                                        self._send_stage_event(PipelineStage.RESEARCH, "error", {
+                                            "message": f"❌ Microsoft Learn MCP error: {str(e)[:200]}",
+                                            "icon": "❌",
+                                        })
                                     raise
                         
                         if last_research_error:
