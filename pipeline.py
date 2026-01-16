@@ -529,6 +529,13 @@ class TSGPipeline:
         result = PipelineResult(success=False, thread_id=conversation_id or "")
         project = self._get_project_client()
         
+        # Debug: log when pipeline run starts
+        verbose = os.getenv("PIPELINE_VERBOSE", "").lower() in ("1", "true", "yes")
+        if verbose:
+            import threading
+            print(f"[VERBOSE] Pipeline.run() starting on thread {threading.current_thread().name}")
+            print(f"[VERBOSE]   Notes length: {len(notes)}, Has images: {bool(images)}")
+        
         try:
             # Check for cancellation before starting
             self._check_cancelled()
@@ -536,6 +543,16 @@ class TSGPipeline:
             with project:
                 # Get OpenAI client for v2 responses API with extended timeout
                 openai_client = project.get_openai_client()
+                
+                if verbose:
+                    print(f"[VERBOSE]   OpenAI client created: {id(openai_client)}")
+                    # Log HTTP client details
+                    if hasattr(openai_client, '_client'):
+                        client = openai_client._client
+                        print(f"[VERBOSE]   httpx client: {type(client).__name__}, id={id(client)}")
+                        if hasattr(client, '_transport'):
+                            print(f"[VERBOSE]   transport: {type(client._transport).__name__}")
+                
                 # Timeout config:
                 #   - connect: 60s to establish connection
                 #   - read: 600s (10 min) between data chunks (not total stream time)
