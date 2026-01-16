@@ -1345,17 +1345,16 @@ Include:
                     break;
                     
                 case 'error':
-                    // Check if this is a retryable error (rate limit) vs fatal error
-                    const isRateLimit = event.data.error_type === 'rate_limit';
-                    const isMcpError = event.data.error_type === 'mcp_error';
+                    // Check if this is a retryable error vs fatal error
+                    // Retryable errors: rate_limit, timeout, mcp_error, tool_error
+                    const errorType = event.data.error_type;
+                    const isRetryable = ['rate_limit', 'timeout', 'mcp_error', 'tool_error'].includes(errorType);
                     
-                    if (isRateLimit) {
-                        // Rate limit - show warning style, don't reject yet
-                        addActivity(event.data.icon || '⏳', event.data.message, 'rate-limit');
+                    if (isRetryable) {
+                        // Retryable error - show warning style, don't reject
+                        const cssClass = errorType === 'rate_limit' ? 'rate-limit' : 'error';
+                        addActivity(event.data.icon || '⚠️', event.data.message, cssClass);
                         document.getElementById('loadingText').textContent = event.data.message;
-                    } else if (isMcpError && !event.data.message.includes('failed')) {
-                        // Non-fatal MCP error - show warning
-                        addActivity(event.data.icon || '⚠️', event.data.message, 'error');
                     } else {
                         // Fatal error - reject the promise
                         currentRunId = null;  // Clear run ID on error

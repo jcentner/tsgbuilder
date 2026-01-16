@@ -295,10 +295,17 @@ def process_pipeline_v2_stream(
                         "icon": "⚠️",
                         "error_type": "mcp_error",
                     })
+                elif any(x in error_text.lower() for x in ['timeout', 'timed out', 'connection', 'httpx']):
+                    send_event("error", {
+                        "message": f"⚠️ Tool timeout - will retry: {error_text[:100]}",
+                        "icon": "⚠️",
+                        "error_type": "timeout",
+                    })
                 else:
                     send_event("error", {
                         "message": f"⚠️ Tool error: {item.error}",
                         "icon": "⚠️",
+                        "error_type": "tool_error",
                     })
             if hasattr(item, 'status') and item.status == 'failed':
                 error_detail = str(getattr(item, 'error', 'unknown'))
@@ -309,10 +316,17 @@ def process_pipeline_v2_stream(
                         "icon": "⏳",
                         "error_type": "rate_limit",
                     })
+                elif any(x in error_detail.lower() for x in ['timeout', 'timed out', 'connection', 'httpx']):
+                    send_event("error", {
+                        "message": f"⚠️ Tool timeout - will retry: {error_detail[:100]}",
+                        "icon": "⚠️",
+                        "error_type": "timeout",
+                    })
                 else:
                     send_event("error", {
                         "message": f"⚠️ Tool failed: {error_detail[:150]}",
                         "icon": "⚠️",
+                        "error_type": "tool_error",
                     })
     
     elif event_type == "response.completed":
@@ -331,25 +345,64 @@ def process_pipeline_v2_stream(
         error_msg = "Unknown error"
         if hasattr(event, 'response') and hasattr(event.response, 'error'):
             error_msg = str(event.response.error)
-        send_event("error", {
-            "message": f"❌ {stage_name} failed: {error_msg}",
-            "icon": "❌",
-        })
+        # Categorize the error for UI handling
+        error_lower = error_msg.lower()
+        if any(x in error_lower for x in ['timeout', 'timed out', 'connection', 'httpx']):
+            send_event("error", {
+                "message": f"⚠️ {stage_name} timeout - will retry: {error_msg[:100]}",
+                "icon": "⚠️",
+                "error_type": "timeout",
+            })
+        elif '429' in error_msg or 'rate limit' in error_lower:
+            send_event("error", {
+                "message": f"⏳ {stage_name} rate limited - will retry",
+                "icon": "⏳",
+                "error_type": "rate_limit",
+            })
+        else:
+            send_event("error", {
+                "message": f"❌ {stage_name} failed: {error_msg}",
+                "icon": "❌",
+            })
     
     elif event_type == "error":
         # Handle error events that may occur during tool processing
         error_msg = getattr(event, 'message', None) or getattr(event, 'error', None) or str(event)
-        send_event("error", {
-            "message": f"❌ {stage_name} error: {error_msg}",
-            "icon": "❌",
-        })
+        # Categorize the error for UI handling
+        error_lower = str(error_msg).lower()
+        if any(x in error_lower for x in ['timeout', 'timed out', 'connection', 'httpx']):
+            send_event("error", {
+                "message": f"⚠️ {stage_name} timeout - will retry: {str(error_msg)[:100]}",
+                "icon": "⚠️",
+                "error_type": "timeout",
+            })
+        elif '429' in str(error_msg) or 'rate limit' in error_lower:
+            send_event("error", {
+                "message": f"⏳ {stage_name} rate limited - will retry",
+                "icon": "⏳",
+                "error_type": "rate_limit",
+            })
+        else:
+            send_event("error", {
+                "message": f"❌ {stage_name} error: {error_msg}",
+                "icon": "❌",
+            })
     
     elif event_type and event_type.startswith("error"):
-        # Catch any other error-type events
-        send_event("error", {
-            "message": f"❌ {stage_name}: {event_type} - {event}",
-            "icon": "❌",
-        })
+        # Catch any other error-type events - treat as potentially retryable
+        error_str = str(event)
+        error_lower = error_str.lower()
+        if any(x in error_lower for x in ['timeout', 'timed out', 'connection', 'httpx']):
+            send_event("error", {
+                "message": f"⚠️ {stage_name}: {event_type} - timeout, will retry",
+                "icon": "⚠️",
+                "error_type": "timeout",
+            })
+        else:
+            send_event("error", {
+                "message": f"❌ {stage_name}: {event_type} - {event}",
+                "icon": "❌",
+            })
 
 
 class TSGPipeline:
@@ -500,7 +553,8 @@ class TSGPipeline:
             return "".join(response_text_parts), conversation_id or ""
             
         except Exception as e:
-            self._send_stage_event(stage, "error", {"message": str(e)})
+            # Don't send error event here - let the caller's retry logic decide
+            # whether this is a retryable error or a fatal error
             raise RuntimeError(f"Stage {stage.value} failed: {e}") from e
     
     def run(
@@ -554,16 +608,16 @@ class TSGPipeline:
                             print(f"[VERBOSE]   transport: {type(client._transport).__name__}")
                 
                 # Timeout config:
-                #   - connect: 60s to establish connection
-                #   - read: 600s (10 min) between data chunks (not total stream time)
-                #   - write: 60s to send request data
-                #   - pool: 120s to acquire connection from pool (prevents indefinite hang)
+                #   - connect: 30s to establish connection
+                #   - read: 30s between data chunks (catches Bing hangs that go 60+s)
+                #   - write: 30s to send request data
+                #   - pool: 60s to acquire connection from pool
                 openai_client.timeout = httpx.Timeout(
-                    timeout=600.0,  # Default for all operations
-                    connect=60.0,
-                    read=600.0,
-                    write=60.0,
-                    pool=120.0,  # Prevent hanging if connection pool exhausted
+                    timeout=300.0,  # 5 min default for all operations
+                    connect=30.0,
+                    read=30.0,
+                    write=30.0,
+                    pool=60.0,
                 )
                 with openai_client:
                     # --- Stage 1: Research ---
@@ -651,6 +705,7 @@ class TSGPipeline:
                                         self._send_stage_event(PipelineStage.RESEARCH, "error", {
                                             "message": f"❌ Microsoft Learn MCP error: {str(e)[:200]}",
                                             "icon": "❌",
+                                            "fatal": True,  # Retries exhausted
                                         })
                                     raise
                         
@@ -878,6 +933,7 @@ Please fix these issues and regenerate the TSG with correct format.
             result.error = str(e)
             self._send_stage_event(PipelineStage.FAILED, "error", {
                 "message": str(e),
+                "fatal": True,  # All retries exhausted
             })
         
         return result

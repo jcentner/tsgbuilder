@@ -594,7 +594,8 @@ def generate_pipeline_sse_events(
             event_queue.put({"type": "cancelled", "data": {"message": "Run cancelled by user"}})
         except Exception as e:
             result_holder["error"] = str(e)
-            event_queue.put({"type": "error", "data": {"message": str(e)}})
+            # This is a fatal error (all retries exhausted), so no error_type = UI will reject
+            event_queue.put({"type": "error", "data": {"message": str(e), "fatal": True}})
         finally:
             event_queue.put(None)  # Signal end of events
     
