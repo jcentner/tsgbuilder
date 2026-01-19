@@ -40,8 +40,23 @@ Source template: [TSG-Template.md - ADO](https://dev.azure.com/Supportability/Az
 
 ## Quick Start
 
-> See [Prerequisites](#prerequisites) for Windows/PowerShell instructions 
+**Option 1: Using setup scripts (Cross-platform)**
+```bash
+# 1. Clone the repository
+git clone <repo-url>
+cd tsgbuilder
 
+# 2. Run the setup script for your platform
+# Windows PowerShell: .\setup.ps1
+# Windows CMD: setup.bat
+# macOS/Linux: ./setup.sh
+
+# 3. Start the Web UI
+make ui
+# Open http://localhost:5000 in your browser
+```
+
+**Option 2: Using Make**
 ```bash
 # 1. Clone and setup
 git clone <repo-url>
@@ -52,6 +67,8 @@ make setup
 make ui
 # Open http://localhost:5000 in your browser
 ```
+
+> See [Prerequisites](#prerequisites) for Windows/PowerShell Make installation instructions if needed.
 
 The web UI will automatically open the setup wizard if configuration is needed. The setup wizard guides you through:
 1. **Configure** — Enter your Azure AI Foundry settings
@@ -125,6 +142,33 @@ Images are sent to the AI agent for visual analysis, which is especially useful 
 
 ## Installation
 
+### Option 1: Using Setup Scripts (Easiest)
+
+Cross-platform setup scripts are provided for quick installation:
+
+**Windows (PowerShell):**
+```powershell
+.\setup.ps1
+```
+
+**Windows (Command Prompt):**
+```cmd
+setup.bat
+```
+
+**macOS/Linux:**
+```bash
+./setup.sh
+```
+
+These scripts will:
+- Create a virtual environment (`.venv/`)
+- Install dependencies
+- Copy `.env-sample` to `.env`
+- Provide helpful next steps
+
+### Option 2: Using Make
+
 ```bash
 make setup
 ```
@@ -134,6 +178,19 @@ This will:
 - Install dependencies
 - Copy `.env-sample` to `.env`
 
+### Option 3: Manual Setup
+
+```bash
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Create .env file
+cp .env-sample .env
+```
 ## Configuration
 
 Run `make ui` and open http://localhost:5000
@@ -180,13 +237,21 @@ Run `make ui` and open http://localhost:5000
 
 TSG Builder uses a **three-stage pipeline**: Research → Write → Review.
 
-```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  RESEARCH   │───▶│    WRITE    │───▶│   REVIEW    │───▶│   OUTPUT    │
-│  🔍         │    │   ✏️         │    │   🔎        │    │   ✅        │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
-  Uses tools        No tools           Validates          Final TSG
-  (Bing, MCP)       Just writes        & fact-checks
+```mermaid
+graph LR
+    A[🔍 RESEARCH] --> B[✏️ WRITE]
+    B --> C[🔎 REVIEW]
+    C --> D[✅ OUTPUT]
+
+    A1[Uses tools<br/>Bing, MCP] -.-> A
+    B1[No tools<br/>Just writes] -.-> B
+    C1[Validates &<br/>fact-checks] -.-> C
+    D1[Final TSG] -.-> D
+
+    style A fill:#e1f5ff
+    style B fill:#fff4e1
+    style C fill:#ffe1f5
+    style D fill:#e1ffe1
 ```
 
 1. **Research** — Searches Microsoft Learn and Bing for documentation, GitHub issues, and community solutions

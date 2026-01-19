@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.blog)",
+      "WebFetch(domain:docs.github.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(make check-gh:*)",
+      "Bash(python:*)",
+      "Bash(.venvScriptspython.exe quick_test.py)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(python3:*)",
+      "Bash(dir \"C:\\\\Users\\\\almiller\\\\dev\\\\tsgbuilder\\\\.venv\")",
+      "Bash(git add:*)",
+      "Bash(git stash:*)"
+    ]
+  }
+}
