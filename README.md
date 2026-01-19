@@ -36,6 +36,23 @@ Source template: [TSG-Template.md - ADO](https://dev.azure.com/Supportability/Az
 
 ## Quick Start
 
+**Option 1: Using setup scripts (Cross-platform)**
+```bash
+# 1. Clone the repository
+git clone <repo-url>
+cd tsgbuilder
+
+# 2. Run the setup script for your platform
+# Windows PowerShell: .\setup.ps1
+# Windows CMD: setup.bat
+# macOS/Linux: ./setup.sh
+
+# 3. Start the Web UI
+make ui
+# Open http://localhost:5000 in your browser
+```
+
+**Option 2: Using Make**
 ```bash
 # 1. Clone and setup
 git clone <repo-url>
@@ -109,7 +126,32 @@ Images are sent to the AI agent for visual analysis, which is especially useful 
 
 ## Installation
 
-### Option 1: Using Make (Recommended)
+### Option 1: Using Setup Scripts (Easiest)
+
+Cross-platform setup scripts are provided for quick installation:
+
+**Windows (PowerShell):**
+```powershell
+.\setup.ps1
+```
+
+**Windows (Command Prompt):**
+```cmd
+setup.bat
+```
+
+**macOS/Linux:**
+```bash
+./setup.sh
+```
+
+These scripts will:
+- Create a virtual environment (`.venv/`)
+- Install dependencies
+- Copy `.env-sample` to `.env`
+- Provide helpful next steps
+
+### Option 2: Using Make
 
 ```bash
 make setup
@@ -120,7 +162,7 @@ This will:
 - Install dependencies
 - Copy `.env-sample` to `.env`
 
-### Option 2: Manual Setup
+### Option 3: Manual Setup
 
 ```bash
 # Create virtual environment
@@ -181,13 +223,21 @@ cp .env-sample .env
 
 TSG Builder uses a **three-stage pipeline** for improved accuracy and reliability:
 
-```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  RESEARCH   │───▶│    WRITE    │───▶│   REVIEW    │───▶│   OUTPUT    │
-│  🔍         │    │   ✏️         │    │   🔎        │    │   ✅        │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
-  Uses tools        No tools           Validates          Final TSG
-  (Bing, MCP)       Just writes        & fact-checks
+```mermaid
+graph LR
+    A[🔍 RESEARCH] --> B[✏️ WRITE]
+    B --> C[🔎 REVIEW]
+    C --> D[✅ OUTPUT]
+
+    A1[Uses tools<br/>Bing, MCP] -.-> A
+    B1[No tools<br/>Just writes] -.-> B
+    C1[Validates &<br/>fact-checks] -.-> C
+    D1[Final TSG] -.-> D
+
+    style A fill:#e1f5ff
+    style B fill:#fff4e1
+    style C fill:#ffe1f5
+    style D fill:#e1ffe1
 ```
 
 #### Stage 1: Research
@@ -278,46 +328,57 @@ If information is missing, the agent:
 
 ### Multi-Stage Pipeline Architecture
 
-```
-┌─────────────────┐     
-│  Raw Notes      │     
-│  (input.txt)    │     
-└────────┬────────┘     
-         │
-         ▼
-┌────────────────────────────────────────────────────────────────────┐
-│                    TSG PIPELINE                                    │
-│  ┌──────────────────────────────────────────────────────────────┐ │
-│  │  Stage 1: RESEARCH (has tools)                               │ │
-│  │  - Microsoft Learn MCP → official docs, APIs, limits         │ │
-│  │  - Bing Search → GitHub issues, community solutions          │ │
-│  │  → Output: Structured research report with URLs              │ │
-│  └──────────────────────────────────────────────────────────────┘ │
-│                              │                                     │
-│                              ▼                                     │
-│  ┌──────────────────────────────────────────────────────────────┐ │
-│  │  Stage 2: WRITE (no tools)                                   │ │
-│  │  - Uses ONLY notes + research report                         │ │
-│  │  - Follows TSG template exactly                              │ │
-│  │  → Output: Draft TSG + {{MISSING::...}} placeholders         │ │
-│  └──────────────────────────────────────────────────────────────┘ │
-│                              │                                     │
-│                              ▼                                     │
-│  ┌──────────────────────────────────────────────────────────────┐ │
-│  │  Stage 3: REVIEW (no tools)                                  │ │
-│  │  - Structure validation (headings, markers)                  │ │
-│  │  - Fact-check against research (soft warnings)               │ │
-│  │  - Auto-fix simple issues, retry if needed                   │ │
-│  │  → Output: Validated TSG + review notes                      │ │
-│  └──────────────────────────────────────────────────────────────┘ │
-└────────────────────────────────────────────────────────────────────┘
-         │
-         ▼
-┌──────────────────────────────────────────┐
-│  Structured TSG (markdown)               │
-│  + Follow-up Questions OR NO_MISSING     │
-│  + Review warnings (if any)              │
-└──────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    Input[📝 Raw Notes<br/>input.txt]
+
+    subgraph Pipeline[TSG PIPELINE]
+        direction TB
+
+        subgraph Stage1[Stage 1: RESEARCH]
+            direction LR
+            R1[Microsoft Learn MCP]
+            R2[Bing Search]
+            R1 --> ROut[Structured research<br/>report with URLs]
+            R2 --> ROut
+        end
+
+        subgraph Stage2[Stage 2: WRITE]
+            direction TB
+            W1[Uses ONLY<br/>notes + research]
+            W2[Follows TSG<br/>template exactly]
+            W1 --> WOut[Draft TSG +<br/>MISSING placeholders]
+            W2 --> WOut
+        end
+
+        subgraph Stage3[Stage 3: REVIEW]
+            direction TB
+            V1[Structure validation]
+            V2[Fact-check vs research]
+            V3[Auto-fix & retry]
+            V1 --> VOut[Validated TSG +<br/>review notes]
+            V2 --> VOut
+            V3 --> VOut
+        end
+
+        Stage1 --> Stage2
+        Stage2 --> Stage3
+    end
+
+    Output[📄 Structured TSG<br/>+ Follow-up Questions<br/>+ Review warnings]
+
+    Input --> Pipeline
+    Pipeline --> Output
+
+    Note1[✅ Has tool access] -.-> Stage1
+    Note2[⛔ No tool access] -.-> Stage2
+    Note3[⛔ No tool access] -.-> Stage3
+
+    style Stage1 fill:#e1f5ff
+    style Stage2 fill:#fff4e1
+    style Stage3 fill:#ffe1f5
+    style Input fill:#f0f0f0
+    style Output fill:#e1ffe1
 ```
 
 ## Files
