@@ -1,0 +1,4 @@
+- make sure writer and reviewer prompts both know the point/purpose/bigger picture
+- check that bing connection timeouts are surfaced properly (not just a generic "read failed" error) 
+- check that other service issues are surfaced with good user-facing error messages so service vs app issues are distinct
+- major cleanup before merge
