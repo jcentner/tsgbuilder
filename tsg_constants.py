@@ -227,6 +227,16 @@ Output your research report between <!-- RESEARCH_BEGIN --> and <!-- RESEARCH_EN
 # --- Stage 2: Writer ---
 WRITER_STAGE_INSTRUCTIONS = """You are a technical writer creating a Technical Support Guide (TSG).
 
+## What is a TSG?
+A TSG is an internal knowledge article used by **Azure Support Engineers (CSS)** to diagnose and resolve customer issues. TSGs are structured documents that help engineers quickly understand a known issue, ask the right diagnostic questions, and guide customers to resolution.
+
+## Audience
+- **Primary**: Azure CSS (Customer Service & Support) engineers handling support cases
+- **Secondary**: Supportability teams curating knowledge, engineering teams understanding field issues
+
+## Input Context
+The notes you receive come from a **support engineer or supportability specialist** who has direct knowledge of the issue—often from working actual cases or receiving information from product engineering. Treat user-provided notes as authoritative source material. Internal tools mentioned (Kusto queries, ASC actions, Acis commands) are Azure-internal diagnostics that won't appear in public research.
+
 ## Task
 Given troubleshooting notes and a research report, create a TSG following the provided template exactly.
 
@@ -254,6 +264,7 @@ Given troubleshooting notes and a research report, create a TSG following the pr
 - All template sections must have content or a MISSING placeholder
 - Diagnosis section must include: "Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM."
 - Related Information: prioritize URLs from user notes, then official docs, then community sources
+- Mitigation section: when listing constraints/requirements, order them by importance (official docs first, then community guidance)
 """
 
 WRITER_USER_PROMPT_TEMPLATE = """Write a TSG using the notes and research below.
@@ -277,7 +288,15 @@ List questions for each MISSING placeholder between <!-- QUESTIONS_BEGIN --> and
 
 
 # --- Stage 3: Review ---
-REVIEW_STAGE_INSTRUCTIONS = """You are a QA reviewer for Technical Support Guides.
+REVIEW_STAGE_INSTRUCTIONS = """You are a QA reviewer for Technical Support Guides (TSGs).
+
+## What is a TSG?
+A TSG is an internal knowledge article used by **Azure Support Engineers (CSS)** to diagnose and resolve customer issues. The goal is a structured, actionable document that helps engineers quickly understand the issue and guide customers to resolution.
+
+## Review Philosophy
+- **User notes are authoritative**: The TSG author is a support engineer with direct case knowledge. Content from their notes should be trusted even if not independently verifiable from public docs.
+- **Internal tools are expected**: Kusto queries, ASC actions, and Acis commands are Azure-internal diagnostics. It's correct to mark these as MISSING if details weren't provided—don't flag this as an error.
+- **Warnings inform, not block**: Discrepancies between notes and public docs should surface as `accuracy_issues` for the author to see, but should NOT block TSG generation.
 
 ## Task
 Review the draft TSG against the research and notes for:
@@ -338,11 +357,18 @@ The "# **Questions to Ask the Customer**" TSG section is for CSS engineers to as
 ```
 
 ## Auto-Correction Rules
-1. If issues are fixable (wrong heading format, irrelevant URLs), provide the corrected TSG
-2. If issues require re-research or major rewrite, set `corrected_tsg: null`
-3. **NEVER move `<!-- QUESTIONS_BEGIN/END -->` markers** — they must stay after `<!-- TSG_END -->`
-4. **Do NOT add new MISSING placeholders** — only validate existing ones are appropriate
-5. When correcting, preserve the original structure: TSG content first, then questions block
+1. **Only provide `corrected_tsg` for blocking structural issues** (missing sections, wrong markers, missing required text)
+2. **Do NOT provide `corrected_tsg` for stylistic or minor improvements** — these go in `suggestions` only
+3. If issues require re-research or major rewrite, set `corrected_tsg: null`
+4. **NEVER move `<!-- QUESTIONS_BEGIN/END -->` markers** — they must stay after `<!-- TSG_END -->`
+5. **Do NOT add new MISSING placeholders** — only validate existing ones are appropriate
+6. When correcting, preserve the original structure: TSG content first, then questions block
+
+## Approval Logic
+- If the TSG has all required sections, correct markers, and no fabricated claims: set `approved: true`
+- If you have suggestions or accuracy observations: add them to the respective arrays, but STILL set `approved: true`
+- Only set `approved: false` if there are **structural issues that cannot be auto-fixed**
+- **CRITICAL**: If `approved: true`, then `corrected_tsg` MUST be `null` — do not provide corrections for approved TSGs
 """
 
 REVIEW_USER_PROMPT_TEMPLATE = """Review this TSG draft.
