@@ -608,12 +608,16 @@ def generate_pipeline_sse_events(
     
     def run_pipeline_thread():
         try:
+            # Get session data for follow-ups
+            session_data = sessions.get(thread_id, {}) if thread_id else {}
+            
             result = run_pipeline(
                 notes=notes,
                 images=images,
                 event_queue=event_queue,
                 thread_id=thread_id,
-                prior_tsg=sessions.get(thread_id, {}).get("current_tsg") if thread_id else None,
+                prior_tsg=session_data.get("current_tsg"),
+                prior_research=session_data.get("research_report"),  # Reuse research for follow-ups
                 user_answers=answers,
                 test_mode=TEST_MODE,
                 cancel_event=cancel_event,

@@ -699,12 +699,25 @@ class TSGPipeline:
                     timing_context,
                 )
                 
-                # Capture conversation ID from response if not already set
+                # Capture conversation ID or response ID for session persistence
+                # The v2 API uses either:
+                # 1. conversation_id (if a conversation was explicitly created)
+                # 2. response.id (if no conversation was created, the response ID can be used to continue)
                 if not conversation_id and event_type == "response.created":
                     if hasattr(event, 'response'):
+                        # Try conversation_id first (explicit conversation)
                         conv_id = getattr(event.response, 'conversation_id', None)
                         if conv_id:
                             conversation_id = conv_id
+                            if verbose:
+                                verbose_log(f"[{stage.value}] Captured conversation_id: {conv_id}")
+                        else:
+                            # Fall back to response.id for stateful continuation
+                            resp_id = getattr(event.response, 'id', None)
+                            if resp_id:
+                                conversation_id = resp_id
+                                if verbose:
+                                    verbose_log(f"[{stage.value}] Captured response.id as session ID: {resp_id}")
             
             if verbose:
                 verbose_log(f"[{stage.value}] ✅ Stream complete: {event_count} events")
@@ -1203,6 +1216,7 @@ def run_pipeline(
         test_data = {
             "timestamp": timestamp,
             "success": result.success,
+            "thread_id": result.thread_id,  # Include for debugging session issues
             "input_notes": notes,
             "stages_completed": [s.value for s in result.stages_completed],
             "stage_outputs": result.stage_outputs,
