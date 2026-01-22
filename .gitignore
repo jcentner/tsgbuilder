@@ -17,6 +17,9 @@ output.md
 test_output*
 *.bak
 
+# Verbose logs
+logs/
+
 # IDE
 .vscode/
 .idea/

@@ -12,7 +12,9 @@ import queue
 import time
 import threading
 import httpx
+import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -43,6 +45,81 @@ from tsg_constants import (
 )
 
 
+# =============================================================================
+# VERBOSE LOGGING SETUP
+# =============================================================================
+# When PIPELINE_VERBOSE=1, logs go to both console and a file with incrementing
+# numbers (logs/pipeline_001.log, logs/pipeline_002.log, etc.)
+# =============================================================================
+
+_verbose_logger: logging.Logger | None = None
+
+
+def _get_verbose_logger() -> logging.Logger | None:
+    """Get or create the verbose logger (only if PIPELINE_VERBOSE is enabled)."""
+    global _verbose_logger
+    
+    if _verbose_logger is not None:
+        return _verbose_logger
+    
+    verbose = os.getenv("PIPELINE_VERBOSE", "").lower() in ("1", "true", "yes")
+    if not verbose:
+        return None
+    
+    # Create logs directory
+    logs_dir = Path("logs")
+    logs_dir.mkdir(exist_ok=True)
+    
+    # Find next available log number
+    existing_logs = list(logs_dir.glob("pipeline_*.log"))
+    if existing_logs:
+        numbers = []
+        for log_file in existing_logs:
+            try:
+                num = int(log_file.stem.split("_")[1])
+                numbers.append(num)
+            except (IndexError, ValueError):
+                pass
+        next_num = max(numbers) + 1 if numbers else 1
+    else:
+        next_num = 1
+    
+    log_file = logs_dir / f"pipeline_{next_num:03d}.log"
+    
+    # Create logger
+    logger = logging.getLogger("pipeline_verbose")
+    logger.setLevel(logging.DEBUG)
+    logger.handlers.clear()  # Clear any existing handlers
+    
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+    console_format = logging.Formatter("[VERBOSE] %(message)s")
+    console_handler.setFormatter(console_format)
+    logger.addHandler(console_handler)
+    
+    # File handler
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_format = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+    file_handler.setFormatter(file_format)
+    logger.addHandler(file_handler)
+    
+    # Log startup info
+    logger.info(f"Pipeline verbose logging started - {datetime.now().isoformat()}")
+    logger.info(f"Log file: {log_file}")
+    
+    _verbose_logger = logger
+    return logger
+
+
+def verbose_log(message: str) -> None:
+    """Log a message if verbose mode is enabled (to both console and file)."""
+    logger = _get_verbose_logger()
+    if logger:
+        logger.debug(message)
+
+
 class CancelledError(Exception):
     """Raised when a pipeline run is cancelled by the user."""
     pass
@@ -57,7 +134,22 @@ class ToolTimeoutError(Exception):
         super().__init__(f"Tool '{tool_name}' timed out after {elapsed:.0f}s (limit: {timeout}s)")
 
 
-# Tool-level timeout: 2 min max for any single tool call (Bing expected: <30s)
+# =============================================================================
+# TIMEOUT CONFIGURATION
+# =============================================================================
+# These values balance reliability with responsiveness:
+#
+# Normal agent completion: 30-60 seconds
+# Slow but valid completion: 120+ seconds (should NOT timeout)
+# Bing tool call expected: <30 seconds
+# Truly stuck operation: Should timeout and retry
+#
+# The HTTP client has generous timeouts to avoid false "peer closed connection"
+# errors. Tool-level hang detection catches stuck Bing/MCP calls separately.
+# =============================================================================
+
+# Tool-level timeout: max time for any single tool call (Bing, MCP, etc.)
+# Set to 2 min because Bing is expected to complete in <30s
 TOOL_CALL_TIMEOUT = 120
 
 
@@ -166,6 +258,61 @@ class PipelineResult:
     stage_outputs: dict = field(default_factory=dict)
 
 
+def _send_classified_error(send_event, stage_name: str, error_text: str) -> None:
+    """
+    Send a classified error event to the UI with user-friendly messaging.
+    
+    Uses the same classification logic as classify_error() but for string errors
+    (used in streaming event processing where we don't have Exception objects).
+    """
+    error_lower = error_text.lower()
+    
+    # Rate limit detection
+    is_rate_limit = any(x in error_lower for x in ['429', 'rate limit', 'too many requests'])
+    
+    # Timeout detection
+    is_timeout = any(x in error_lower for x in [
+        'timeout', 'timed out', 'peer closed', 'incomplete chunked', 'connection', 'httpx'
+    ])
+    
+    # Tool-specific errors
+    is_mcp = 'mcp' in error_lower or 'learn.microsoft.com' in error_lower
+    is_bing = 'bing' in error_lower
+    
+    # Generate user-friendly message and choose icon
+    if is_rate_limit:
+        if is_mcp:
+            message = f"{stage_name}: Microsoft Learn rate limited. Will retry..."
+        else:
+            message = f"{stage_name}: Rate limited. Will retry..."
+        icon = "⏳"
+        error_type = "rate_limit"
+    elif is_timeout:
+        message = f"{stage_name} timed out. Will retry..."
+        icon = "⚠️"
+        error_type = "timeout"
+    elif is_mcp:
+        message = f"{stage_name}: Microsoft Learn error. Will retry..."
+        icon = "⚠️"
+        error_type = "mcp_error"
+    elif is_bing:
+        message = f"{stage_name}: Bing search error. Will retry..."
+        icon = "⚠️"
+        error_type = "tool_error"
+    else:
+        # Truncate raw error for display
+        truncated = error_text[:100] + "..." if len(error_text) > 100 else error_text
+        message = f"{stage_name} error: {truncated}"
+        icon = "❌"
+        error_type = "unknown"
+    
+    send_event("error", {
+        "message": f"{icon} {message}",
+        "icon": icon,
+        "error_type": error_type,
+    })
+
+
 def process_pipeline_v2_stream(
     event,
     event_queue: queue.Queue | None,
@@ -195,7 +342,7 @@ def process_pipeline_v2_stream(
         elapsed = 0.0
         if timing_context and 'stage_start' in timing_context:
             elapsed = time.time() - timing_context['stage_start']
-        print(f"[VERBOSE][{stage_name}][{elapsed:6.1f}s] {event_type}")
+        verbose_log(f"[{stage_name}][{elapsed:6.1f}s] {event_type}")
     
     # Stage-specific icons
     stage_icons = {
@@ -252,7 +399,7 @@ def process_pipeline_v2_stream(
             
             # Debug: log all output_item.added events
             if verbose:
-                print(f"[VERBOSE][{stage_name}] output_item.added: type={item_type}, item={item}")
+                verbose_log(f"[{stage_name}] output_item.added: type={item_type}, item={item}")
             
             # Track tool start time and name (include bing_grounding_call which is the actual Bing tool type)
             if timing_context is not None and item_type in ('mcp_call', 'web_search_call', 'bing_grounding_call', 'function_call'):
@@ -367,60 +514,10 @@ def process_pipeline_v2_stream(
             
             # Check for tool errors in the item
             if hasattr(item, 'error') and item.error:
-                error_text = str(item.error)
-                # Provide user-friendly messages for common errors
-                if '429' in error_text or 'Too Many Requests' in error_text:
-                    if 'mcp' in error_text.lower() or 'learn.microsoft.com' in error_text.lower():
-                        send_event("error", {
-                            "message": f"⏳ Microsoft Learn rate limited (429) - will retry",
-                            "icon": "⏳",
-                            "error_type": "rate_limit",
-                        })
-                    else:
-                        send_event("error", {
-                            "message": f"⏳ Rate limited (429) - will retry",
-                            "icon": "⏳",
-                            "error_type": "rate_limit",
-                        })
-                elif 'mcp' in error_text.lower() or 'learn.microsoft.com' in error_text.lower():
-                    send_event("error", {
-                        "message": f"⚠️ Microsoft Learn error: {error_text[:150]}",
-                        "icon": "⚠️",
-                        "error_type": "mcp_error",
-                    })
-                elif any(x in error_text.lower() for x in ['timeout', 'timed out', 'connection', 'httpx']):
-                    send_event("error", {
-                        "message": f"⚠️ Tool timeout - will retry: {error_text[:100]}",
-                        "icon": "⚠️",
-                        "error_type": "timeout",
-                    })
-                else:
-                    send_event("error", {
-                        "message": f"⚠️ Tool error: {item.error}",
-                        "icon": "⚠️",
-                        "error_type": "tool_error",
-                    })
+                _send_classified_error(send_event, stage_name, str(item.error))
             if hasattr(item, 'status') and item.status == 'failed':
                 error_detail = str(getattr(item, 'error', 'unknown'))
-                # Same user-friendly handling for failed status
-                if '429' in error_detail or 'Too Many Requests' in error_detail:
-                    send_event("error", {
-                        "message": f"⏳ Tool rate limited - will retry",
-                        "icon": "⏳",
-                        "error_type": "rate_limit",
-                    })
-                elif any(x in error_detail.lower() for x in ['timeout', 'timed out', 'connection', 'httpx']):
-                    send_event("error", {
-                        "message": f"⚠️ Tool timeout - will retry: {error_detail[:100]}",
-                        "icon": "⚠️",
-                        "error_type": "timeout",
-                    })
-                else:
-                    send_event("error", {
-                        "message": f"⚠️ Tool failed: {error_detail[:150]}",
-                        "icon": "⚠️",
-                        "error_type": "tool_error",
-                    })
+                _send_classified_error(send_event, stage_name, error_detail)
     
     elif event_type == "response.completed":
         send_event("status", {
@@ -438,64 +535,16 @@ def process_pipeline_v2_stream(
         error_msg = "Unknown error"
         if hasattr(event, 'response') and hasattr(event.response, 'error'):
             error_msg = str(event.response.error)
-        # Categorize the error for UI handling
-        error_lower = error_msg.lower()
-        if any(x in error_lower for x in ['timeout', 'timed out', 'connection', 'httpx']):
-            send_event("error", {
-                "message": f"⚠️ {stage_name} timeout - will retry: {error_msg[:100]}",
-                "icon": "⚠️",
-                "error_type": "timeout",
-            })
-        elif '429' in error_msg or 'rate limit' in error_lower:
-            send_event("error", {
-                "message": f"⏳ {stage_name} rate limited - will retry",
-                "icon": "⏳",
-                "error_type": "rate_limit",
-            })
-        else:
-            send_event("error", {
-                "message": f"❌ {stage_name} failed: {error_msg}",
-                "icon": "❌",
-            })
+        _send_classified_error(send_event, stage_name, error_msg)
     
     elif event_type == "error":
         # Handle error events that may occur during tool processing
         error_msg = getattr(event, 'message', None) or getattr(event, 'error', None) or str(event)
-        # Categorize the error for UI handling
-        error_lower = str(error_msg).lower()
-        if any(x in error_lower for x in ['timeout', 'timed out', 'connection', 'httpx']):
-            send_event("error", {
-                "message": f"⚠️ {stage_name} timeout - will retry: {str(error_msg)[:100]}",
-                "icon": "⚠️",
-                "error_type": "timeout",
-            })
-        elif '429' in str(error_msg) or 'rate limit' in error_lower:
-            send_event("error", {
-                "message": f"⏳ {stage_name} rate limited - will retry",
-                "icon": "⏳",
-                "error_type": "rate_limit",
-            })
-        else:
-            send_event("error", {
-                "message": f"❌ {stage_name} error: {error_msg}",
-                "icon": "❌",
-            })
+        _send_classified_error(send_event, stage_name, str(error_msg))
     
     elif event_type and event_type.startswith("error"):
-        # Catch any other error-type events - treat as potentially retryable
-        error_str = str(event)
-        error_lower = error_str.lower()
-        if any(x in error_lower for x in ['timeout', 'timed out', 'connection', 'httpx']):
-            send_event("error", {
-                "message": f"⚠️ {stage_name}: {event_type} - timeout, will retry",
-                "icon": "⚠️",
-                "error_type": "timeout",
-            })
-        else:
-            send_event("error", {
-                "message": f"❌ {stage_name}: {event_type} - {event}",
-                "icon": "❌",
-            })
+        # Catch any other error-type events
+        _send_classified_error(send_event, stage_name, str(event))
 
 
 class TSGPipeline:
@@ -510,8 +559,18 @@ class TSGPipeline:
     Agents are created once during setup and reused across runs.
     """
     
-    MAX_RETRIES = 2
-    RESEARCH_MAX_RETRIES = 3  # Extra retries for research stage due to tool timeouts and rate limits
+    # Per-stage retry configuration
+    STAGE_MAX_RETRIES = {
+        PipelineStage.RESEARCH: 3,  # More retries due to tool flakiness (Bing, MCP)
+        PipelineStage.WRITE: 2,
+        PipelineStage.REVIEW: 2,
+    }
+    
+    # Rate limit backoff: base seconds, multiplied by attempt number (30s, 60s, 90s)
+    RATE_LIMIT_BACKOFF_BASE = 30
+    
+    # Review stage structure validation retries (separate from transient failure retries)
+    REVIEW_STRUCTURE_MAX_RETRIES = 2
     
     def __init__(
         self,
@@ -624,10 +683,10 @@ class TSGPipeline:
                 
                 # Log when we've been waiting a long time for an event
                 if verbose and wait_time > 5:
-                    print(f"[VERBOSE][{stage.value}] ⚠️ Long wait: {wait_time:.1f}s after event #{event_count-1} ({last_event_type})")
+                    verbose_log(f"[{stage.value}] ⚠️ Long wait: {wait_time:.1f}s after event #{event_count-1} ({last_event_type})")
                 
                 if verbose:
-                    print(f"[VERBOSE][{stage.value}] Event #{event_count}: {event_type} (waited {wait_time:.1f}s)")
+                    verbose_log(f"[{stage.value}] Event #{event_count}: {event_type} (waited {wait_time:.1f}s)")
                 
                 last_event_time = now
                 last_event_type = event_type
@@ -648,7 +707,7 @@ class TSGPipeline:
                             conversation_id = conv_id
             
             if verbose:
-                print(f"[VERBOSE][{stage.value}] ✅ Stream complete: {event_count} events")
+                verbose_log(f"[{stage.value}] ✅ Stream complete: {event_count} events")
             
             return "".join(response_text_parts), conversation_id or ""
             
@@ -656,6 +715,89 @@ class TSGPipeline:
             # Don't send error event here - let the caller's retry logic decide
             # whether this is a retryable error or a fatal error
             raise RuntimeError(f"Stage {stage.value} failed: {e}") from e
+    
+    def _run_stage_with_retry(
+        self,
+        project: AIProjectClient,
+        openai_client,
+        agent_name: str,
+        stage: PipelineStage,
+        prompt: str,
+        conversation_id: str | None = None,
+    ) -> tuple[str, str]:
+        """
+        Run a stage with automatic retry on transient failures.
+        
+        Uses classify_error() for consistent error handling across all stages.
+        
+        Args:
+            project: AIProjectClient instance
+            openai_client: OpenAI client
+            agent_name: Name of the agent to run
+            stage: Current pipeline stage
+            prompt: User prompt for this stage
+            conversation_id: Optional existing conversation ID
+        
+        Returns: (response_text, conversation_id)
+        
+        Raises:
+            CancelledError: If the run was cancelled
+            RuntimeError: If all retries are exhausted
+        """
+        max_retries = self.STAGE_MAX_RETRIES.get(stage, 2)
+        last_error: Exception | None = None
+        
+        for attempt in range(max_retries + 1):
+            self._check_cancelled()
+            
+            try:
+                if attempt > 0:
+                    self._send_stage_event(stage, "status", {
+                        "message": f"🔄 {stage.value.capitalize()}: Retrying (attempt {attempt + 1}/{max_retries + 1})...",
+                        "icon": "🔄",
+                    })
+                
+                return self._run_stage(
+                    project, openai_client, agent_name, stage, prompt, conversation_id
+                )
+                
+            except CancelledError:
+                raise  # Don't retry cancellations
+                
+            except Exception as e:
+                last_error = e
+                classification = classify_error(e, stage)
+                
+                if classification.is_retryable and attempt < max_retries:
+                    # Send user-friendly status message
+                    self._send_stage_event(stage, "status", {
+                        "message": f"⚠️ {classification.user_message}",
+                        "icon": "⏳" if classification.is_rate_limit else "⚠️",
+                    })
+                    
+                    # Rate limit backoff
+                    if classification.is_rate_limit:
+                        wait_time = self.RATE_LIMIT_BACKOFF_BASE * (attempt + 1)
+                        self._send_stage_event(stage, "status", {
+                            "message": f"⏳ {stage.value.capitalize()}: Waiting {wait_time}s before retry...",
+                            "icon": "⏳",
+                        })
+                        time.sleep(wait_time)
+                    
+                    continue
+                
+                # Final failure - send user-friendly error
+                self._send_stage_event(stage, "error", {
+                    "message": f"❌ {classification.user_message.replace('Retrying...', 'All retries exhausted.')}",
+                    "icon": "❌",
+                    "fatal": True,
+                })
+                raise
+        
+        # Should not reach here, but just in case
+        if last_error:
+            raise last_error
+        raise RuntimeError(f"Stage {stage.value} failed unexpectedly")
     
     def run(
         self,
@@ -686,9 +828,8 @@ class TSGPipeline:
         # Debug: log when pipeline run starts
         verbose = os.getenv("PIPELINE_VERBOSE", "").lower() in ("1", "true", "yes")
         if verbose:
-            import threading
-            print(f"[VERBOSE] Pipeline.run() starting on thread {threading.current_thread().name}")
-            print(f"[VERBOSE]   Notes length: {len(notes)}, Has images: {bool(images)}")
+            verbose_log(f"Pipeline.run() starting on thread {threading.current_thread().name}")
+            verbose_log(f"  Notes length: {len(notes)}, Has images: {bool(images)}")
         
         try:
             # Check for cancellation before starting
@@ -699,13 +840,13 @@ class TSGPipeline:
                 openai_client = project.get_openai_client()
                 
                 if verbose:
-                    print(f"[VERBOSE]   OpenAI client created: {id(openai_client)}")
+                    verbose_log(f"  OpenAI client created: {id(openai_client)}")
                     # Log HTTP client details
                     if hasattr(openai_client, '_client'):
                         client = openai_client._client
-                        print(f"[VERBOSE]   httpx client: {type(client).__name__}, id={id(client)}")
+                        verbose_log(f"  httpx client: {type(client).__name__}, id={id(client)}")
                         if hasattr(client, '_transport'):
-                            print(f"[VERBOSE]   transport: {type(client._transport).__name__}")
+                            verbose_log(f"  transport: {type(client._transport).__name__}")
                 
                 # Timeout config:
                 #   - connect: 60s to establish connection
@@ -735,85 +876,14 @@ class TSGPipeline:
                         # Only do research on initial generation, not follow-ups
                         research_prompt = build_research_prompt(notes)
                         
-                        # Research stage has its own retry loop due to frequent Bing timeouts
-                        research_response = ""
-                        research_conv_id = ""
-                        last_research_error = None
-                        
-                        for research_attempt in range(self.RESEARCH_MAX_RETRIES + 1):
-                            self._check_cancelled()  # Check before each retry attempt
-                            try:
-                                if research_attempt > 0:
-                                    self._send_stage_event(PipelineStage.RESEARCH, "status", {
-                                        "message": f"🔄 Research: Retrying after timeout (attempt {research_attempt + 1})...",
-                                        "icon": "🔄",
-                                    })
-                                
-                                research_response, research_conv_id = self._run_stage(
-                                    project,
-                                    openai_client,
-                                    self.researcher_agent_name,
-                                    PipelineStage.RESEARCH,
-                                    research_prompt,
-                                )
-                                last_research_error = None
-                                break  # Success, exit retry loop
-                                
-                            except Exception as e:
-                                last_research_error = e
-                                error_str = str(e).lower()
-                                
-                                # Categorize the error for appropriate handling
-                                is_rate_limit = any(x in error_str for x in ['429', 'rate limit', 'too many requests'])
-                                is_mcp_error = 'mcp' in error_str or 'learn.microsoft.com' in error_str
-                                is_timeout = any(x in error_str for x in ['timeout', 'timed out', 'connection', 'httpx'])
-                                is_retryable = is_rate_limit or is_timeout
-                                
-                                # Send user-friendly error status
-                                if is_rate_limit and is_mcp_error:
-                                    self._send_stage_event(PipelineStage.RESEARCH, "status", {
-                                        "message": f"⚠️ Research: Microsoft Learn rate limited (429), waiting to retry...",
-                                        "icon": "⏳",
-                                    })
-                                elif is_mcp_error:
-                                    self._send_stage_event(PipelineStage.RESEARCH, "status", {
-                                        "message": f"⚠️ Research: Microsoft Learn error, will retry...",
-                                        "icon": "⚠️",
-                                    })
-                                elif is_rate_limit:
-                                    self._send_stage_event(PipelineStage.RESEARCH, "status", {
-                                        "message": f"⚠️ Research: Rate limited (429), waiting to retry...",
-                                        "icon": "⏳",
-                                    })
-                                elif is_timeout:
-                                    self._send_stage_event(PipelineStage.RESEARCH, "status", {
-                                        "message": f"⚠️ Research: Tool call timed out, will retry...",
-                                        "icon": "⚠️",
-                                    })
-                                
-                                if is_retryable and research_attempt < self.RESEARCH_MAX_RETRIES:
-                                    # Backoff: wait longer for rate limits
-                                    if is_rate_limit:
-                                        import time as time_module
-                                        wait_time = 30 * (research_attempt + 1)  # 30s, 60s, 90s
-                                        self._send_stage_event(PipelineStage.RESEARCH, "status", {
-                                            "message": f"⏳ Research: Waiting {wait_time}s before retry...",
-                                            "icon": "⏳",
-                                        })
-                                        time_module.sleep(wait_time)
-                                    continue
-                                else:
-                                    # Non-retryable error or out of retries - send descriptive error
-                                    if is_mcp_error:
-                                        self._send_stage_event(PipelineStage.RESEARCH, "error", {
-                                            "message": f"❌ Microsoft Learn MCP error: {str(e)[:200]}",
-                                            "icon": "❌",
-                                            "fatal": True,  # Retries exhausted
-                                        })
-                                    raise
-                        
-                        if last_research_error:
-                            raise last_research_error
+                        # Use unified retry logic
+                        research_response, research_conv_id = self._run_stage_with_retry(
+                            project,
+                            openai_client,
+                            self.researcher_agent_name,
+                            PipelineStage.RESEARCH,
+                            research_prompt,
+                        )
                         
                         research_report = extract_research_block(research_response)
                         if not research_report:
@@ -860,7 +930,8 @@ class TSGPipeline:
                         user_answers=user_answers,
                     )
                     
-                    write_response, write_conv_id = self._run_stage(
+                    # Use unified retry logic
+                    write_response, write_conv_id = self._run_stage_with_retry(
                         project,
                         openai_client,
                         self.writer_agent_name,
@@ -894,7 +965,7 @@ class TSGPipeline:
                     review_result = None
                     review_response = None  # Track for test mode
                     
-                    for retry in range(self.MAX_RETRIES + 1):
+                    for retry in range(self.REVIEW_STRUCTURE_MAX_RETRIES + 1):
                         self._check_cancelled()  # Check before each review retry
                         result.retry_count = retry
                         
@@ -907,7 +978,8 @@ class TSGPipeline:
                                 notes=notes,
                             )
                             
-                            review_response, _ = self._run_stage(
+                            # Use retry logic for transient failures
+                            review_response, _ = self._run_stage_with_retry(
                                 project,
                                 openai_client,
                                 self.reviewer_agent_name,
@@ -931,7 +1003,7 @@ class TSGPipeline:
                                         "issues": review_result.get("accuracy_issues", []) + review_result.get("structure_issues", []),
                                     })
                                     # If this is the last retry, accept corrected TSG as final
-                                    if retry >= self.MAX_RETRIES:
+                                    if retry >= self.REVIEW_STRUCTURE_MAX_RETRIES:
                                         final_tsg = draft_tsg
                                         self._send_stage_event(PipelineStage.REVIEW, "status", {
                                             "message": "⚠️ Review: Accepted corrected TSG with warnings",
@@ -952,7 +1024,7 @@ class TSGPipeline:
                                 final_tsg = draft_tsg
                                 break
                         else:
-                            if retry < self.MAX_RETRIES:
+                            if retry < self.REVIEW_STRUCTURE_MAX_RETRIES:
                                 self._send_stage_event(PipelineStage.REVIEW, "status", {
                                     "message": f"🔧 Review: Fixing structure issues (attempt {retry + 1})...",
                                     "icon": "🔧",
@@ -981,7 +1053,8 @@ Please fix these issues and regenerate the TSG with correct format.
 {draft_tsg}
 </prior_tsg>
 """
-                                draft_tsg, _ = self._run_stage(
+                                # Use retry logic for transient failures
+                                draft_tsg, _ = self._run_stage_with_retry(
                                     project,
                                     openai_client,
                                     self.writer_agent_name,
@@ -1121,8 +1194,12 @@ def run_pipeline(
     
     # Write test output file if in test mode
     if test_mode and result.stage_outputs:
+        # Create logs directory if needed
+        logs_dir = Path("logs")
+        logs_dir.mkdir(exist_ok=True)
+        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        test_output_file = Path(f"test_output_{timestamp}.json")
+        test_output_file = logs_dir / f"test_output_{timestamp}.json"
         test_data = {
             "timestamp": timestamp,
             "success": result.success,

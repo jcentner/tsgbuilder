@@ -39,7 +39,7 @@ from tsg_constants import (
 )
 
 # Import pipeline for multi-stage generation
-from pipeline import run_pipeline, CancelledError
+from pipeline import run_pipeline, CancelledError, classify_error, PipelineStage
 
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
@@ -53,6 +53,36 @@ if TEST_MODE:
     print("🧪 Test mode enabled - stage outputs will be captured to test_output_*.json")
 
 app = Flask(__name__)
+
+
+def _get_user_friendly_error(error: Exception) -> str:
+    """
+    Convert a pipeline exception to a user-friendly error message.
+    
+    Uses classify_error() to generate consistent messaging.
+    Falls back to a generic message for unknown errors.
+    """
+    error_str = str(error).lower()
+    
+    # Try to detect which stage failed from the error message
+    if 'research' in error_str:
+        stage = PipelineStage.RESEARCH
+    elif 'write' in error_str:
+        stage = PipelineStage.WRITE
+    elif 'review' in error_str:
+        stage = PipelineStage.REVIEW
+    else:
+        stage = PipelineStage.FAILED
+    
+    classification = classify_error(error, stage)
+    
+    # For fatal errors (retries exhausted), make the message more final
+    message = classification.user_message
+    if 'Retrying' in message:
+        message = message.replace('Retrying...', 'Please try again.')
+        message = message.replace('Will retry...', 'Please try again.')
+    
+    return message
 
 # Store active sessions (thread_id -> session data)
 # Sessions are persisted to disk so they survive server restarts
@@ -593,9 +623,11 @@ def generate_pipeline_sse_events(
             result_holder["cancelled"] = True
             event_queue.put({"type": "cancelled", "data": {"message": "Run cancelled by user"}})
         except Exception as e:
-            result_holder["error"] = str(e)
-            # This is a fatal error (all retries exhausted), so no error_type = UI will reject
-            event_queue.put({"type": "error", "data": {"message": str(e), "fatal": True}})
+            # Generate user-friendly error message
+            user_message = _get_user_friendly_error(e)
+            result_holder["error"] = user_message
+            # Send user-friendly message to UI (fatal = all retries exhausted)
+            event_queue.put({"type": "error", "data": {"message": user_message, "fatal": True}})
         finally:
             event_queue.put(None)  # Signal end of events
     
@@ -838,7 +870,8 @@ def main():
     print(f"\n🚀 TSG Builder UI starting at http://localhost:{port}")
     print("Press Ctrl+C to stop\n")
     
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    # Listen on localhost only (not 0.0.0.0) for security
+    app.run(host="127.0.0.1", port=port, debug=debug)
 
 
 if __name__ == "__main__":
