@@ -48,6 +48,89 @@ class CancelledError(Exception):
     pass
 
 
+class ToolTimeoutError(Exception):
+    """Raised when a tool call exceeds the timeout threshold."""
+    def __init__(self, tool_name: str, elapsed: float, timeout: float):
+        self.tool_name = tool_name
+        self.elapsed = elapsed
+        self.timeout = timeout
+        super().__init__(f"Tool '{tool_name}' timed out after {elapsed:.0f}s (limit: {timeout}s)")
+
+
+# Tool-level timeout: 2 min max for any single tool call (Bing expected: <30s)
+TOOL_CALL_TIMEOUT = 120
+
+
+@dataclass
+class ErrorClassification:
+    """Classification of an error for retry logic and user messaging."""
+    is_retryable: bool
+    is_rate_limit: bool
+    is_timeout: bool
+    is_tool_error: bool
+    user_message: str  # Human-friendly message for UI
+    raw_error: str     # Original error for logging
+
+
+def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassification:
+    """
+    Classify an error for retry logic and user-friendly messaging.
+    
+    Centralizes all error categorization to avoid duplication across the pipeline.
+    """
+    error_str = str(error)
+    error_lower = error_str.lower()
+    stage_name = stage.value.capitalize()
+    
+    # Rate limit detection (429 errors)
+    is_rate_limit = any(x in error_lower for x in ['429', 'rate limit', 'too many requests'])
+    
+    # Timeout detection (includes "peer closed connection" which is often a timeout symptom)
+    is_timeout = (
+        isinstance(error, ToolTimeoutError) or
+        any(x in error_lower for x in [
+            'timeout', 'timed out', 'peer closed', 'incomplete chunked',
+            'connection', 'httpx'
+        ])
+    )
+    
+    # Tool-specific errors (MCP/Microsoft Learn or Bing)
+    is_tool_error = any(x in error_lower for x in ['mcp', 'bing', 'learn.microsoft.com'])
+    
+    # Determine if retryable
+    is_retryable = is_rate_limit or is_timeout or is_tool_error
+    
+    # Generate user-friendly message
+    if isinstance(error, ToolTimeoutError):
+        user_message = f"{stage_name}: {error.tool_name} timed out after {error.elapsed:.0f}s. Retrying..."
+    elif is_rate_limit:
+        if is_tool_error and 'mcp' in error_lower:
+            user_message = f"{stage_name}: Microsoft Learn rate limited. Waiting to retry..."
+        else:
+            user_message = f"{stage_name}: Rate limited. Waiting to retry..."
+    elif is_timeout:
+        user_message = f"{stage_name} agent timed out. Retrying..."
+    elif is_tool_error:
+        if 'mcp' in error_lower or 'learn.microsoft.com' in error_lower:
+            user_message = f"{stage_name}: Microsoft Learn error. Retrying..."
+        elif 'bing' in error_lower:
+            user_message = f"{stage_name}: Bing search error. Retrying..."
+        else:
+            user_message = f"{stage_name}: Tool error. Retrying..."
+    else:
+        # Non-retryable error - more descriptive message
+        user_message = f"{stage_name} failed unexpectedly. Please try again."
+    
+    return ErrorClassification(
+        is_retryable=is_retryable,
+        is_rate_limit=is_rate_limit,
+        is_timeout=is_timeout,
+        is_tool_error=is_tool_error,
+        user_message=user_message,
+        raw_error=error_str,
+    )
+
+
 class PipelineStage(Enum):
     """Pipeline stage identifiers."""
     RESEARCH = "research"
@@ -171,9 +254,16 @@ def process_pipeline_v2_stream(
             if verbose:
                 print(f"[VERBOSE][{stage_name}] output_item.added: type={item_type}, item={item}")
             
-            # Track tool start time (include bing_grounding_call which is the actual Bing tool type)
+            # Track tool start time and name (include bing_grounding_call which is the actual Bing tool type)
             if timing_context is not None and item_type in ('mcp_call', 'web_search_call', 'bing_grounding_call', 'function_call'):
                 timing_context['tool_start'] = time.time()
+                # Store tool name for timeout error messages
+                if item_type == 'mcp_call':
+                    timing_context['tool_name'] = getattr(item, 'name', None) or 'Microsoft Learn'
+                elif item_type in ('web_search_call', 'bing_grounding_call'):
+                    timing_context['tool_name'] = 'Bing Search'
+                else:
+                    timing_context['tool_name'] = getattr(item, 'name', 'tool')
             
             if item_type == "mcp_call":
                 # Try to get the MCP tool name from the item
@@ -227,12 +317,15 @@ def process_pipeline_v2_stream(
         if item and hasattr(item, 'type'):
             item_type = item.type
             
-            # Calculate tool elapsed time
+            # Calculate tool elapsed time and clear tool tracking
             tool_elapsed = ""
             if timing_context and 'tool_start' in timing_context:
                 elapsed_sec = time.time() - timing_context['tool_start']
                 tool_elapsed = f" ({elapsed_sec:.1f}s)"
                 timing_context['tool_end'] = time.time()  # Track when tool finished for model thinking time
+                # Clear tool tracking for next tool call
+                timing_context.pop('tool_start', None)
+                timing_context.pop('tool_name', None)
             
             if item_type == "mcp_call":
                 mcp_name = getattr(item, 'name', None) or "Microsoft Learn"
@@ -522,6 +615,13 @@ class TSGPipeline:
                 wait_time = now - last_event_time
                 event_type = getattr(event, 'type', None)
                 
+                # Check for tool timeout (tool started but not finished within threshold)
+                if 'tool_start' in timing_context and 'tool_end' not in timing_context:
+                    tool_elapsed = now - timing_context['tool_start']
+                    if tool_elapsed > TOOL_CALL_TIMEOUT:
+                        tool_name = timing_context.get('tool_name', 'unknown tool')
+                        raise ToolTimeoutError(tool_name, tool_elapsed, TOOL_CALL_TIMEOUT)
+                
                 # Log when we've been waiting a long time for an event
                 if verbose and wait_time > 5:
                     print(f"[VERBOSE][{stage.value}] ⚠️ Long wait: {wait_time:.1f}s after event #{event_count-1} ({last_event_type})")
@@ -608,16 +708,19 @@ class TSGPipeline:
                             print(f"[VERBOSE]   transport: {type(client._transport).__name__}")
                 
                 # Timeout config:
-                #   - connect: 30s to establish connection
-                #   - read: 30s between data chunks (catches Bing hangs that go 60+s)
-                #   - write: 30s to send request data
-                #   - pool: 60s to acquire connection from pool
+                #   - connect: 60s to establish connection
+                #   - read: 600s - generous for streaming (gaps between chunks during model thinking)
+                #   - write: 60s to send request data
+                #   - pool: 120s to acquire connection from pool
+                #   - timeout: 600s overall (10 min) catches truly stuck operations
+                # Note: Tool-level hang detection (e.g., Bing stuck) will be handled separately
+                # at the event stream level, not via HTTP read timeout.
                 openai_client.timeout = httpx.Timeout(
-                    timeout=300.0,  # 5 min default for all operations
-                    connect=30.0,
-                    read=30.0,
-                    write=30.0,
-                    pool=60.0,
+                    timeout=600.0,  # 10 min overall for truly stuck operations
+                    connect=60.0,
+                    read=600.0,     # Don't timeout between chunks - detect hangs at event level
+                    write=60.0,
+                    pool=120.0,
                 )
                 with openai_client:
                     # --- Stage 1: Research ---
