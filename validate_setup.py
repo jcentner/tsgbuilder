@@ -73,11 +73,7 @@ def check_dotenv_file() -> bool:
         print_ok(f"Found .env at: {dotenv_path}")
         return True
     else:
-        env_sample = Path(".env-sample")
-        if env_sample.exists():
-            print_fail(".env file not found. Copy .env-sample to .env and fill in your values.")
-        else:
-            print_fail(".env file not found.")
+        print_fail(".env file not found. Run 'make ui' to auto-create and configure.")
         return False
 
 

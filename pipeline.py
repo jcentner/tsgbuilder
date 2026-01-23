@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import queue
+import sys
 import time
 import threading
 import httpx
@@ -1155,8 +1156,14 @@ def run_pipeline(
     if not endpoint:
         raise ValueError("PROJECT_ENDPOINT environment variable required")
     
+    # Determine app directory (supports PyInstaller executable mode)
+    if getattr(sys, 'frozen', False):
+        app_dir = Path(sys.executable).parent
+    else:
+        app_dir = Path.cwd()
+    
     # Load agent info from storage
-    agent_ids_file = Path(".agent_ids.json")
+    agent_ids_file = app_dir / ".agent_ids.json"
     if not agent_ids_file.exists():
         raise ValueError("No agents configured. Use the web UI Setup wizard first.")
     

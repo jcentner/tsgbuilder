@@ -47,8 +47,61 @@ from pipeline import run_pipeline, CancelledError, classify_error, PipelineStage
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
 
-# Load environment variables
-load_dotenv(find_dotenv())
+# Default .env content (used when .env-sample is not available, e.g., in executable mode)
+# These provide sensible defaults; users still need to fill in their Azure-specific values
+DEFAULT_ENV_CONTENT = """# Azure AI Foundry Configuration
+# example: https://<YOUR_RESOURCE>.services.ai.azure.com/api/projects/<YOUR_PROJECT>
+PROJECT_ENDPOINT=
+
+# from management center -> project -> connected resources
+# example: /subscriptions/<SUB>/resourceGroups/<RG>/providers/Microsoft.CognitiveServices/accounts/<RESOURCE>/projects/<PROJECT>/connections/<CONNECTION>
+BING_CONNECTION_NAME=
+
+# recommend gpt-5.2 for v2 agents
+MODEL_DEPLOYMENT_NAME=gpt-5.2
+
+AGENT_NAME=TSG-Builder
+"""
+
+
+def _get_app_dir() -> Path:
+    """Get the application directory (where .env and .agent_ids.json should live).
+    
+    For normal Python execution, this is the current working directory.
+    For PyInstaller executables, this is the directory containing the executable.
+    """
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller executable
+        return Path(sys.executable).parent
+    else:
+        # Running as normal Python script
+        return Path.cwd()
+
+
+def _ensure_env_file() -> Path:
+    """Ensure .env file exists, creating from .env-sample or defaults if needed.
+    
+    Returns the path to the .env file.
+    """
+    app_dir = _get_app_dir()
+    env_path = app_dir / ".env"
+    
+    if not env_path.exists():
+        # Try to copy from .env-sample first
+        sample_path = app_dir / ".env-sample"
+        if sample_path.exists():
+            env_path.write_text(sample_path.read_text(encoding="utf-8"), encoding="utf-8")
+        else:
+            # Use embedded defaults (for executable mode)
+            env_path.write_text(DEFAULT_ENV_CONTENT, encoding="utf-8")
+        print(f"📝 Created {env_path}")
+    
+    return env_path
+
+
+# Load environment variables (create .env from defaults if needed)
+_env_file = _ensure_env_file()
+load_dotenv(_env_file)
 
 # Check for test mode from environment variable
 TEST_MODE = os.getenv("TSG_TEST_MODE", "").strip() in ("1", "true", "True", "yes")
@@ -87,9 +140,19 @@ def _get_user_friendly_error(error: Exception) -> str:
     
     return message
 
+
+def _get_sessions_dir() -> Path:
+    """Get the sessions directory path (in app directory)."""
+    return _get_app_dir() / ".sessions"
+
+
+def _get_agent_ids_file() -> Path:
+    """Get the agent IDs file path (in app directory)."""
+    return _get_app_dir() / ".agent_ids.json"
+
+
 # Store active sessions (thread_id -> session data)
 # Sessions are persisted to disk so they survive server restarts
-SESSIONS_DIR = Path(".sessions")
 sessions: dict[str, dict] = {}
 
 # Track active runs for cancellation support
@@ -106,7 +169,7 @@ def _is_valid_thread_id(thread_id: str) -> bool:
 
 def _ensure_sessions_dir():
     """Ensure the sessions directory exists."""
-    SESSIONS_DIR.mkdir(exist_ok=True)
+    _get_sessions_dir().mkdir(exist_ok=True)
 
 
 def _save_session(thread_id: str, data: dict):
@@ -115,7 +178,7 @@ def _save_session(thread_id: str, data: dict):
         print(f"Warning: Invalid thread_id format, not saving: {thread_id}")
         return
     _ensure_sessions_dir()
-    session_file = SESSIONS_DIR / f"{thread_id}.json"
+    session_file = _get_sessions_dir() / f"{thread_id}.json"
     try:
         session_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
     except Exception as e:
@@ -126,7 +189,7 @@ def _load_session(thread_id: str) -> dict | None:
     """Load a session from disk if it exists."""
     if not _is_valid_thread_id(thread_id):
         return None
-    session_file = SESSIONS_DIR / f"{thread_id}.json"
+    session_file = _get_sessions_dir() / f"{thread_id}.json"
     if session_file.exists():
         try:
             return json.loads(session_file.read_text(encoding="utf-8"))
@@ -139,7 +202,7 @@ def _delete_session_file(thread_id: str):
     """Delete a session file from disk."""
     if not _is_valid_thread_id(thread_id):
         return
-    session_file = SESSIONS_DIR / f"{thread_id}.json"
+    session_file = _get_sessions_dir() / f"{thread_id}.json"
     try:
         if session_file.exists():
             session_file.unlink()
@@ -149,9 +212,10 @@ def _delete_session_file(thread_id: str):
 
 def _load_all_sessions():
     """Load all persisted sessions on startup."""
-    if not SESSIONS_DIR.exists():
+    sessions_dir = _get_sessions_dir()
+    if not sessions_dir.exists():
         return
-    for session_file in SESSIONS_DIR.glob("*.json"):
+    for session_file in sessions_dir.glob("*.json"):
         thread_id = session_file.stem
         try:
             sessions[thread_id] = json.loads(session_file.read_text(encoding="utf-8"))
@@ -168,10 +232,6 @@ def get_project_client() -> AIProjectClient:
     return AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
 
 
-# Agent IDs JSON file path
-AGENT_IDS_FILE = Path(".agent_ids.json")
-
-
 def get_agent_ids() -> dict:
     """Get all pipeline agent info from JSON file.
     
@@ -179,10 +239,11 @@ def get_agent_ids() -> dict:
     Each agent value is a dict with: name, version, id (v2 format)
     Raises ValueError if agents not configured.
     """
-    if not AGENT_IDS_FILE.exists():
+    agent_ids_file = _get_agent_ids_file()
+    if not agent_ids_file.exists():
         raise ValueError("No agents configured. Use Setup to create agents.")
     
-    data = json.loads(AGENT_IDS_FILE.read_text(encoding="utf-8"))
+    data = json.loads(agent_ids_file.read_text(encoding="utf-8"))
     
     required = ["researcher", "writer", "reviewer"]
     missing = [k for k in required if not data.get(k)]
@@ -214,7 +275,7 @@ def save_agent_ids(researcher: dict, writer: dict, reviewer: dict, name_prefix: 
         "reviewer": reviewer,
         "name_prefix": name_prefix,
     }
-    AGENT_IDS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    _get_agent_ids_file().write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def extract_blocks(content: str) -> tuple[str, str]:
@@ -257,9 +318,9 @@ def api_status():
         "error": None,
     }
     
-    # Check .env file
-    dotenv_path = find_dotenv()
-    result["config"]["has_env_file"] = bool(dotenv_path)
+    # Check .env file (use app directory, works for both normal and executable mode)
+    env_path = _get_app_dir() / ".env"
+    result["config"]["has_env_file"] = env_path.exists()
     
     # Check environment variables
     endpoint = os.getenv("PROJECT_ENDPOINT")
@@ -309,12 +370,12 @@ def api_validate():
     """Run validation checks and return structured results."""
     checks = []
     
-    # 1. Check .env file
-    dotenv_path = find_dotenv()
+    # 1. Check .env file (use app directory, works for both normal and executable mode)
+    env_path = _get_app_dir() / ".env"
     checks.append({
         "name": ".env file",
-        "passed": bool(dotenv_path),
-        "message": f"Found at: {dotenv_path}" if dotenv_path else "Not found. Copy .env-sample to .env",
+        "passed": env_path.exists(),
+        "message": f"Found at: {env_path}" if env_path.exists() else "Not found. Use Setup to create configuration.",
         "critical": True,
     })
     
@@ -433,17 +494,9 @@ def api_config_set():
     """Update configuration values in .env file."""
     data = request.get_json()
     
-    # Find or create .env file
-    dotenv_path = find_dotenv()
-    if not dotenv_path:
-        dotenv_path = Path(".env")
-        # Create from sample if it exists
-        sample_path = Path(".env-sample")
-        if sample_path.exists():
-            dotenv_path.write_text(sample_path.read_text(encoding="utf-8"), encoding="utf-8")
-        else:
-            dotenv_path.touch()
-        dotenv_path = str(dotenv_path.absolute())
+    # Use app directory for .env (works for both normal and executable mode)
+    env_path = _ensure_env_file()
+    dotenv_path = str(env_path)
     
     allowed_keys = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME", "BING_CONNECTION_NAME", "AGENT_NAME"]
     updated = []

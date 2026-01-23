@@ -8,3 +8,6 @@ httpx>=0.25.0
 
 # Web UI
 flask>=3.0.0
+
+# Build tools
+pyinstaller>=6.0.0

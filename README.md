@@ -66,7 +66,7 @@ The web interface is the recommended way to use TSG Builder:
 make ui
 ```
 
-Then open **http://localhost:5000** in your browser.
+Then open **http://localhost:5000** in your browser if it doesn't automatically.
 
 > ⏱️ **Timing**: A full run (Research → Write → Review) typically takes **2–5 minutes** depending on the complexity of your input and the amount of research needed. The UI shows real-time progress for each stage.
 
@@ -127,6 +127,8 @@ Images are sent to the AI agent for visual analysis, which is especially useful 
 
 ## Installation
 
+### Option 1: Run from Source (Recommended for Development)
+
 ```bash
 make setup
 ```
@@ -134,11 +136,33 @@ make setup
 This will:
 - Create a virtual environment (`.venv/`)
 - Install dependencies
-- Copy `.env-sample` to `.env`
+- Create `.env` from `.env-sample`
+
+Then run `make ui` to start the web interface.
+
+### Option 2: Standalone Executable
+
+Build a single-file executable that can be distributed without Python:
+
+```bash
+make build
+```
+
+This creates an executable in `dist/`:
+- **Linux**: `dist/tsg-builder-linux`
+- **macOS**: `dist/tsg-builder-macos`
+- **Windows**: `dist/tsg-builder-windows.exe`
+
+On first run, the executable:
+1. Creates a `.env` file with defaults in its directory
+2. Opens your browser to the setup wizard
+3. Guides you through Azure configuration
+
+> **Note**: The executable still requires Azure CLI authentication (`az login`) on the machine where it runs.
 
 ## Configuration
 
-Run `make ui` and open http://localhost:5000
+Run `make ui` (or the standalone executable) (http://localhost:5000 should open automatically)
 
 1. Click the **⚙️ Setup** button (or it opens automatically)
 2. Enter your Azure configuration values
@@ -171,6 +195,7 @@ Run `make ui` and open http://localhost:5000
 |---------|-------------|
 | `make setup` | First-time setup (venv + deps + .env) |
 | `make ui` | **Start the web UI** at http://localhost:5000 |
+| `make build` | Build standalone executable with PyInstaller |
 | `make validate` | Check environment configuration (CLI troubleshooting) |
 | `make install` | Install dependencies only |
 | `make clean` | Remove venv and generated files |
@@ -236,10 +261,11 @@ See [docs/architecture.md](docs/architecture.md) for detailed pipeline architect
 |------|---------|
 | `web_app.py` | Flask web UI server (includes agent creation) |
 | `pipeline.py` | **Multi-stage pipeline orchestration** (Research → Write → Review) |
+| `build_exe.py` | Build standalone executable with PyInstaller |
 | `validate_setup.py` | Validate environment configuration (CLI troubleshooting) || `delete_agents.py` | Delete agents from Azure (used by `make clean DELETE_AGENTS=1`) || `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
 | `Makefile` | Common operations |
-| `.env` | Your configuration (git-ignored) |
-| `.env-sample` | Configuration template |
+| `.env` | Your configuration (git-ignored, auto-created on first run) |
+| `.env-sample` | Configuration template (for developers) |
 | `.agent_ids.json` | Pipeline agent IDs after creation |
 | `.sessions/` | Persisted sessions for follow-up questions (git-ignored) |
 | `input-example.txt` | Example input notes |

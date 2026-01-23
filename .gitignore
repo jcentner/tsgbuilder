@@ -27,3 +27,8 @@ logs/
 # TODO file
 .TODO
 .sessions/
+
+# PyInstaller
+build/
+dist/
+*.spec

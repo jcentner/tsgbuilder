@@ -1,7 +1,7 @@
 # TSG Builder Makefile
 # Common operations for the TSG Builder project
 
-.PHONY: setup install validate clean help ui lint
+.PHONY: setup install validate clean help ui lint build
 
 # Default Python interpreter
 PYTHON ?= python3
@@ -21,6 +21,7 @@ help:
 	@echo "Utility commands:"
 	@echo "  make validate     - Validate environment configuration (CLI)"
 	@echo "  make install      - Install dependencies only (assumes venv exists)"
+	@echo "  make build        - Build standalone executable with PyInstaller"
 	@echo "  make clean        - Remove generated files and virtual environment"
 	@echo "                      Add DELETE_AGENTS=1 to also delete agents from Azure"
 	@echo "  make lint         - Check Python syntax"
@@ -111,3 +112,7 @@ lint:
 		$(PYTHON) -m py_compile *.py; \
 	fi
 	@echo "Syntax check passed."
+
+build: .venv install
+	@echo "Building standalone executable..."
+	.venv/bin/python build_exe.py --clean
