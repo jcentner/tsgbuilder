@@ -1,0 +1,127 @@
+name: Build Executables
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v1.0.0, v1.0.0-beta.1
+  workflow_dispatch:  # Manual trigger for testing
+    inputs:
+      create_release:
+        description: 'Create a draft release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write  # Required for creating releases
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            artifact: tsg-builder-linux
+          - os: macos-latest
+            platform: macos
+            artifact: tsg-builder-macos
+          - os: windows-latest
+            platform: windows
+            artifact: tsg-builder-windows.exe
+
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build executable
+        run: python build_exe.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.create_release
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          # Move executables to release folder (flatten directory structure)
+          find artifacts -type f -exec mv {} release/ \;
+          ls -la release/
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd release
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Determine if pre-release
+        id: prerelease
+        run: |
+          if [[ "${{ github.ref_name }}" == *"-"* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
+          generate_release_notes: true
+          files: |
+            release/tsg-builder-linux
+            release/tsg-builder-macos
+            release/tsg-builder-windows.exe
+            release/SHA256SUMS.txt
+          body: |
+            ## TSG Builder ${{ github.ref_name }}
+            
+            ### Downloads
+            | Platform | File |
+            |----------|------|
+            | Linux | `tsg-builder-linux` |
+            | macOS | `tsg-builder-macos` |
+            | Windows | `tsg-builder-windows.exe` |
+            
+            ### First Run
+            1. Download the executable for your platform
+            2. Run it — a `.env` file will be created automatically
+            3. Your browser will open to the setup wizard
+            4. Configure your Azure AI Foundry settings
+            
+            ### Verify Download (optional)
+            ```bash
+            # Linux/macOS
+            sha256sum -c SHA256SUMS.txt
+            
+            # Windows PowerShell
+            Get-FileHash tsg-builder-windows.exe -Algorithm SHA256
+            ```
+            
+            ---
+            _See [README](https://github.com/${{ github.repository }}/blob/main/README.md) for full documentation._

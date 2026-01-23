@@ -279,6 +279,23 @@ See [docs/architecture.md](docs/architecture.md) for detailed pipeline architect
 4. Run `make lint` to check syntax
 5. Submit a pull request
 
+### Creating a Release
+
+Releases are built automatically by GitHub Actions when a version tag is pushed:
+
+```bash
+# Create and push a tag
+git tag v1.0.0          # or v1.0.0-beta.1 for pre-release
+git push origin v1.0.0
+```
+
+This triggers a workflow that:
+1. Builds executables for Linux, macOS, and Windows
+2. Generates SHA256 checksums
+3. Creates a **draft release** with all files attached
+
+After the workflow completes, go to the [Releases page](../../releases) to review and publish.
+
 ## License
 
 MIT
