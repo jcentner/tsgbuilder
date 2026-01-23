@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import threading
 import queue
 import uuid
+import webbrowser
 from pathlib import Path
 from typing import Any, Generator
 
@@ -871,11 +874,46 @@ def main():
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
     
-    print(f"\n🚀 TSG Builder UI starting at http://localhost:{port}")
+    url = f"http://localhost:{port}"
+    print(f"\n🚀 TSG Builder UI starting at {url}")
     print("Press Ctrl+C to stop\n")
+    
+    # Auto-open browser after a short delay (skip in debug mode reloader subprocess)
+    if not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        threading.Timer(1.0, lambda: _open_browser(url)).start()
     
     # Listen on localhost only (not 0.0.0.0) for security
     app.run(host="127.0.0.1", port=port, debug=debug)
+
+
+def _open_browser(url: str) -> None:
+    """Open browser in a cross-platform way (Linux, macOS, Windows, WSL2)."""
+    try:
+        # Check if running in WSL2 by looking for WSL-specific indicators
+        is_wsl = False
+        if sys.platform == "linux":
+            try:
+                with open("/proc/version", "r") as f:
+                    is_wsl = "microsoft" in f.read().lower()
+            except (FileNotFoundError, PermissionError):
+                pass
+        
+        if is_wsl:
+            # WSL2: Use Windows' cmd.exe to open the browser
+            # Replace localhost with the URL that Windows can access
+            subprocess.run(
+                ["cmd.exe", "/c", "start", url.replace("&", "^&")],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            # Native Linux, macOS, or Windows: use webbrowser module
+            webbrowser.open(url)
+    except Exception as e:
+        # Silently fail - browser opening is a convenience, not critical
+        print(f"Could not open browser automatically: {e}")
+        print(f"Please open {url} manually.")
 
 
 if __name__ == "__main__":
