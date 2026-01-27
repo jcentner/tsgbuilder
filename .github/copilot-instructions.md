@@ -10,6 +10,17 @@ TSG Builder transforms raw troubleshooting notes into structured **Technical Sup
 
 ## Core Design Principles
 
+### 0. TSGs Are Operations Manuals, Not Research Reports
+
+**A TSG is an internal operations manual** — it presents facts and procedures as established institutional knowledge. Think product documentation or SOP, not research synthesis.
+
+- **Write as the authoritative author**: The reader needs actionable content; they don't need to know where it came from
+- **No source attributions**: Never include "(from docs)", "(per research)", "(community-sourced)", "(as provided in notes)", or similar
+- **No meta-commentary**: Avoid "according to research", "the notes indicate", "based on the GitHub discussion"
+- **Production-ready**: The TSG should be copy-paste ready, requiring no cleanup
+
+The Research stage produces internal reference material with citations. The Writer extracts facts and **discards attributions**. The final TSG reads like it was written by an expert who simply knows the information.
+
 ### 1. User Notes Are Authoritative
 
 **User-provided content (notes, code samples, workarounds) should be treated as authoritative source material**, equivalent to public documentation.
@@ -52,7 +63,7 @@ For technical architecture details, see [docs/architecture.md](../docs/architect
 
 ### Stage 1: Research
 
-**Purpose**: Gather supporting documentation from public sources.
+**Purpose**: Gather supporting documentation from public sources. The research report is **internal reference material** for the Writer — it will NOT appear in the final TSG.
 
 **Tools**: Bing Search, Microsoft Learn MCP
 
@@ -84,20 +95,21 @@ Research report with `<!-- RESEARCH_BEGIN/END -->` markers containing:
 
 ### Stage 2: Write
 
-**Purpose**: Create the TSG using notes + research.
+**Purpose**: Create the TSG using notes + research. The TSG is an **operations manual** — authoritative, no source attributions or commentary.
 
 **Tools**: None (intentional — prevents hallucinated searches)
 
 #### Expected Behaviors
 
 | Behavior | Correct | Incorrect |
-|----------|---------|-----------|
+|----------|---------|----------|
 | Content from user notes | Include as authoritative | Mark as MISSING because unverified |
 | Code samples from notes | Include in Mitigation/Resolution with version caveat | Omit or reject |
 | Research Gaps from Stage 1 | Acknowledge but don't auto-create MISSING | Create MISSING for every research gap |
 | Missing required content | Use `{{MISSING::<Section>::<Hint>}}` | Leave section empty or skip |
 | All required sections | Must have content or MISSING placeholder | Skip optional-seeming sections |
 | Questions block | List question for each MISSING, or `NO_MISSING` | Empty block or wrong format |
+| Source attributions | Never include "(from docs)", "(per notes)", etc. | Add inline citations or meta-commentary |
 
 #### Output Format
 

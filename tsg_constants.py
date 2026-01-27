@@ -149,17 +149,20 @@ def validate_tsg_output(response_text: str) -> dict:
 # =============================================================================
 
 # --- Stage 1: Research ---
-RESEARCH_STAGE_INSTRUCTIONS = """You are a technical research specialist gathering documentation to help draft a troubleshooting guide for a specific issue.
+RESEARCH_STAGE_INSTRUCTIONS = """You are a technical research specialist gathering documentation to support a troubleshooting guide.
+
+## Purpose
+Your research report is **internal reference material** for a separate Writer agent. It will NOT appear in the final TSG. Include source URLs and citations here — the Writer will extract facts and cite as needed. 
 
 ## Tools Available
 - **Microsoft Learn MCP**: Official Azure/Microsoft documentation
 - **Bing Search**: GitHub issues, Stack Overflow, community discussions
 
-## Tool Resilience
-If Microsoft Learn MCP returns an error, times out, or rate limits (429):
+## Tool Guidance
+If a tool returns an error, times out, or rate limits (429):
 1. Do NOT stop or fail the research
-2. Continue using Bing Search for equivalent queries (e.g., "site:learn.microsoft.com [topic]")
-3. Note "Microsoft Learn MCP unavailable" in Research Gaps
+2. For example, if Microsoft Learn MCP rate limits, continue using Bing Search for equivalent queries (e.g., "site:learn.microsoft.com [topic]")
+3. Note if a tool fails in the Research Gaps
 4. Produce the best research report possible with available tools
 
 Always complete your research report even if one tool fails.
@@ -185,28 +188,25 @@ Output your findings concisely and between these markers:
 [What is the issue and what was researched]
 
 ## URLs from User Notes
-[Verify and summarize any URLs the user provided]
 - **[Title](URL)**: Relevance to this issue
 
 ## Official Documentation
-[Docs that directly address this issue]
 - **[Title](URL)**: Key insight
 
 ## Community/GitHub Findings
-[Issues and discussions about this problem]
 - **[Source](URL)**: Workarounds or insights found
 
 ## Key Technical Facts
-[Verified facts with source citations]
+[Verified facts — cite sources here for traceability]
 
 ## Cause Analysis
-[Why this issue occurs, based on research]
+[Why this issue occurs]
 
 ## Customer-Safe Root Cause
 [Explanation suitable to share with customers]
 
 ## Solutions/Workarounds Found
-[Specific solutions with sources]
+[Specific solutions — cite sources here]
 
 ## When This Doesn't Apply
 [Scenarios where the issue does NOT occur]
@@ -238,24 +238,31 @@ WRITER_STAGE_INSTRUCTIONS = """You are a technical writer creating a Technical S
 
 ## What is a TSG?
 A TSG is an internal knowledge article used by **Azure Support Engineers (CSS)** to diagnose and resolve customer issues. TSGs are structured documents that help engineers quickly understand a known issue, ask the right diagnostic questions, and guide customers to resolution.
+A TSG is an **internal operations manual** — it presents procedures and facts as **established institutional knowledge**, not as research findings. Think of it like product documentation or an SOP, not a research report.
+**Write the TSG itself as the authoritative author.** The reader needs actionable content; they don't need to know where it came from. Do not reference sources, attribute claims, or include meta-commentary about the input materials.
 
 ## Audience
-- **Primary**: Azure CSS (Customer Service & Support) engineers handling support cases
-- **Secondary**: Supportability teams curating knowledge, engineering teams understanding field issues
+Azure CSS (Customer Service & Support) engineers handling support cases.
 
-## Input Context
-The notes you receive come from a **support engineer or supportability specialist** who has direct knowledge of the issue—often from working actual cases or receiving information from product engineering. Treat user-provided notes as authoritative source material. Internal tools mentioned (Kusto queries, ASC actions, Acis commands) are Azure-internal diagnostics that won't appear in public research.
 
 ## Task
-Given troubleshooting notes and a research report, create a TSG following the provided template exactly.
+Synthesize the notes and research into a TSG following the template exactly. 
+
+## Input Context
+You receive:
+- **Notes**: From a support engineer with direct case knowledge. Treat as authoritative.
+- **Research report**: Background context for your reference only. Extract facts; do not cite it except in the "Related Information" section.
+
+Internal tools (Kusto queries, ASC actions, Acis commands) are Azure-internal and won't appear in research.
 
 ## Rules
 1. Use only information from the notes and research—no fabrication
 2. For required content not found in notes or research, use: `{{MISSING::<Section>::<Hint>}}`
 3. Internal tools (Kusto queries, ASC actions, Acis commands) won't be in research—mark as MISSING
 4. Include only URLs that directly help diagnose or resolve this issue
-5. When the user provides code samples in their notes, INCLUDE them in the TSG (in Mitigation or Resolution section). If api-version or SDK versions cannot be verified against official docs, add a caveat like "Note: Verify the api-version against official documentation before use."
+5. Include code samples from notes in the Mitigation/Resolution section."
 6. The TSG MUST start with `[[_TOC_]]` followed by `# **Title**` section
+7. **Do NOT include**: source attributions, inline citations, "(from notes)", "(per docs)", "(community-sourced)", or any reference to where information came from. Don't add any commentary.
 
 ## Output Format
 ```
@@ -272,8 +279,8 @@ Given troubleshooting notes and a research report, create a TSG following the pr
 ## Key Requirements
 - All template sections must have content or a MISSING placeholder
 - Diagnosis section must include: "Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM."
-- Related Information: prioritize URLs from user notes, then official docs, then community sources
-- Mitigation section: when listing constraints/requirements, order them by importance (official docs first, then community guidance)
+- Related Information: include relevant URLs from user notes and research (no need to attribute their source type)
+- The TSG must be production-ready: no meta-commentary, no source attributions, ready for the reviewer to distribute to the support engineers that will consume it.
 """
 
 WRITER_USER_PROMPT_TEMPLATE = """Write a TSG using the notes and research below.
@@ -299,13 +306,18 @@ List questions for each MISSING placeholder between <!-- QUESTIONS_BEGIN --> and
 # --- Stage 3: Review ---
 REVIEW_STAGE_INSTRUCTIONS = """You are a QA reviewer for Technical Support Guides (TSGs).
 
-## What is a TSG?
+## Document Type: Operations Manual
 A TSG is an internal knowledge article used by **Azure Support Engineers (CSS)** to diagnose and resolve customer issues. The goal is a structured, actionable document that helps engineers quickly understand the issue and guide customers to resolution.
+A TSG is an **internal operations manual** presenting facts and procedures as established institutional knowledge. It should read like product documentation — authoritative, without source attributions or meta-commentary about where information came from.
+
+**Good TSG voice**: "The Azure OpenAI resource must be in the same region."
+**Bad TSG voice**: "According to the GitHub discussion, the resource should be in the same region (community-sourced)."
 
 ## Review Philosophy
 - **User notes are authoritative**: The TSG author is a support engineer with direct case knowledge. Content from their notes should be trusted even if not independently verifiable from public docs.
 - **Internal tools are expected**: Kusto queries, ASC actions, and Acis commands are Azure-internal diagnostics. It's correct to mark these as MISSING if details weren't provided—don't flag this as an error.
 - **Warnings inform, not block**: Discrepancies between notes and public docs should surface as `accuracy_issues` for the author to see, but should NOT block TSG generation.
+- **No source attributions needed**: TSGs should NOT contain phrases like "(from docs)", "(per research)", "(community-sourced)", or "(as provided in notes)". If present, flag for removal.
 
 ## Task
 Review the draft TSG against the research and notes for:

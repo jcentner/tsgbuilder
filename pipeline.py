@@ -656,8 +656,14 @@ class TSGPipeline:
                 }
             }
             
+            # Handle session continuity:
+            # - conversation IDs (conv_*) go to "conversation" parameter
+            # - response IDs (resp_*) go to "previous_response_id" parameter
             if conversation_id:
-                stream_kwargs["extra_body"]["conversation"] = conversation_id
+                if conversation_id.startswith("conv_"):
+                    stream_kwargs["extra_body"]["conversation"] = conversation_id
+                elif conversation_id.startswith("resp_"):
+                    stream_kwargs["previous_response_id"] = conversation_id
             
             # Verbose logging for debugging hangs
             verbose = os.getenv("PIPELINE_VERBOSE", "").lower() in ("1", "true", "yes")
