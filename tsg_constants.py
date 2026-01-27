@@ -179,12 +179,25 @@ Given troubleshooting notes, use your tools to find directly relevant sources.
 - The specific feature/service mentioned (e.g., "Azure AI Foundry capability hosts")
 - Known limitations or constraints for the scenario
 
-**Step 3: GitHub and community** — This is critical for finding workarounds. Search for:
-- **The exact symptom/problem** in the user's words (e.g., "Agents cannot see connected Azure OpenAI deployments")
-- **The product + feature + "issue" or "discussion"** (e.g., "azure-ai-foundry agents connected resources")
-- **GitHub Discussions** (not just Issues) — many Azure products use GitHub Discussions for Q&A
+**Step 3: GitHub and community** — This is critical for finding workarounds.
 
-**Common mistake**: Searching only for technical terms like "capability host" when the user describes their symptom differently. Always search for the **user-facing symptom** (what they see/can't do) in addition to technical terms.
+**Search queries to run** (in order of priority):
+1. **Symptom-based search**: Use the user's exact problem statement or error message as a search query
+   - Example: `"Agents cannot use model deployments from connected resources" site:github.com`
+   - Example: `Azure AI Foundry Agents connected Azure OpenAI deployments not showing`
+
+2. **Product org + symptom search**: Search the product's GitHub org for discussions/issues
+   - For Azure AI Foundry: search `site:github.com/orgs/azure-ai-foundry` or `azure-ai-foundry discussions`
+   - For other products: find the official GitHub org and search there
+
+3. **GitHub Discussions specifically** — Many Azure products use GitHub Discussions for Q&A, not just Issues. Discussions often contain workarounds that aren't in Issues.
+   - Include "discussion" or "discussions" in your search query
+   - Example: `azure-ai-foundry agents connected resources discussion`
+
+⚠️ **Common mistakes to avoid**:
+- Searching only for the technical mechanism (e.g., "capability host") when the user's symptom is different (e.g., "can't see connected deployments")
+- Finding issues about *deploying* or *creating* a feature when the user's problem is about *using* the feature
+- Searching only in `microsoft-foundry/foundry-samples` when the product discussions are in `azure-ai-foundry`
 
 ### Relevance Filter
 Only include sources that directly help diagnose or resolve the stated issue. Only include general tutorials and product overviews if they are directly impactful to the issue cause, workaround, or scope.

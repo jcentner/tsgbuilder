@@ -135,6 +135,19 @@ class ToolTimeoutError(Exception):
         super().__init__(f"Tool '{tool_name}' timed out after {elapsed:.0f}s (limit: {timeout}s)")
 
 
+class StreamIdleTimeoutError(Exception):
+    """Raised when a stream has no events for too long (likely hung connection)."""
+    def __init__(self, stage: str, idle_time: float, timeout: float, last_event: str | None):
+        self.stage = stage
+        self.idle_time = idle_time
+        self.timeout = timeout
+        self.last_event = last_event
+        super().__init__(
+            f"Stream idle timeout in {stage}: no events for {idle_time:.0f}s "
+            f"(limit: {timeout}s) after '{last_event or 'start'}'"
+        )
+
+
 # =============================================================================
 # TIMEOUT CONFIGURATION
 # =============================================================================
@@ -152,6 +165,11 @@ class ToolTimeoutError(Exception):
 # Tool-level timeout: max time for any single tool call (Bing, MCP, etc.)
 # Set to 2 min because Bing is expected to complete in <30s
 TOOL_CALL_TIMEOUT = 120
+
+# Stream idle timeout: max time to wait for the next event from the stream
+# If no event arrives within this time, assume the connection is hung
+# Set to 2 minutes - long enough for slow tool calls, short enough to detect hangs
+STREAM_IDLE_TIMEOUT = 120
 
 
 # =============================================================================
@@ -337,6 +355,7 @@ def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassificatio
     if not user_message:
         is_timeout = (
             isinstance(error, ToolTimeoutError) or
+            isinstance(error, StreamIdleTimeoutError) or
             any(x in error_lower for x in [
                 'timeout', 'timed out', 'peer closed', 'incomplete chunked'
             ])
@@ -362,6 +381,8 @@ def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassificatio
     if not user_message:
         if isinstance(error, ToolTimeoutError):
             user_message = f"{stage_name}: {error.tool_name} timed out after {error.elapsed:.0f}s. Retrying..."
+        elif isinstance(error, StreamIdleTimeoutError):
+            user_message = f"{stage_name}: Connection stalled (no response for {error.idle_time:.0f}s). Retrying..."
         elif is_rate_limit:
             if is_tool_error and 'mcp' in error_lower:
                 user_message = f"{stage_name}: Microsoft Learn rate limited. Waiting to retry..."
@@ -485,6 +506,49 @@ def _send_classified_error(send_event, stage_name: str, error_text: str) -> None
         "icon": icon,
         "error_type": error_type,
     })
+
+
+def _iterate_with_timeout(stream, timeout: float, stage: str):
+    """
+    Wrap a stream iterator with a per-event timeout.
+    
+    Uses a background thread to fetch the next event, with a timeout on the main thread.
+    If no event arrives within `timeout` seconds, raises StreamIdleTimeoutError.
+    
+    Args:
+        stream: The stream iterator to wrap
+        timeout: Maximum seconds to wait for each event
+        stage: Stage name for error messages
+        
+    Yields:
+        Events from the stream
+        
+    Raises:
+        StreamIdleTimeoutError: If no event arrives within timeout
+    """
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+    
+    iterator = iter(stream)
+    last_event_type = None
+    
+    def get_next():
+        return next(iterator)
+    
+    # Use a single-thread executor to fetch events with timeout
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        while True:
+            future = executor.submit(get_next)
+            try:
+                event = future.result(timeout=timeout)
+                last_event_type = getattr(event, 'type', str(type(event).__name__))
+                yield event
+            except FuturesTimeoutError:
+                # Cancel the future (won't stop the thread, but marks it as cancelled)
+                future.cancel()
+                raise StreamIdleTimeoutError(stage, timeout, timeout, last_event_type)
+            except StopIteration:
+                # Stream is exhausted normally
+                return
 
 
 def process_pipeline_v2_stream(
@@ -848,7 +912,9 @@ class TSGPipeline:
             last_event_time = time.time()
             last_event_type = None
             
-            for event in stream_response:
+            # Wrap stream with per-event timeout to detect hung connections
+            # This ensures we don't wait forever if the stream stops sending events
+            for event in _iterate_with_timeout(stream_response, STREAM_IDLE_TIMEOUT, stage.value):
                 event_count += 1
                 now = time.time()
                 wait_time = now - last_event_time
