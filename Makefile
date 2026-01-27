@@ -16,7 +16,7 @@ help:
 	@echo "                      Setup, validation, and agent creation are all"
 	@echo "                      available in the UI. The setup wizard opens"
 	@echo "                      automatically if configuration is needed."
-	@echo "                      Add TEST=1 to capture stage outputs to JSON file"
+	@echo "                      Add TEST=1 for verbose logging and JSON output"
 	@echo ""
 	@echo "Utility commands:"
 	@echo "  make validate     - Validate environment configuration (CLI)"
@@ -80,12 +80,12 @@ validate:
 ui:
 	@echo "Starting TSG Builder web UI..."
 ifdef TEST
-	@echo "Test mode enabled - stage outputs will be captured to test_output_*.json"
+	@echo "Test mode enabled - verbose logging and stage output capture enabled"
 endif
 	@if [ -d ".venv" ]; then \
-		TSG_TEST_MODE=$(TEST) PIPELINE_VERBOSE=1 .venv/bin/python web_app.py; \
+		TSG_TEST_MODE=$(TEST) PIPELINE_VERBOSE=$(TEST) .venv/bin/python web_app.py; \
 	else \
-		TSG_TEST_MODE=$(TEST) PIPELINE_VERBOSE=1 $(PYTHON) web_app.py; \
+		TSG_TEST_MODE=$(TEST) PIPELINE_VERBOSE=$(TEST) $(PYTHON) web_app.py; \
 	fi
 
 clean:

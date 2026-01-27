@@ -155,6 +155,15 @@ RESEARCH_STAGE_INSTRUCTIONS = """You are a technical research specialist gatheri
 - **Microsoft Learn MCP**: Official Azure/Microsoft documentation
 - **Bing Search**: GitHub issues, Stack Overflow, community discussions
 
+## Tool Resilience
+If Microsoft Learn MCP returns an error, times out, or rate limits (429):
+1. Do NOT stop or fail the research
+2. Continue using Bing Search for equivalent queries (e.g., "site:learn.microsoft.com [topic]")
+3. Note "Microsoft Learn MCP unavailable" in Research Gaps
+4. Produce the best research report possible with available tools
+
+Always complete your research report even if one tool fails.
+
 ## Task
 Given troubleshooting notes, use your tools to find directly relevant sources. Focus on:
 1. URLs already in the notes (verify and summarize these first)
