@@ -1,7 +1,7 @@
 # Error Handling & Timeout Improvements Plan
 
 > **Created**: January 23, 2026  
-> **Status**: Planned  
+> **Status**: In Progress  
 > **Priority**: High/Medium  
 
 This document outlines the implementation plan for improving error handling and timeout management in TSG Builder, with a focus on surfacing Azure service issues with user-readable messages.
@@ -12,18 +12,20 @@ The application has a solid foundation for error handling with centralized class
 
 ---
 
-## Phase 1: Enhanced Error Classification (High Priority)
+## Phase 1: Enhanced Error Classification (High Priority) ✅ COMPLETED
+
+> **Completed**: January 27, 2026
 
 **Goal**: Improve `classify_error()` to detect Azure-specific HTTP status codes and provide actionable user messages.
 
-### 1.1 Update `ErrorClassification` dataclass
+### 1.1 Update `ErrorClassification` dataclass ✅
 **File**: `pipeline.py`  
 **Changes**:
 - Add `http_status_code: int | None` field to track detected status code
 - Add `error_code: str | None` field for API-specific error codes (e.g., `rate_limit_exceeded`)
 - Add `is_auth_error: bool` field for authentication-specific handling
 
-### 1.2 Expand `classify_error()` function
+### 1.2 Expand `classify_error()` function ✅
 **File**: `pipeline.py`  
 **Changes**:
 - Add detection patterns for HTTP status codes:
@@ -46,11 +48,13 @@ The application has a solid foundation for error handling with centralized class
   - "quota" / "exceeded" → quota exhaustion
 - Set `is_retryable` appropriately (401/403 are NOT retryable; 500/502/503 ARE retryable)
 
-### 1.3 Create error code constants
-**File**: `pipeline.py` or new file `error_codes.py`  
+### 1.3 Create error code constants ✅
+**File**: `pipeline.py`  
 **Changes**:
 - Define constants for user-friendly messages to ensure consistency
 - Create mapping: `HTTP_STATUS_MESSAGES = {401: "...", 403: "...", ...}`
+- Create `ERROR_PHRASE_PATTERNS` list for pattern-based error detection
+- Add helper functions `_extract_http_status_code()` and `_extract_api_error_code()`
 
 ---
 

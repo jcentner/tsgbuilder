@@ -154,6 +154,79 @@ class ToolTimeoutError(Exception):
 TOOL_CALL_TIMEOUT = 120
 
 
+# =============================================================================
+# HTTP STATUS CODE ERROR MESSAGES
+# =============================================================================
+# User-friendly messages for common Azure/HTTP error status codes.
+# These provide actionable guidance rather than generic error text.
+# =============================================================================
+
+HTTP_STATUS_MESSAGES: dict[int, tuple[str, bool]] = {
+    # (message, is_retryable)
+    401: ("Azure authentication failed. Run `az login` and try again.", False),
+    403: ("Permission denied. Check your Azure role assignments.", False),
+    404: ("Resource not found. Try re-creating agents in Setup.", False),
+    500: ("Azure service error. Please try again.", True),
+    502: ("Azure gateway error. Please try again.", True),
+    503: ("Azure AI service temporarily unavailable. Try again in a few minutes.", True),
+    504: ("Azure gateway timed out. Try again with shorter input.", True),
+}
+
+# Common error phrase patterns and their classifications
+# Format: (patterns_list, error_type, is_retryable, user_message_suffix)
+ERROR_PHRASE_PATTERNS: list[tuple[list[str], str, bool, str]] = [
+    # Authentication errors (not retryable)
+    (
+        ["unauthorized", "authentication failed", "invalid credentials", "401"],
+        "auth",
+        False,
+        "Azure authentication failed. Run `az login` and try again.",
+    ),
+    # Permission errors (not retryable)
+    (
+        ["forbidden", "permission denied", "access denied", "403"],
+        "permission",
+        False,
+        "Permission denied. Check your Azure role assignments.",
+    ),
+    # Resource not found (not retryable)
+    (
+        ["not found", "does not exist", "404", "resource not found"],
+        "not_found",
+        False,
+        "Resource not found. Try re-creating agents in Setup.",
+    ),
+    # Quota exhaustion (not retryable - user action needed)
+    (
+        ["quota exceeded", "quota limit", "exceeded quota"],
+        "quota",
+        False,
+        "Azure quota exceeded. Check your subscription limits.",
+    ),
+    # Service unavailable (retryable)
+    (
+        ["service unavailable", "503", "temporarily unavailable"],
+        "service_unavailable",
+        True,
+        "Azure AI service temporarily unavailable. Try again in a few minutes.",
+    ),
+    # Gateway errors (retryable)
+    (
+        ["bad gateway", "502", "gateway timeout", "504"],
+        "gateway",
+        True,
+        "Azure gateway error. Please try again.",
+    ),
+    # Internal server errors (retryable)
+    (
+        ["internal server error", "500", "server error"],
+        "server_error",
+        True,
+        "Azure service error. Please try again.",
+    ),
+]
+
+
 @dataclass
 class ErrorClassification:
     """Classification of an error for retry logic and user messaging."""
@@ -161,8 +234,67 @@ class ErrorClassification:
     is_rate_limit: bool
     is_timeout: bool
     is_tool_error: bool
-    user_message: str  # Human-friendly message for UI
-    raw_error: str     # Original error for logging
+    is_auth_error: bool              # Authentication/authorization failures
+    http_status_code: int | None     # Detected HTTP status code (if any)
+    error_code: str | None           # API-specific error code (e.g., 'rate_limit_exceeded')
+    user_message: str                # Human-friendly message for UI
+    raw_error: str                   # Original error for logging
+
+
+def _extract_http_status_code(error_str: str) -> int | None:
+    """Extract HTTP status code from an error string if present.
+    
+    Looks for patterns like:
+    - "status code: 401"
+    - "HTTP 403"
+    - "returned 500"
+    - Standalone codes in context (e.g., "Error 429:")
+    """
+    import re
+    
+    # Common patterns for HTTP status codes
+    patterns = [
+        r'status[_\s]?code[:\s]+(\d{3})',   # status code: 401, status_code=403
+        r'http[_\s]?(\d{3})',               # HTTP 401, http_401
+        r'returned\s+(\d{3})',              # returned 500
+        r'error\s+(\d{3})',                 # Error 429
+        r'\b([45]\d{2})\b',                 # Standalone 4xx/5xx codes
+    ]
+    
+    error_lower = error_str.lower()
+    for pattern in patterns:
+        match = re.search(pattern, error_lower)
+        if match:
+            code = int(match.group(1))
+            # Only return valid HTTP error codes (4xx, 5xx)
+            if 400 <= code <= 599:
+                return code
+    return None
+
+
+def _extract_api_error_code(error_str: str) -> str | None:
+    """Extract API-specific error code from an error string if present.
+    
+    Looks for patterns like:
+    - "code": "rate_limit_exceeded"
+    - error_code=server_error
+    """
+    import re
+    
+    # Look for code field in JSON-like structures
+    patterns = [
+        r'"code"[:\s]*"([^"]+)"',           # "code": "rate_limit_exceeded"
+        r"'code'[:\s]*'([^']+)'",           # 'code': 'rate_limit_exceeded'
+        r'error_code[=:\s]+([a-z_]+)',      # error_code=server_error
+        r'code[=:\s]+([a-z_]+)',            # code=server_error
+    ]
+    
+    error_lower = error_str.lower()
+    for pattern in patterns:
+        match = re.search(pattern, error_lower)
+        if match:
+            return match.group(1)
+    return None
 
 
 def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassification:
@@ -170,55 +302,96 @@ def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassificatio
     Classify an error for retry logic and user-friendly messaging.
     
     Centralizes all error categorization to avoid duplication across the pipeline.
+    Detects HTTP status codes, API error codes, and common error patterns to
+    provide actionable user messages.
     """
     error_str = str(error)
     error_lower = error_str.lower()
     stage_name = stage.value.capitalize()
     
+    # Extract structured error information
+    http_status_code = _extract_http_status_code(error_str)
+    error_code = _extract_api_error_code(error_str)
+    
+    # Initialize classification flags
+    is_auth_error = False
+    is_rate_limit = False
+    is_timeout = False
+    is_tool_error = False
+    is_retryable = False
+    user_message = ""
+    
+    # Check for HTTP status code first (most specific)
+    if http_status_code and http_status_code in HTTP_STATUS_MESSAGES:
+        message, is_retryable = HTTP_STATUS_MESSAGES[http_status_code]
+        user_message = f"{stage_name}: {message}"
+        is_auth_error = http_status_code in (401, 403)
+    
     # Rate limit detection (429 errors)
-    is_rate_limit = any(x in error_lower for x in ['429', 'rate limit', 'too many requests'])
+    if not user_message:
+        is_rate_limit = any(x in error_lower for x in ['429', 'rate limit', 'too many requests'])
+        if is_rate_limit:
+            is_retryable = True
     
     # Timeout detection (includes "peer closed connection" which is often a timeout symptom)
-    is_timeout = (
-        isinstance(error, ToolTimeoutError) or
-        any(x in error_lower for x in [
-            'timeout', 'timed out', 'peer closed', 'incomplete chunked',
-            'connection', 'httpx'
-        ])
-    )
+    if not user_message:
+        is_timeout = (
+            isinstance(error, ToolTimeoutError) or
+            any(x in error_lower for x in [
+                'timeout', 'timed out', 'peer closed', 'incomplete chunked'
+            ])
+        )
+        if is_timeout:
+            is_retryable = True
     
     # Tool-specific errors (MCP/Microsoft Learn or Bing)
     is_tool_error = any(x in error_lower for x in ['mcp', 'bing', 'learn.microsoft.com'])
+    if is_tool_error and not user_message:
+        is_retryable = True
     
-    # Determine if retryable
-    is_retryable = is_rate_limit or is_timeout or is_tool_error
+    # Check error phrase patterns if we haven't found a specific message yet
+    if not user_message:
+        for patterns, error_type, retryable, message in ERROR_PHRASE_PATTERNS:
+            if any(p in error_lower for p in patterns):
+                user_message = f"{stage_name}: {message}"
+                is_retryable = retryable
+                is_auth_error = error_type in ("auth", "permission")
+                break
     
-    # Generate user-friendly message
-    if isinstance(error, ToolTimeoutError):
-        user_message = f"{stage_name}: {error.tool_name} timed out after {error.elapsed:.0f}s. Retrying..."
-    elif is_rate_limit:
-        if is_tool_error and 'mcp' in error_lower:
-            user_message = f"{stage_name}: Microsoft Learn rate limited. Waiting to retry..."
+    # Generate user-friendly message if not already set
+    if not user_message:
+        if isinstance(error, ToolTimeoutError):
+            user_message = f"{stage_name}: {error.tool_name} timed out after {error.elapsed:.0f}s. Retrying..."
+        elif is_rate_limit:
+            if is_tool_error and 'mcp' in error_lower:
+                user_message = f"{stage_name}: Microsoft Learn rate limited. Waiting to retry..."
+            else:
+                user_message = f"{stage_name}: Rate limited. Waiting to retry..."
+        elif is_timeout:
+            user_message = f"{stage_name} agent timed out. Retrying..."
+        elif is_tool_error:
+            if 'mcp' in error_lower or 'learn.microsoft.com' in error_lower:
+                user_message = f"{stage_name}: Microsoft Learn error. Retrying..."
+            elif 'bing' in error_lower:
+                user_message = f"{stage_name}: Bing search error. Retrying..."
+            else:
+                user_message = f"{stage_name}: Tool error. Retrying..."
         else:
-            user_message = f"{stage_name}: Rate limited. Waiting to retry..."
-    elif is_timeout:
-        user_message = f"{stage_name} agent timed out. Retrying..."
-    elif is_tool_error:
-        if 'mcp' in error_lower or 'learn.microsoft.com' in error_lower:
-            user_message = f"{stage_name}: Microsoft Learn error. Retrying..."
-        elif 'bing' in error_lower:
-            user_message = f"{stage_name}: Bing search error. Retrying..."
-        else:
-            user_message = f"{stage_name}: Tool error. Retrying..."
-    else:
-        # Non-retryable error - more descriptive message
-        user_message = f"{stage_name} failed unexpectedly. Please try again."
+            # Non-retryable error - more descriptive message
+            user_message = f"{stage_name} failed unexpectedly. Please try again."
+    
+    # Final retryability check - combine all conditions
+    if not is_retryable:
+        is_retryable = is_rate_limit or is_timeout or (is_tool_error and not is_auth_error)
     
     return ErrorClassification(
         is_retryable=is_retryable,
         is_rate_limit=is_rate_limit,
         is_timeout=is_timeout,
         is_tool_error=is_tool_error,
+        is_auth_error=is_auth_error,
+        http_status_code=http_status_code,
+        error_code=error_code,
         user_message=user_message,
         raw_error=error_str,
     )

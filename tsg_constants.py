@@ -168,12 +168,26 @@ If a tool returns an error, times out, or rate limits (429):
 Always complete your research report even if one tool fails.
 
 ## Task
-Given troubleshooting notes, use your tools to find directly relevant sources. Focus on:
-1. URLs already in the notes (verify and summarize these first)
-2. Official docs about the specific error/feature
-3. GitHub issues and community workarounds for this problem
+Given troubleshooting notes, use your tools to find directly relevant sources.
 
-Only include sources that directly help diagnose or resolve this issue—skip general tutorials and product overviews.
+### Search Strategy (follow this order)
+
+**Step 1: URLs in notes** — If the notes contain URLs, verify and summarize those first.
+
+**Step 2: Official docs** — Search Microsoft Learn for:
+- The specific error message or error code (if any)
+- The specific feature/service mentioned (e.g., "Azure AI Foundry capability hosts")
+- Known limitations or constraints for the scenario
+
+**Step 3: GitHub and community** — This is critical for finding workarounds. Search for:
+- **The exact symptom/problem** in the user's words (e.g., "Agents cannot see connected Azure OpenAI deployments")
+- **The product + feature + "issue" or "discussion"** (e.g., "azure-ai-foundry agents connected resources")
+- **GitHub Discussions** (not just Issues) — many Azure products use GitHub Discussions for Q&A
+
+**Common mistake**: Searching only for technical terms like "capability host" when the user describes their symptom differently. Always search for the **user-facing symptom** (what they see/can't do) in addition to technical terms.
+
+### Relevance Filter
+Only include sources that directly help diagnose or resolve the stated issue. Only include general tutorials and product overviews if they are directly impactful to the issue cause, workaround, or scope.
 
 Note: Internal tools (Kusto queries, ASC actions, Acis commands) are not publicly documented. Flag these as research gaps for the Writer to mark as MISSING.
 
