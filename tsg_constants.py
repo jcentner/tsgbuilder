@@ -168,9 +168,27 @@ If a tool returns an error, times out, or rate limits (429):
 Always complete your research report even if one tool fails.
 
 ## Task
-Given troubleshooting notes, use your tools to find directly relevant sources.
+Given troubleshooting notes, analyze what's provided and what's missing, then search to fill the gaps.
 
-### Search Strategy (follow this order)
+### Step 0: Analyze the Notes First (before searching)
+
+Read the notes and identify:
+1. **What the user already provides** (check each):
+   - [ ] Problem/symptom description
+   - [ ] Cause or explanation
+   - [ ] Workaround or resolution steps
+   - [ ] Code samples or scripts
+   - [ ] URLs to documentation
+
+2. **What's missing that you need to find**:
+   - If **no workaround** is provided → prioritize finding community workarounds (GitHub Discussions, Stack Overflow)
+   - If **no cause** is explained → prioritize finding official docs that explain the behavior
+   - If **workaround exists but no docs** → prioritize finding official documentation to validate/supplement
+   - If **URLs are provided** → verify and summarize those first
+
+This analysis determines your search priorities.
+
+### Search Strategy (after analysis)
 
 **Step 1: URLs in notes** — If the notes contain URLs, verify and summarize those first.
 
@@ -211,6 +229,11 @@ Output your findings concisely and between these markers:
 <!-- RESEARCH_BEGIN -->
 # Research Report
 
+## Notes Analysis
+- **Provided**: [What the notes already contain — symptom, cause, workaround, code, URLs]
+- **Missing/Gaps**: [What the notes lack that research should fill]
+- **Search Priority**: [What you prioritized searching for based on gaps]
+
 ## Topic Summary
 [What is the issue and what was researched]
 
@@ -222,6 +245,9 @@ Output your findings concisely and between these markers:
 
 ## Community/GitHub Findings
 - **[Source](URL)**: Workarounds or insights found
+  - Extract **concrete details**: code samples, API versions, specific parameters, step sequences
+  - Note any **caveats or updates** (e.g., "this approach no longer works as of [date]")
+  - If a code sample exists, include the key parts (URLs, payloads, API versions) — don't just summarize that it exists
 
 ## Key Technical Facts
 [Verified facts — cite sources here for traceability]
