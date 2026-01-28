@@ -171,8 +171,14 @@ test-unit: install-dev
 test-quick:
 	@echo "Running tests without reinstalling dev deps..."
 	@if [ -d ".venv" ]; then \
+		if [ ! -f ".venv/bin/pytest" ]; then \
+			echo "❌ pytest not found in .venv. Run 'make install-dev' first."; exit 1; \
+		fi; \
 		.venv/bin/pytest tests/ -v --tb=short; \
 	else \
+		if ! command -v pytest &> /dev/null; then \
+			echo "❌ pytest not found. Run 'make install-dev' first."; exit 1; \
+		fi; \
 		pytest tests/ -v --tb=short; \
 	fi
 

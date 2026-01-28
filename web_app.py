@@ -435,7 +435,9 @@ def api_validate():
         try:
             project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
             with project:
-                pass  # Just verify we can create the context
+                # Actually make an API call to verify the token works for this resource
+                # This catches tenant mismatches that the auth check alone doesn't catch
+                _ = list(project.agents.list(limit=1))
             checks.append({
                 "name": "Project Connection",
                 "passed": True,
@@ -443,10 +445,16 @@ def api_validate():
                 "critical": True,
             })
         except Exception as e:
+            error_str = str(e).lower()
+            # Check for tenant mismatch specifically
+            if "tenant" in error_str and "does not match" in error_str:
+                message = "Wrong subscription. Switch to the subscription containing your AI project."
+            else:
+                message = f"Failed: {str(e)[:100]}"
             checks.append({
                 "name": "Project Connection",
                 "passed": False,
-                "message": f"Failed: {str(e)[:100]}",
+                "message": message,
                 "critical": True,
             })
     

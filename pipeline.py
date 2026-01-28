@@ -47,13 +47,58 @@ from tsg_constants import (
 
 
 # =============================================================================
-# VERBOSE LOGGING SETUP
+# LOGGING SETUP
 # =============================================================================
-# When PIPELINE_VERBOSE=1, logs go to both console and a file with incrementing
-# numbers (logs/pipeline_001.log, logs/pipeline_002.log, etc.)
+# Two logging modes:
+# 1. Error logger: Always logs errors to logs/errors.log (regardless of verbose)
+# 2. Verbose logger: When PIPELINE_VERBOSE=1, logs everything to console + file
 # =============================================================================
 
 _verbose_logger: logging.Logger | None = None
+_error_logger: logging.Logger | None = None
+
+
+def _get_error_logger() -> logging.Logger:
+    """Get or create the error logger (always enabled, logs to file only)."""
+    global _error_logger
+    
+    if _error_logger is not None:
+        return _error_logger
+    
+    # Create logs directory
+    logs_dir = Path("logs")
+    logs_dir.mkdir(exist_ok=True)
+    
+    # Create logger for errors only
+    logger = logging.getLogger("pipeline_errors")
+    logger.setLevel(logging.ERROR)
+    logger.handlers.clear()
+    
+    # File handler only - errors go to a persistent file
+    error_file = logs_dir / "errors.log"
+    file_handler = logging.FileHandler(error_file, encoding="utf-8")
+    file_handler.setLevel(logging.ERROR)
+    file_format = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    file_handler.setFormatter(file_format)
+    logger.addHandler(file_handler)
+    
+    _error_logger = logger
+    return logger
+
+
+def log_error(message: str, error: Exception | None = None) -> None:
+    """Log an error message (always, regardless of verbose mode).
+    
+    Errors are logged to logs/errors.log for debugging production issues.
+    """
+    logger = _get_error_logger()
+    if error:
+        logger.error(f"{message}: {error}", exc_info=False)
+    else:
+        logger.error(message)
 
 
 def _get_verbose_logger() -> logging.Logger | None:
@@ -213,6 +258,7 @@ STREAM_IDLE_TIMEOUT = 120
 # =============================================================================
 
 HINT_AUTH = "Run 'az login' to refresh your credentials."
+HINT_TENANT_MISMATCH = "Run 'az login' and select the correct subscription, or use 'az account set -s <subscription>'."
 HINT_PERMISSION = "Check your Azure role assignments on the AI project."
 HINT_NOT_FOUND = "Try re-creating agents in Setup."
 HINT_RATE_LIMIT = "Wait a few minutes and try again."
@@ -243,6 +289,13 @@ HTTP_STATUS_MESSAGES: dict[int, tuple[str, bool, str | None]] = {
 # Common error phrase patterns and their classifications
 # Format: (patterns_list, error_type, is_retryable, user_message_suffix)
 ERROR_PHRASE_PATTERNS: list[tuple[list[str], str, bool, str]] = [
+    # Tenant/subscription mismatch (not retryable - user must switch subscription)
+    (
+        ["tenant provided in token does not match", "token tenant", "does not match resource tenant"],
+        "tenant_mismatch",
+        False,
+        "Wrong Azure subscription. Switch to the subscription containing your AI project.",
+    ),
     # Authentication errors (not retryable)
     (
         ["unauthorized", "authentication failed", "invalid credentials", "401"],
@@ -506,7 +559,18 @@ def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassificatio
             if any(p in error_lower for p in patterns):
                 user_message = f"{stage_name}: {message}"
                 is_retryable = retryable
-                is_auth_error = error_type in ("auth", "permission")
+                is_auth_error = error_type in ("auth", "permission", "tenant_mismatch")
+                # Set hint based on error type
+                if error_type == "tenant_mismatch":
+                    hint = HINT_TENANT_MISMATCH
+                elif error_type == "auth":
+                    hint = HINT_AUTH
+                elif error_type == "permission":
+                    hint = HINT_PERMISSION
+                elif error_type == "not_found":
+                    hint = HINT_NOT_FOUND
+                elif error_type == "quota":
+                    hint = HINT_RATE_LIMIT  # Similar guidance
                 break
     
     # Generate user-friendly message if not already set
@@ -601,11 +665,8 @@ def _send_classified_error(
     """
     Send a classified error event to the UI with user-friendly messaging.
     
-    Uses the Phase 1 classification helpers (_extract_http_status_code, _extract_api_error_code)
-    and the HTTP_STATUS_MESSAGES / API_ERROR_CODES mappings for consistent user messaging.
-    
-    Can accept pre-parsed structured error info (error_code, http_status_code) from
-    Azure API events, or will extract them from error_text if not provided.
+    Uses classify_error() for consistent error handling across the codebase.
+    Also logs errors to the error log for debugging.
     
     Args:
         send_event: Callback function to emit SSE events
@@ -614,91 +675,58 @@ def _send_classified_error(
         error_code: Optional pre-parsed API error code (e.g., "rate_limit_exceeded")
         http_status_code: Optional pre-parsed HTTP status code (e.g., 429)
     """
-    error_lower = error_text.lower()
+    # Map stage name to PipelineStage enum
+    stage_map = {
+        "Research": PipelineStage.RESEARCH,
+        "Write": PipelineStage.WRITE,
+        "Review": PipelineStage.REVIEW,
+    }
+    stage = stage_map.get(stage_name, PipelineStage.FAILED)
     
-    # Use provided structured info, or extract from error text
-    if http_status_code is None:
-        http_status_code = _extract_http_status_code(error_text)
-    if error_code is None:
-        error_code = _extract_api_error_code(error_text)
+    # Create a synthetic exception for classification
+    # If we have pre-parsed info, create ResponseFailedError to carry it
+    if error_code or http_status_code:
+        synthetic_error = ResponseFailedError(
+            stage=stage_name.lower(),
+            error_msg=error_text,
+            error_code=error_code,
+            http_status_code=http_status_code,
+        )
+    else:
+        synthetic_error = RuntimeError(error_text)
     
-    # Initialize defaults
-    message: str | None = None
-    icon = "⚠️"
-    error_type = "unknown"
-    is_retryable = True  # Default to retryable for UI messaging
+    # Use centralized classification
+    classification = classify_error(synthetic_error, stage)
     
-    # Priority 1: Check API error code (most specific)
-    if error_code and error_code in API_ERROR_CODES:
-        msg_template, is_retryable, error_type = API_ERROR_CODES[error_code]
-        message = f"{stage_name}: {msg_template}"
-        icon = "⏳" if is_retryable else "❌"
+    # Log the error (always, regardless of verbose mode)
+    log_error(f"[{stage_name}] {error_text}", synthetic_error)
     
-    # Priority 2: Check HTTP status code
-    elif http_status_code and http_status_code in HTTP_STATUS_MESSAGES:
-        msg_template, is_retryable, _ = HTTP_STATUS_MESSAGES[http_status_code]
-        message = f"{stage_name}: {msg_template}"
-        error_type = f"http_{http_status_code}"
-        icon = "⏳" if is_retryable else "❌"
+    # Determine icon based on retryability
+    icon = "⏳" if classification.is_retryable else "❌"
     
-    # Priority 2.5: Check ERROR_PHRASE_PATTERNS for known phrases
-    if not message:
-        for patterns, phrase_error_type, phrase_retryable, phrase_message in ERROR_PHRASE_PATTERNS:
-            if any(p in error_lower for p in patterns):
-                message = f"{stage_name}: {phrase_message}"
-                error_type = phrase_error_type
-                is_retryable = phrase_retryable
-                icon = "⏳" if is_retryable else "❌"
-                break
-    
-    # Priority 3: Pattern-based detection (fallback)
-    if not message:
-        # Rate limit detection
-        is_rate_limit = any(x in error_lower for x in ['429', 'rate limit', 'too many requests'])
-        
-        # Timeout detection
-        is_timeout = any(x in error_lower for x in [
-            'timeout', 'timed out', 'peer closed', 'incomplete chunked', 'connection', 'httpx'
-        ])
-        
-        # Tool-specific errors
-        is_mcp = 'mcp' in error_lower or 'learn.microsoft.com' in error_lower
-        is_bing = 'bing' in error_lower
-        
-        if is_rate_limit:
-            if is_mcp:
-                message = f"{stage_name}: Microsoft Learn rate limited. Will retry..."
-            else:
-                message = f"{stage_name}: Rate limited. Will retry..."
-            icon = "⏳"
-            error_type = "rate_limit"
-        elif is_timeout:
-            message = f"{stage_name} timed out. Will retry..."
-            icon = "⚠️"
-            error_type = "timeout"
-        elif is_mcp:
-            message = f"{stage_name}: Microsoft Learn error. Will retry..."
-            icon = "⚠️"
-            error_type = "mcp_error"
-        elif is_bing:
-            message = f"{stage_name}: Bing search error. Will retry..."
-            icon = "⚠️"
-            error_type = "tool_error"
-        else:
-            # Truncate raw error for display
-            truncated = error_text[:100] + "..." if len(error_text) > 100 else error_text
-            message = f"{stage_name} error: {truncated}"
-            icon = "❌"
-            error_type = "unknown"
+    # Determine error type for frontend
+    if classification.is_rate_limit:
+        error_type = "rate_limit"
+    elif classification.is_timeout:
+        error_type = "timeout"
+    elif classification.is_tool_error:
+        error_type = "tool_error"
+    elif classification.is_auth_error:
+        error_type = "auth_error"
+    elif classification.http_status_code:
+        error_type = f"http_{classification.http_status_code}"
+    else:
+        error_type = "unknown"
     
     send_event("error", {
-        "message": f"{icon} {message}",
+        "message": f"{icon} {classification.user_message}",
         "icon": icon,
         "error_type": error_type,
-        "is_retryable": is_retryable,  # Let frontend know if this is retryable
+        "is_retryable": classification.is_retryable,
+        "hint": classification.hint,
         # Include structured info for debugging
-        "error_code": error_code,
-        "http_status_code": http_status_code,
+        "error_code": classification.error_code,
+        "http_status_code": classification.http_status_code,
     })
 
 
@@ -1316,6 +1344,12 @@ class TSGPipeline:
                 last_error = e
                 classification = classify_error(e, stage)
                 
+                # Log the error (always, regardless of verbose mode)
+                log_error(
+                    f"[{stage.value}] Attempt {attempt + 1}/{max_retries + 1} failed: {classification.user_message}",
+                    e
+                )
+                
                 if classification.is_retryable and attempt < max_retries:
                     # Send user-friendly status message
                     self._send_stage_event(stage, "status", {
@@ -1334,11 +1368,13 @@ class TSGPipeline:
                     
                     continue
                 
-                # Final failure - send user-friendly error
+                # Final failure - log and send user-friendly error
+                log_error(f"[{stage.value}] All retries exhausted", e)
                 self._send_stage_event(stage, "error", {
                     "message": f"❌ {classification.user_message.replace('Retrying...', 'All retries exhausted.')}",
                     "icon": "❌",
                     "fatal": True,
+                    "hint": classification.hint,
                 })
                 raise
         
