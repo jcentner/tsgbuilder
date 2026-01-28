@@ -147,30 +147,50 @@ The application has a solid foundation for error handling with centralized class
 
 ---
 
-## Phase 4: Web App Error Handler Enhancement (Medium Priority)
+## Phase 4: Web App Error Handler Enhancement (Medium Priority) ✅ COMPLETED
+
+> **Completed**: January 28, 2026
 
 **Goal**: Improve `_get_user_friendly_error()` to handle Azure-specific errors.
 
-### 4.1 Refactor `_get_user_friendly_error()`
-**File**: `web_app.py`  
-**Location**: Lines 55-78  
-**Changes**:
-- Import and reuse `classify_error()` patterns from pipeline
-- Add Azure-specific error detection:
-  - Auth errors → "Authentication failed. Run `az login`."
-  - Connection errors → "Cannot connect to Azure. Check network and endpoint."
-  - Agent not found → "Agent was removed. Re-create in Setup."
-- Preserve stage context when available
-
-### 4.2 Add error context preservation
+### 4.1 Create `PipelineError` exception class ✅
 **File**: `pipeline.py`  
+**Location**: After `ResponseFailedError` class  
 **Changes**:
-- When raising `RuntimeError` in `_run_stage()`, include structured context
-- Consider creating a custom `PipelineError` exception class that carries:
+- Created `PipelineError` exception that carries:
   - `stage: PipelineStage`
   - `original_error: Exception`
   - `http_status: int | None`
   - `error_code: str | None`
+- Updated `classify_error()` to handle `PipelineError` by unwrapping and using pre-computed info
+
+### 4.2 Update `_run_stage()` to raise `PipelineError` ✅
+**File**: `pipeline.py`  
+**Location**: Exception handler in `_run_stage()`  
+**Changes**:
+- Replaced `RuntimeError` with `PipelineError` that carries structured context
+- Pre-classifies the error to extract HTTP status and error code
+
+### 4.3 Refactor `_get_user_friendly_error()` ✅
+**File**: `web_app.py`  
+**Location**: Lines 120-218  
+**Changes**:
+- Changed return type from `str` to `tuple[str, str | None]` (message, hint)
+- Added handling for `PipelineError` (uses stage info directly, no string parsing)
+- Added handling for Azure SDK exceptions:
+  - `ClientAuthenticationError` → auth guidance with hint
+  - `ServiceRequestError` → connectivity guidance with hint
+  - `ResourceNotFoundError` → resource missing guidance with hint
+  - `HttpResponseError` → parses status code (401, 403, 404, 429, 5xx) with hints
+- Falls back to string-based stage detection for unknown exceptions
+- Generates appropriate hints based on error classification
+
+### 4.4 Update call site and frontend ✅
+**File**: `web_app.py` and `templates/index.html`  
+**Changes**:
+- Updated exception handler in `/api/generate` to unpack tuple return
+- Includes `hint` field in error event data when available
+- Frontend displays hints with 💡 icon in activity feed and error messages
 
 ---
 

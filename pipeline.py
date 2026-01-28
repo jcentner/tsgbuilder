@@ -161,6 +161,26 @@ class ResponseFailedError(Exception):
         super().__init__(f"Response failed in {stage}: {error_msg}")
 
 
+class PipelineError(Exception):
+    """Unified pipeline exception with structured error context.
+    
+    Carries stage information and error details for precise error messaging
+    in the web app. Created to eliminate string-based stage detection.
+    """
+    def __init__(
+        self,
+        stage: "PipelineStage",
+        original_error: Exception,
+        http_status: int | None = None,
+        error_code: str | None = None,
+    ):
+        self.stage = stage
+        self.original_error = original_error
+        self.http_status = http_status
+        self.error_code = error_code
+        super().__init__(f"Pipeline {stage.value} failed: {original_error}")
+
+
 # =============================================================================
 # TIMEOUT CONFIGURATION
 # =============================================================================
@@ -397,6 +417,26 @@ def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassificatio
             http_status_code=http_status_code,
             error_code=error_code,
             user_message=user_message,
+            raw_error=error_str,
+        )
+    
+    # Handle PipelineError specially - unwrap and use pre-computed info
+    if isinstance(error, PipelineError):
+        # Use the pre-computed HTTP status and error code from _run_stage
+        http_status_code = error.http_status or http_status_code
+        error_code = error.error_code or error_code
+        # Recurse on the original error to get full classification
+        original_classification = classify_error(error.original_error, stage)
+        # Override with any pre-computed values
+        return ErrorClassification(
+            is_retryable=original_classification.is_retryable,
+            is_rate_limit=original_classification.is_rate_limit,
+            is_timeout=original_classification.is_timeout,
+            is_tool_error=original_classification.is_tool_error,
+            is_auth_error=original_classification.is_auth_error,
+            http_status_code=http_status_code or original_classification.http_status_code,
+            error_code=error_code or original_classification.error_code,
+            user_message=original_classification.user_message,
             raw_error=error_str,
         )
     
@@ -1185,9 +1225,15 @@ class TSGPipeline:
             return "".join(response_text_parts), conversation_id or ""
             
         except Exception as e:
-            # Don't send error event here - let the caller's retry logic decide
-            # whether this is a retryable error or a fatal error
-            raise RuntimeError(f"Stage {stage.value} failed: {e}") from e
+            # Classify the error to extract structured info for better messaging
+            classification = classify_error(e, stage)
+            # Raise PipelineError with context - let caller's retry logic handle it
+            raise PipelineError(
+                stage=stage,
+                original_error=e,
+                http_status=classification.http_status_code,
+                error_code=classification.error_code,
+            ) from e
     
     def _run_stage_with_retry(
         self,

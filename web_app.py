@@ -48,7 +48,7 @@ from tsg_constants import (
 )
 
 # Import pipeline for multi-stage generation
-from pipeline import run_pipeline, CancelledError, classify_error, PipelineStage
+from pipeline import run_pipeline, CancelledError, classify_error, PipelineStage, PipelineError
 
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
@@ -117,16 +117,86 @@ if TEST_MODE:
 app = Flask(__name__)
 
 
-def _get_user_friendly_error(error: Exception) -> str:
+def _get_user_friendly_error(error: Exception) -> tuple[str, str | None]:
     """
-    Convert a pipeline exception to a user-friendly error message.
+    Convert a pipeline exception to a user-friendly error message with optional hint.
     
-    Uses classify_error() to generate consistent messaging.
-    Falls back to a generic message for unknown errors.
+    Handles Azure SDK exceptions, PipelineError, and falls back to classify_error()
+    for consistent messaging.
+    
+    Returns:
+        Tuple of (user_message, hint) where hint may be None.
     """
+    # 1. Handle PipelineError (has stage info directly)
+    if isinstance(error, PipelineError):
+        stage = error.stage
+        classification = classify_error(error.original_error, stage)
+        message = classification.user_message
+        
+        # Generate hint based on error type
+        hint = None
+        if classification.is_auth_error:
+            hint = "Run 'az login' to refresh your credentials."
+        elif classification.http_status_code == 404:
+            hint = "Try re-creating agents in Setup."
+        
+        # Make message more final (retries exhausted at this point)
+        if 'Retrying' in message:
+            message = message.replace('Retrying...', 'Please try again.')
+            message = message.replace('Will retry...', 'Please try again.')
+        
+        return message, hint
+    
+    # 2. Handle Azure SDK exceptions (may come from non-pipeline code)
+    if isinstance(error, ClientAuthenticationError):
+        return (
+            "Azure authentication failed.",
+            "Run 'az login' to refresh your credentials.",
+        )
+    
+    if isinstance(error, ServiceRequestError):
+        return (
+            "Cannot connect to Azure service.",
+            "Check your network connection and verify PROJECT_ENDPOINT is correct.",
+        )
+    
+    if isinstance(error, ResourceNotFoundError):
+        return (
+            "Azure resource not found.",
+            "The agent may have been deleted. Try re-creating in Setup.",
+        )
+    
+    if isinstance(error, HttpResponseError):
+        status_code = getattr(error, 'status_code', 500) or 500
+        if status_code == 401:
+            return (
+                "Azure authentication failed (401).",
+                "Run 'az login' to refresh credentials.",
+            )
+        elif status_code == 403:
+            return (
+                "Permission denied (403).",
+                "Check your Azure role assignments on the AI project.",
+            )
+        elif status_code == 404:
+            return (
+                "Resource not found (404).",
+                "Verify PROJECT_ENDPOINT and try re-creating agents.",
+            )
+        elif status_code == 429:
+            return (
+                "Rate limit exceeded (429).",
+                "Wait a few minutes and try again.",
+            )
+        elif status_code >= 500:
+            return (
+                f"Azure service error ({status_code}).",
+                "This is usually temporary. Try again in a moment.",
+            )
+    
+    # 3. Fall back to string-based stage detection for other exceptions
     error_str = str(error).lower()
     
-    # Try to detect which stage failed from the error message
     if 'research' in error_str:
         stage = PipelineStage.RESEARCH
     elif 'write' in error_str:
@@ -138,13 +208,22 @@ def _get_user_friendly_error(error: Exception) -> str:
     
     classification = classify_error(error, stage)
     
-    # For fatal errors (retries exhausted), make the message more final
+    # Generate hint based on classification
+    hint = None
+    if classification.is_auth_error:
+        hint = "Run 'az login' to refresh your credentials."
+    elif classification.http_status_code == 404:
+        hint = "Try re-creating agents in Setup."
+    elif classification.is_timeout:
+        hint = "Try again with shorter input, or check your network connection."
+    
+    # Make message more final (retries exhausted)
     message = classification.user_message
     if 'Retrying' in message:
         message = message.replace('Retrying...', 'Please try again.')
         message = message.replace('Will retry...', 'Please try again.')
     
-    return message
+    return message, hint
 
 
 def _get_agent_ids_file() -> Path:
@@ -733,11 +812,14 @@ def generate_pipeline_sse_events(
             result_holder["cancelled"] = True
             event_queue.put({"type": "cancelled", "data": {"message": "Run cancelled by user"}})
         except Exception as e:
-            # Generate user-friendly error message
-            user_message = _get_user_friendly_error(e)
+            # Generate user-friendly error message with optional hint
+            user_message, hint = _get_user_friendly_error(e)
             result_holder["error"] = user_message
             # Send user-friendly message to UI (fatal = all retries exhausted)
-            event_queue.put({"type": "error", "data": {"message": user_message, "fatal": True}})
+            error_data = {"message": user_message, "fatal": True}
+            if hint:
+                error_data["hint"] = hint
+            event_queue.put({"type": "error", "data": error_data})
         finally:
             event_queue.put(None)  # Signal end of events
     

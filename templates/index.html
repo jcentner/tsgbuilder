@@ -847,7 +847,7 @@
     <header>
         <div class="container">
             <h1>🔧 TSG Builder</h1>
-            <p class="subtitle">Transform troubleshooting notes into <strong>draft</strong> Technical Support Guides — please carefully review the output before use</p>
+            <p class="subtitle">Transform troubleshooting notes into <strong>draft</strong> Technical Support Guides — please carefully review the output before use. LLMs may produce variable quality output; it can be worth a retrying a draft that misses the mark.</p>
         </div>
     </header>
 
@@ -1369,9 +1369,21 @@ Include:
                     } else {
                         // Fatal error - reject the promise
                         currentRunId = null;  // Clear run ID on error
-                        addActivity('❌', event.data.message, 'error');
+                        
+                        // Show error with hint in activity feed if available
+                        let activityMsg = event.data.message;
+                        if (event.data.hint) {
+                            activityMsg += ` 💡 ${event.data.hint}`;
+                        }
+                        addActivity('❌', activityMsg, 'error');
+                        
                         // Build comprehensive error message with debug info
                         let errorMsg = event.data.message;
+                        
+                        // Add hint if available
+                        if (event.data.hint) {
+                            errorMsg += `\n\n💡 ${event.data.hint}`;
+                        }
                     
                         // Add debug info section
                         const debugParts = [];

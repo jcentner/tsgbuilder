@@ -1,7 +1,7 @@
 # TSG Builder Makefile
 # Common operations for the TSG Builder project
 
-.PHONY: setup install validate clean help ui lint build
+.PHONY: setup install install-dev validate clean help ui lint build test test-verbose test-cov test-unit test-quick
 
 # Default Python interpreter
 PYTHON ?= python3
@@ -18,9 +18,17 @@ help:
 	@echo "                      automatically if configuration is needed."
 	@echo "                      Add TEST=1 for verbose logging and JSON output"
 	@echo ""
+	@echo "Testing:"
+	@echo "  make test         - Run all tests"
+	@echo "  make test-verbose - Run tests with verbose output"
+	@echo "  make test-cov     - Run tests with coverage report"
+	@echo "  make test-unit    - Run only unit tests (fast)"
+	@echo "  make test-quick   - Run tests without reinstalling deps"
+	@echo ""
 	@echo "Utility commands:"
 	@echo "  make validate     - Validate environment configuration (CLI)"
 	@echo "  make install      - Install dependencies only (assumes venv exists)"
+	@echo "  make install-dev  - Install dev dependencies (pytest, etc.)"
 	@echo "  make build        - Build standalone executable with PyInstaller"
 	@echo "  make clean        - Remove generated files and virtual environment"
 	@echo "                      Add DELETE_AGENTS=1 to also delete agents from Azure"
@@ -28,6 +36,7 @@ help:
 	@echo ""
 	@echo "Example:"
 	@echo "  make setup && make ui    # Recommended: setup then open UI"
+	@echo "  make test                # Run the test suite"
 	@echo "  make ui TEST=1           # Run with test output capture"
 	@echo "  make clean DELETE_AGENTS=1  # Clean and delete agents from Azure"
 
@@ -59,6 +68,15 @@ install: requirements.txt
 		pip install -r requirements.txt; \
 	fi
 	@echo "Dependencies installed."
+
+install-dev: install
+	@echo "Installing development dependencies..."
+	@if [ -d ".venv" ]; then \
+		.venv/bin/pip install pytest pytest-cov; \
+	else \
+		pip install pytest pytest-cov; \
+	fi
+	@echo "Development dependencies installed."
 
 env-file:
 	@if [ ! -f ".env" ]; then \
@@ -112,6 +130,51 @@ lint:
 		$(PYTHON) -m py_compile *.py; \
 	fi
 	@echo "Syntax check passed."
+
+# Testing
+.PHONY: test test-verbose test-cov test-unit test-quick
+
+test: install-dev
+	@echo "Running tests..."
+	@if [ -d ".venv" ]; then \
+		.venv/bin/pytest tests/ -v; \
+	else \
+		pytest tests/ -v; \
+	fi
+
+test-verbose: install-dev
+	@echo "Running tests with verbose output..."
+	@if [ -d ".venv" ]; then \
+		.venv/bin/pytest tests/ -vvl --tb=long; \
+	else \
+		pytest tests/ -vvl --tb=long; \
+	fi
+
+test-cov: install-dev
+	@echo "Running tests with coverage..."
+	@if [ -d ".venv" ]; then \
+		.venv/bin/pytest tests/ --cov=. --cov-report=term-missing --cov-report=html; \
+	else \
+		pytest tests/ --cov=. --cov-report=term-missing --cov-report=html; \
+	fi
+	@echo ""
+	@echo "Coverage report: htmlcov/index.html"
+
+test-unit: install-dev
+	@echo "Running unit tests only..."
+	@if [ -d ".venv" ]; then \
+		.venv/bin/pytest tests/ -v -m unit; \
+	else \
+		pytest tests/ -v -m unit; \
+	fi
+
+test-quick:
+	@echo "Running tests without reinstalling dev deps..."
+	@if [ -d ".venv" ]; then \
+		.venv/bin/pytest tests/ -v --tb=short; \
+	else \
+		pytest tests/ -v --tb=short; \
+	fi
 
 build: .venv install
 	@echo "Building standalone executable..."
