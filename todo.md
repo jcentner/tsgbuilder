@@ -1,4 +1,3 @@
-- major error handling improvements: see plan doc
 - major cleanup before merge
 
 - test executable on different platforms

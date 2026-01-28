@@ -201,8 +201,6 @@ def _get_user_friendly_error(error: Exception) -> tuple[str, str | None]:
         message = message.replace('Will retry...', 'Please try again.')
     
     return message, hint
-    
-    return message, hint
 
 
 def _get_agent_ids_file() -> Path:
@@ -832,19 +830,9 @@ def api_generate_stream():
             - data: str - Base64-encoded image data (without data URL prefix)
             - type: str - MIME type (e.g., "image/png", "image/jpeg")
     """
-    # Debug: log request details to compare browser vs curl
-    print(f"[DEBUG] /api/generate/stream request:")
-    print(f"  User-Agent: {request.headers.get('User-Agent', 'N/A')[:80]}")
-    print(f"  Accept: {request.headers.get('Accept', 'N/A')}")
-    print(f"  Content-Type: {request.headers.get('Content-Type', 'N/A')}")
-    print(f"  Connection: {request.headers.get('Connection', 'N/A')}")
-    
     data = request.get_json()
     notes = data.get("notes", "").strip()
     images = data.get("images", None)  # List of {data: base64, type: mime_type}
-    
-    print(f"  Notes length: {len(notes)}")
-    print(f"  Has images: {bool(images)}")
     
     if not notes:
         return jsonify({"error": "No notes provided"}), 400
@@ -946,7 +934,11 @@ def api_example():
 
 @app.route("/api/debug/threads")
 def api_debug_threads():
-    """Debug endpoint: show active threads and runs."""
+    """Debug endpoint: show active threads and runs (only available in debug mode)."""
+    # Only allow in debug mode
+    if not app.debug:
+        return jsonify({"error": "Debug endpoint not available in production"}), 403
+    
     import threading
     threads = []
     for t in threading.enumerate():

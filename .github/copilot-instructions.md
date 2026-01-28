@@ -278,9 +278,4 @@ This is **correct behavior**. `approved: false` with issues means "TSG is struct
 
 ---
 
-## Known Gaps / TODOs
 
-- [ ] Research stage "Research Gaps" wording could be clearer (informational vs actionable)
-- [ ] Review stage may flag user-provided content as accuracy issues incorrectly
-- [ ] Test mode outputs to repo root; need to change this to output to examples/ directory
-- [ ] Refactor javascript and CSS out of `index.html` into separate files for maintainability
