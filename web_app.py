@@ -21,6 +21,12 @@ from typing import Any, Generator
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from dotenv import load_dotenv, find_dotenv, set_key
 from azure.identity import DefaultAzureCredential
+from azure.core.exceptions import (
+    HttpResponseError,
+    ClientAuthenticationError,
+    ServiceRequestError,
+    ResourceNotFoundError,
+)
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import (
     PromptAgentDefinition,
@@ -518,6 +524,95 @@ def api_config_set():
     })
 
 
+def _classify_azure_sdk_error(error: Exception) -> tuple[str, str | None, int]:
+    """Classify Azure SDK exceptions into user-friendly messages with hints.
+    
+    Args:
+        error: The exception raised by Azure SDK
+        
+    Returns:
+        Tuple of (user_message, hint, http_status_code)
+    """
+    # ClientAuthenticationError - credentials/auth issues
+    if isinstance(error, ClientAuthenticationError):
+        return (
+            "Azure authentication failed.",
+            "Run 'az login' to refresh your credentials, or check that DefaultAzureCredential has valid credentials.",
+            401,
+        )
+    
+    # ServiceRequestError - network/connectivity issues
+    if isinstance(error, ServiceRequestError):
+        return (
+            "Could not connect to Azure service.",
+            "Check your network connection and verify PROJECT_ENDPOINT is correct.",
+            0,  # No HTTP status for connection failures
+        )
+    
+    # ResourceNotFoundError - resource doesn't exist
+    if isinstance(error, ResourceNotFoundError):
+        return (
+            "Azure resource not found.",
+            "Verify your PROJECT_ENDPOINT and BING_CONNECTION_NAME are correct. The resource may have been deleted.",
+            404,
+        )
+    
+    # HttpResponseError - general HTTP errors with status codes
+    if isinstance(error, HttpResponseError):
+        status_code = getattr(error, 'status_code', 500) or 500
+        reason = getattr(error, 'reason', '') or ''
+        
+        # Map status codes to user-friendly messages and hints
+        if status_code == 401:
+            return (
+                "Azure authentication failed (401 Unauthorized).",
+                "Run 'az login' to refresh credentials.",
+                401,
+            )
+        elif status_code == 403:
+            return (
+                f"Permission denied (403 Forbidden).",
+                "Check your Azure role assignments. You need Contributor or Owner role on the AI project.",
+                403,
+            )
+        elif status_code == 404:
+            return (
+                "Resource not found (404).",
+                "Verify your PROJECT_ENDPOINT points to a valid Azure AI project.",
+                404,
+            )
+        elif status_code == 429:
+            return (
+                "Rate limit exceeded (429 Too Many Requests).",
+                "Wait a few minutes and try again.",
+                429,
+            )
+        elif status_code >= 500:
+            return (
+                f"Azure service error ({status_code} {reason}).",
+                "This is usually temporary. Wait a moment and try again.",
+                status_code,
+            )
+        else:
+            # Other 4xx errors
+            error_msg = str(error)
+            # Try to extract a cleaner message
+            if hasattr(error, 'message') and error.message:
+                error_msg = error.message
+            return (
+                f"Request failed ({status_code}): {error_msg[:200]}",
+                None,
+                status_code,
+            )
+    
+    # Generic fallback for unknown exceptions
+    return (
+        f"Unexpected error: {str(error)[:200]}",
+        "Check the logs for more details.",
+        500,
+    )
+
+
 @app.route("/api/create-agent", methods=["POST"])
 def api_create_agent():
     """Create all three pipeline agents (Researcher, Writer, Reviewer)."""
@@ -623,10 +718,27 @@ def api_create_agent():
             "message": f"Created 3 pipeline agents: {agent_name}-Researcher, {agent_name}-Writer, {agent_name}-Reviewer",
         })
     
+    except (ClientAuthenticationError, ServiceRequestError, ResourceNotFoundError, HttpResponseError) as e:
+        # Classify Azure SDK errors with user-friendly messages and hints
+        user_message, hint, status_code = _classify_azure_sdk_error(e)
+        response = {
+            "success": False,
+            "error": user_message,
+            "error_type": type(e).__name__,
+        }
+        if hint:
+            response["hint"] = hint
+        # Use appropriate HTTP status (minimum 400 for errors)
+        http_status = status_code if status_code >= 400 else 500
+        return jsonify(response), http_status
+    
     except Exception as e:
+        # Generic fallback for unexpected errors
         return jsonify({
             "success": False,
-            "error": str(e),
+            "error": f"Unexpected error: {str(e)}",
+            "error_type": "UnexpectedError",
+            "hint": "Check the server logs for more details.",
         }), 500
 
 

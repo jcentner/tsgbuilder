@@ -1937,8 +1937,11 @@ Include:
             const status = document.getElementById('agentCreateStatus');
             const agentStatusDiv = document.getElementById('agentStatus');
             
+            // Check if we're recreating existing agents
+            const isRecreating = btn.textContent.includes('Recreate');
+            
             btn.disabled = true;
-            btn.textContent = '🔄 Creating...';
+            btn.textContent = isRecreating ? '🔄 Recreating...' : '🔄 Creating...';
             status.textContent = 'This may take a moment...';
             status.style.color = 'var(--text-secondary)';
             
@@ -1951,8 +1954,7 @@ Include:
                 const result = await response.json();
                 
                 if (result.success) {
-                    status.textContent = '✓ Agents created!';
-                    status.style.color = 'var(--success)';
+                    status.textContent = isRecreating ? '✓ Agents recreated!' : '✓ Agents created!';\n                    status.style.color = 'var(--success)';
                     
                     // Handle v2 format (object with name/version) or v1 format (string ID)
                     const getAgentDisplay = (agent) => {
@@ -1976,19 +1978,23 @@ Include:
                         </div>
                     `;
                     
-                    btn.textContent = '✓ Agents Created';
+                    btn.textContent = '🔄 Recreate Agents';
+                    btn.disabled = false;  // Keep enabled for future recreates
                     updateSetupOverallStatus();
                 } else {
-                    status.textContent = '✗ ' + result.error;
-                    status.style.color = 'var(--error)';
+                    // Display error with hint if available
+                    let errorHtml = `<span style="color: var(--error);">✗ ${result.error}</span>`;
+                    if (result.hint) {
+                        errorHtml += `<br><span style="color: var(--text-secondary); font-size: 12px; margin-top: 4px; display: block;">💡 ${result.hint}</span>`;
+                    }
+                    status.innerHTML = errorHtml;
                     btn.disabled = false;
-                    btn.textContent = '🤖 Create Agents';
+                    btn.textContent = isRecreating ? '🔄 Recreate Agents' : '🤖 Create Agents';
                 }
             } catch (error) {
-                status.textContent = '✗ ' + error.message;
-                status.style.color = 'var(--error)';
+                status.innerHTML = `<span style="color: var(--error);">✗ ${error.message}</span>`;
                 btn.disabled = false;
-                btn.textContent = '🤖 Create Agents';
+                btn.textContent = isRecreating ? '🔄 Recreate Agents' : '🤖 Create Agents';
             }
         }
 
@@ -2026,7 +2032,9 @@ Include:
                             </div>
                         </div>
                     `;
-                    document.getElementById('createAgentBtn').textContent = '✓ Agents Exist';
+                    const createBtn = document.getElementById('createAgentBtn');
+                    createBtn.textContent = '🔄 Recreate Agents';
+                    createBtn.disabled = false;  // Keep enabled so user can recreate if needed
                 }
                 
             } catch (error) {

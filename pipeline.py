@@ -244,6 +244,28 @@ ERROR_PHRASE_PATTERNS: list[tuple[list[str], str, bool, str]] = [
     ),
 ]
 
+# API-specific error codes and their user-friendly messages
+# Format: {error_code: (message, is_retryable, error_type)}
+API_ERROR_CODES: dict[str, tuple[str, bool, str]] = {
+    # Rate limiting (retryable with backoff)
+    "rate_limit_exceeded": ("Rate limited. Will retry...", True, "rate_limit"),
+    "too_many_requests": ("Too many requests. Will retry...", True, "rate_limit"),
+    # Server errors (retryable)
+    "server_error": ("Azure service error. Will retry...", True, "server_error"),
+    "internal_error": ("Internal service error. Will retry...", True, "server_error"),
+    "service_unavailable": ("Service temporarily unavailable. Will retry...", True, "service_unavailable"),
+    # Input/validation errors (not retryable)
+    "invalid_prompt": ("Input could not be processed. Try simplifying.", False, "input_error"),
+    "invalid_request": ("Invalid request format.", False, "input_error"),
+    "context_length_exceeded": ("Input too long. Try shorter notes.", False, "input_error"),
+    "content_filter": ("Content was filtered. Review input for policy violations.", False, "content_filter"),
+    # Tool/search errors (retryable)
+    "vector_store_timeout": ("Search timed out. Will retry...", True, "tool_timeout"),
+    "tool_error": ("Tool call failed. Will retry...", True, "tool_error"),
+    # Timeout errors (retryable)
+    "timeout": ("Request timed out. Will retry...", True, "timeout"),
+}
+
 
 @dataclass
 class ErrorClassification:
@@ -453,58 +475,103 @@ class PipelineResult:
     stage_outputs: dict = field(default_factory=dict)
 
 
-def _send_classified_error(send_event, stage_name: str, error_text: str) -> None:
+def _send_classified_error(
+    send_event,
+    stage_name: str,
+    error_text: str,
+    error_code: str | None = None,
+    http_status_code: int | None = None,
+) -> None:
     """
     Send a classified error event to the UI with user-friendly messaging.
     
-    Uses the same classification logic as classify_error() but for string errors
-    (used in streaming event processing where we don't have Exception objects).
+    Uses the Phase 1 classification helpers (_extract_http_status_code, _extract_api_error_code)
+    and the HTTP_STATUS_MESSAGES / API_ERROR_CODES mappings for consistent user messaging.
+    
+    Can accept pre-parsed structured error info (error_code, http_status_code) from
+    Azure API events, or will extract them from error_text if not provided.
+    
+    Args:
+        send_event: Callback function to emit SSE events
+        stage_name: Human-readable stage name (e.g., "Research")
+        error_text: Raw error message string
+        error_code: Optional pre-parsed API error code (e.g., "rate_limit_exceeded")
+        http_status_code: Optional pre-parsed HTTP status code (e.g., 429)
     """
     error_lower = error_text.lower()
     
-    # Rate limit detection
-    is_rate_limit = any(x in error_lower for x in ['429', 'rate limit', 'too many requests'])
+    # Use provided structured info, or extract from error text
+    if http_status_code is None:
+        http_status_code = _extract_http_status_code(error_text)
+    if error_code is None:
+        error_code = _extract_api_error_code(error_text)
     
-    # Timeout detection
-    is_timeout = any(x in error_lower for x in [
-        'timeout', 'timed out', 'peer closed', 'incomplete chunked', 'connection', 'httpx'
-    ])
+    # Initialize defaults
+    message: str | None = None
+    icon = "⚠️"
+    error_type = "unknown"
+    is_retryable = True  # Default to retryable for UI messaging
     
-    # Tool-specific errors
-    is_mcp = 'mcp' in error_lower or 'learn.microsoft.com' in error_lower
-    is_bing = 'bing' in error_lower
+    # Priority 1: Check API error code (most specific)
+    if error_code and error_code in API_ERROR_CODES:
+        msg_template, is_retryable, error_type = API_ERROR_CODES[error_code]
+        message = f"{stage_name}: {msg_template}"
+        icon = "⏳" if is_retryable else "❌"
     
-    # Generate user-friendly message and choose icon
-    if is_rate_limit:
-        if is_mcp:
-            message = f"{stage_name}: Microsoft Learn rate limited. Will retry..."
+    # Priority 2: Check HTTP status code
+    elif http_status_code and http_status_code in HTTP_STATUS_MESSAGES:
+        msg_template, is_retryable = HTTP_STATUS_MESSAGES[http_status_code]
+        message = f"{stage_name}: {msg_template}"
+        error_type = f"http_{http_status_code}"
+        icon = "⏳" if is_retryable else "❌"
+    
+    # Priority 3: Pattern-based detection (fallback)
+    if not message:
+        # Rate limit detection
+        is_rate_limit = any(x in error_lower for x in ['429', 'rate limit', 'too many requests'])
+        
+        # Timeout detection
+        is_timeout = any(x in error_lower for x in [
+            'timeout', 'timed out', 'peer closed', 'incomplete chunked', 'connection', 'httpx'
+        ])
+        
+        # Tool-specific errors
+        is_mcp = 'mcp' in error_lower or 'learn.microsoft.com' in error_lower
+        is_bing = 'bing' in error_lower
+        
+        if is_rate_limit:
+            if is_mcp:
+                message = f"{stage_name}: Microsoft Learn rate limited. Will retry..."
+            else:
+                message = f"{stage_name}: Rate limited. Will retry..."
+            icon = "⏳"
+            error_type = "rate_limit"
+        elif is_timeout:
+            message = f"{stage_name} timed out. Will retry..."
+            icon = "⚠️"
+            error_type = "timeout"
+        elif is_mcp:
+            message = f"{stage_name}: Microsoft Learn error. Will retry..."
+            icon = "⚠️"
+            error_type = "mcp_error"
+        elif is_bing:
+            message = f"{stage_name}: Bing search error. Will retry..."
+            icon = "⚠️"
+            error_type = "tool_error"
         else:
-            message = f"{stage_name}: Rate limited. Will retry..."
-        icon = "⏳"
-        error_type = "rate_limit"
-    elif is_timeout:
-        message = f"{stage_name} timed out. Will retry..."
-        icon = "⚠️"
-        error_type = "timeout"
-    elif is_mcp:
-        message = f"{stage_name}: Microsoft Learn error. Will retry..."
-        icon = "⚠️"
-        error_type = "mcp_error"
-    elif is_bing:
-        message = f"{stage_name}: Bing search error. Will retry..."
-        icon = "⚠️"
-        error_type = "tool_error"
-    else:
-        # Truncate raw error for display
-        truncated = error_text[:100] + "..." if len(error_text) > 100 else error_text
-        message = f"{stage_name} error: {truncated}"
-        icon = "❌"
-        error_type = "unknown"
+            # Truncate raw error for display
+            truncated = error_text[:100] + "..." if len(error_text) > 100 else error_text
+            message = f"{stage_name} error: {truncated}"
+            icon = "❌"
+            error_type = "unknown"
     
     send_event("error", {
         "message": f"{icon} {message}",
         "icon": icon,
         "error_type": error_type,
+        # Include structured info for debugging
+        "error_code": error_code,
+        "http_status_code": http_status_code,
     })
 
 
@@ -770,15 +837,73 @@ def process_pipeline_v2_stream(
                 response_text_parts.append(event.response.output_text)
     
     elif event_type == "response.failed":
+        # Parse structured error information from response.error
         error_msg = "Unknown error"
+        error_code = None
+        http_status_code = None
+        
         if hasattr(event, 'response') and hasattr(event.response, 'error'):
-            error_msg = str(event.response.error)
-        _send_classified_error(send_event, stage_name, error_msg)
+            error_obj = event.response.error
+            
+            # Try to extract structured fields from the error object
+            # Azure API errors may have: code, message, param, type
+            if hasattr(error_obj, 'code'):
+                error_code = error_obj.code
+            elif isinstance(error_obj, dict) and 'code' in error_obj:
+                error_code = error_obj['code']
+            
+            if hasattr(error_obj, 'message'):
+                error_msg = error_obj.message
+            elif isinstance(error_obj, dict) and 'message' in error_obj:
+                error_msg = error_obj['message']
+            else:
+                error_msg = str(error_obj)
+            
+            # Some errors include HTTP status in the error object
+            if hasattr(error_obj, 'status'):
+                http_status_code = error_obj.status
+            elif hasattr(error_obj, 'status_code'):
+                http_status_code = error_obj.status_code
+            elif isinstance(error_obj, dict):
+                http_status_code = error_obj.get('status') or error_obj.get('status_code')
+            
+            # Log structured error for debugging
+            if verbose:
+                verbose_log(f"[{stage_name}] response.failed: code={error_code}, status={http_status_code}, msg={error_msg[:100]}")
+        
+        _send_classified_error(send_event, stage_name, error_msg, error_code=error_code, http_status_code=http_status_code)
     
     elif event_type == "error":
         # Handle error events that may occur during tool processing
-        error_msg = getattr(event, 'message', None) or getattr(event, 'error', None) or str(event)
-        _send_classified_error(send_event, stage_name, str(error_msg))
+        # Try to extract structured fields: code, message, param
+        error_msg = None
+        error_code = None
+        http_status_code = None
+        
+        # Extract error code if available
+        if hasattr(event, 'code'):
+            error_code = event.code
+        
+        # Extract message (try multiple attribute names)
+        if hasattr(event, 'message') and event.message:
+            error_msg = event.message
+        elif hasattr(event, 'error') and event.error:
+            error_msg = str(event.error)
+        else:
+            error_msg = str(event)
+        
+        # Extract HTTP status if available
+        if hasattr(event, 'status'):
+            http_status_code = event.status
+        elif hasattr(event, 'status_code'):
+            http_status_code = event.status_code
+        
+        # Log structured error for debugging
+        if verbose:
+            param = getattr(event, 'param', None)
+            verbose_log(f"[{stage_name}] error event: code={error_code}, status={http_status_code}, param={param}, msg={error_msg[:100] if error_msg else 'None'}")
+        
+        _send_classified_error(send_event, stage_name, error_msg, error_code=error_code, http_status_code=http_status_code)
     
     elif event_type and event_type.startswith("error"):
         # Catch any other error-type events

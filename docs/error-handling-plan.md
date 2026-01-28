@@ -58,26 +58,32 @@ The application has a solid foundation for error handling with centralized class
 
 ---
 
-## Phase 2: Streaming Event Error Parsing (Medium Priority)
+## Phase 2: Streaming Event Error Parsing (Medium Priority) ✅ COMPLETED
+
+> **Completed**: January 28, 2026
 
 **Goal**: Extract structured error information from Azure API `ResponseErrorEvent` and `ResponseFailedEvent`.
 
-### 2.1 Update `process_pipeline_v2_stream()` for `response.failed` events
+### 2.1 Update `process_pipeline_v2_stream()` for `response.failed` events ✅
 **File**: `pipeline.py`  
-**Location**: Lines 535-542  
+**Location**: Lines 839-874 (after Phase 2 edits)  
 **Changes**:
 - Parse `event.response.error` for structured fields:
   - `error.code` (e.g., `server_error`, `rate_limit_exceeded`)
   - `error.message`
   - `error.param` (if available)
 - Pass structured info to `_send_classified_error()` for better classification
+- Added verbose logging for debugging structured error info
 
-### 2.2 Update `_send_classified_error()` for structured errors
+### 2.2 Update `_send_classified_error()` for structured errors ✅
 **File**: `pipeline.py`  
-**Location**: Lines 260-307  
+**Location**: Lines 478-568 (after Phase 2 edits)  
 **Changes**:
-- Accept optional `error_code` parameter
-- Map API error codes to user-friendly messages:
+- Accept optional `error_code` and `http_status_code` parameters
+- Use `_extract_http_status_code()` and `_extract_api_error_code()` from Phase 1 for string-based extraction
+- Use `HTTP_STATUS_MESSAGES` lookup for HTTP status codes
+- Added `API_ERROR_CODES` mapping for API-specific error codes
+- Include structured error info in event data for debugging
 
 | API Error Code | User Message |
 |----------------|--------------|
@@ -85,52 +91,59 @@ The application has a solid foundation for error handling with centralized class
 | `server_error` | Service error message |
 | `invalid_prompt` | "Input could not be processed. Try simplifying." |
 | `vector_store_timeout` | "Search timed out. Retrying..." |
+| `context_length_exceeded` | "Input too long. Try shorter notes." |
+| `content_filter` | "Content was filtered. Review input for policy violations." |
 
-### 2.3 Handle `error` event type with structured data
+### 2.3 Handle `error` event type with structured data ✅
 **File**: `pipeline.py`  
-**Location**: Lines 541-543  
+**Location**: Lines 875-906 (after Phase 2 edits)  
 **Changes**:
 - Parse `event.code`, `event.message`, `event.param` when available
 - Include error code in the classified error for better debugging
+- Added verbose logging for debugging structured error info
 
 ---
 
-## Phase 3: Agent Creation Error Handling (Medium Priority)
+## Phase 3: Agent Creation Error Handling (Medium Priority) ✅ COMPLETED
+
+> **Completed**: January 28, 2026
 
 **Goal**: Provide specific, actionable error messages when agent creation fails.
 
-### 3.1 Create helper function for Azure SDK exceptions
+### 3.1 Create helper function for Azure SDK exceptions ✅
 **File**: `web_app.py`  
+**Location**: Lines 521-604 (new function before api_create_agent)  
 **Changes**:
-- Add `_classify_azure_sdk_error(error: Exception) -> tuple[str, int]` function
-- Return (user_message, http_status_code)
-- Handle specific Azure exception types:
-  - `HttpResponseError` → parse status code and message
-  - `ClientAuthenticationError` → auth guidance
-  - `ServiceRequestError` → connectivity guidance
+- Added `_classify_azure_sdk_error(error: Exception) -> tuple[str, str | None, int]` function
+- Returns (user_message, hint, http_status_code)
+- Handles specific Azure exception types:
+  - `ClientAuthenticationError` → auth guidance with hint to run `az login`
+  - `ServiceRequestError` → connectivity guidance with endpoint check hint
   - `ResourceNotFoundError` → resource missing guidance
+  - `HttpResponseError` → parses status code (401, 403, 404, 429, 5xx) with appropriate hints
 
-### 3.2 Update `api_create_agent()` endpoint
+### 3.2 Update `api_create_agent()` endpoint ✅
 **File**: `web_app.py`  
-**Location**: Lines 570-574  
+**Location**: Lines 713-732 (exception handlers)  
 **Changes**:
-- Catch specific exception types before generic `Exception`
-- Use `_classify_azure_sdk_error()` for user-friendly messages
-- Include troubleshooting hints in error response:
+- Catches specific exception types before generic `Exception`
+- Uses `_classify_azure_sdk_error()` for user-friendly messages
+- Returns structured error response with hint field:
   ```json
   {
     "success": false,
     "error": "User-friendly message",
-    "error_type": "auth_error",
-    "hint": "Run 'az login' to refresh credentials"
+    "error_type": "HttpResponseError",
+    "hint": "Run 'az login' to refresh credentials."
   }
   ```
 
-### 3.3 Update frontend to display hints
+### 3.3 Update frontend to display hints ✅
 **File**: `templates/index.html`  
+**Location**: `createAgent()` function  
 **Changes**:
-- Parse `hint` field from error responses
-- Display hints in a distinct style below the error message
+- Parses `hint` field from error responses
+- Displays hints with 💡 icon in secondary text style below error message
 
 ---
 
