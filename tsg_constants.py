@@ -220,6 +220,11 @@ This analysis determines your search priorities.
 ### Relevance Filter
 Only include sources that directly help diagnose or resolve the stated issue. Only include general tutorials and product overviews if they are directly impactful to the issue cause, workaround, or scope.
 
+### URL Stability
+When possible, prefer **stable/canonical URLs** over ephemeral sources:
+- **Prefer**: Official docs (learn.microsoft.com/azure/...), SDK API references, GitHub Issues/Discussions with permanent URLs
+- **Less stable**: Microsoft Q&A threads, community forums — these can be moved or removed. If a Q&A thread has the same content as an official doc, prefer the official doc.
+
 Note: Internal tools (Kusto queries, ASC actions, Acis commands) are not publicly documented. Flag these as research gaps for the Writer to mark as MISSING.
 
 ## Output Format
@@ -332,7 +337,7 @@ Internal tools (Kusto queries, ASC actions, Acis commands) are Azure-internal an
 ## Key Requirements
 - All template sections must have content or a MISSING placeholder
 - Diagnosis section must include: "Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM."
-- Related Information: include relevant URLs from user notes and research (no need to attribute their source type)
+- Related Information: format as markdown links using `[Page Title](URL)` for readability. Use descriptive titles from the page, not raw URLs.
 - The TSG must be production-ready: no meta-commentary, no source attributions, ready for the reviewer to distribute to the support engineers that will consume it.
 """
 
