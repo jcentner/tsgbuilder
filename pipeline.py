@@ -148,6 +148,19 @@ class StreamIdleTimeoutError(Exception):
         )
 
 
+class ResponseFailedError(Exception):
+    """Raised when a response.failed event is received during streaming.
+    
+    This error is retryable - the retry logic should handle it.
+    """
+    def __init__(self, stage: str, error_msg: str, error_code: str | None = None, http_status_code: int | None = None):
+        self.stage = stage
+        self.error_msg = error_msg
+        self.error_code = error_code
+        self.http_status_code = http_status_code
+        super().__init__(f"Response failed in {stage}: {error_msg}")
+
+
 # =============================================================================
 # TIMEOUT CONFIGURATION
 # =============================================================================
@@ -353,6 +366,40 @@ def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassificatio
     http_status_code = _extract_http_status_code(error_str)
     error_code = _extract_api_error_code(error_str)
     
+    # Handle ResponseFailedError specially - it carries parsed info from the stream
+    if isinstance(error, ResponseFailedError):
+        # Use the pre-parsed error info from the stream event
+        http_status_code = error.http_status_code or http_status_code
+        error_code = error.error_code or error_code
+        
+        # Determine retryability based on HTTP status or error code
+        is_retryable = True  # Default to retryable for API failures
+        is_auth_error = False
+        is_rate_limit = False
+        
+        # Check for non-retryable error codes
+        if error_code and error_code in API_ERROR_CODES:
+            _, is_retryable, _ = API_ERROR_CODES[error_code]
+        elif http_status_code:
+            if http_status_code in HTTP_STATUS_MESSAGES:
+                _, is_retryable = HTTP_STATUS_MESSAGES[http_status_code]
+            is_auth_error = http_status_code in (401, 403)
+            is_rate_limit = http_status_code == 429
+        
+        user_message = f"{stage_name}: {error.error_msg}"
+        
+        return ErrorClassification(
+            is_retryable=is_retryable,
+            is_rate_limit=is_rate_limit,
+            is_timeout=False,
+            is_tool_error=False,
+            is_auth_error=is_auth_error,
+            http_status_code=http_status_code,
+            error_code=error_code,
+            user_message=user_message,
+            raw_error=error_str,
+        )
+    
     # Initialize classification flags
     is_auth_error = False
     is_rate_limit = False
@@ -525,6 +572,16 @@ def _send_classified_error(
         error_type = f"http_{http_status_code}"
         icon = "⏳" if is_retryable else "❌"
     
+    # Priority 2.5: Check ERROR_PHRASE_PATTERNS for known phrases
+    if not message:
+        for patterns, phrase_error_type, phrase_retryable, phrase_message in ERROR_PHRASE_PATTERNS:
+            if any(p in error_lower for p in patterns):
+                message = f"{stage_name}: {phrase_message}"
+                error_type = phrase_error_type
+                is_retryable = phrase_retryable
+                icon = "⏳" if is_retryable else "❌"
+                break
+    
     # Priority 3: Pattern-based detection (fallback)
     if not message:
         # Rate limit detection
@@ -569,6 +626,7 @@ def _send_classified_error(
         "message": f"{icon} {message}",
         "icon": icon,
         "error_type": error_type,
+        "is_retryable": is_retryable,  # Let frontend know if this is retryable
         # Include structured info for debugging
         "error_code": error_code,
         "http_status_code": http_status_code,
@@ -845,33 +903,64 @@ def process_pipeline_v2_stream(
         if hasattr(event, 'response') and hasattr(event.response, 'error'):
             error_obj = event.response.error
             
+            # Debug: Log the actual error object type and content
+            if verbose:
+                verbose_log(f"[{stage_name}] response.failed error_obj type: {type(error_obj)}")
+                verbose_log(f"[{stage_name}] response.failed error_obj repr: {repr(error_obj)[:200]}")
+                if hasattr(error_obj, '__dict__'):
+                    verbose_log(f"[{stage_name}] response.failed error_obj.__dict__: {error_obj.__dict__}")
+            
             # Try to extract structured fields from the error object
             # Azure API errors may have: code, message, param, type
-            if hasattr(error_obj, 'code'):
+            if hasattr(error_obj, 'code') and error_obj.code:
                 error_code = error_obj.code
-            elif isinstance(error_obj, dict) and 'code' in error_obj:
+            elif isinstance(error_obj, dict) and error_obj.get('code'):
                 error_code = error_obj['code']
             
-            if hasattr(error_obj, 'message'):
+            # Extract message - check for non-None values
+            if hasattr(error_obj, 'message') and error_obj.message:
                 error_msg = error_obj.message
-            elif isinstance(error_obj, dict) and 'message' in error_obj:
+            elif isinstance(error_obj, dict) and error_obj.get('message'):
                 error_msg = error_obj['message']
-            else:
-                error_msg = str(error_obj)
             
             # Some errors include HTTP status in the error object
-            if hasattr(error_obj, 'status'):
+            if hasattr(error_obj, 'status') and error_obj.status:
                 http_status_code = error_obj.status
-            elif hasattr(error_obj, 'status_code'):
+            elif hasattr(error_obj, 'status_code') and error_obj.status_code:
                 http_status_code = error_obj.status_code
             elif isinstance(error_obj, dict):
                 http_status_code = error_obj.get('status') or error_obj.get('status_code')
             
+            # Fallback: If message still default, try string conversion or check response-level attributes
+            if error_msg == "Unknown error":
+                # Try the string representation of error_obj
+                error_str = str(error_obj)
+                if error_str and error_str != 'None' and error_str != '{}':
+                    error_msg = error_str
+                
+                # Also check if response itself has an error message
+                if hasattr(event.response, 'last_error') and event.response.last_error:
+                    error_msg = str(event.response.last_error)
+                elif hasattr(event.response, 'status') and event.response.status:
+                    error_msg = f"Response status: {event.response.status}"
+            
             # Log structured error for debugging
             if verbose:
-                verbose_log(f"[{stage_name}] response.failed: code={error_code}, status={http_status_code}, msg={error_msg[:100]}")
+                verbose_log(f"[{stage_name}] response.failed parsed: code={error_code}, status={http_status_code}, msg={error_msg[:100]}")
+        else:
+            # No error object - log what we do have
+            if verbose:
+                verbose_log(f"[{stage_name}] response.failed: no error object found on event")
+                if hasattr(event, 'response'):
+                    verbose_log(f"[{stage_name}] response attrs: {[a for a in dir(event.response) if not a.startswith('_')]}")
+                verbose_log(f"[{stage_name}] event repr: {repr(event)[:200]}")
         
+        # Send the error to UI (it will also be sent after retry if retry fails)
         _send_classified_error(send_event, stage_name, error_msg, error_code=error_code, http_status_code=http_status_code)
+        
+        # Raise exception so retry logic can handle it
+        # This ensures the caller knows the response failed and can retry if appropriate
+        raise ResponseFailedError(stage_name, error_msg, error_code, http_status_code)
     
     elif event_type == "error":
         # Handle error events that may occur during tool processing

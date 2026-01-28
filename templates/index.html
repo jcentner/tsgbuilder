@@ -1113,7 +1113,10 @@ Include:
             updateImagePreviews();
         }
 
-        async function checkStatus() {
+        async function checkStatus(retryCount = 0) {
+            const maxRetries = 3;
+            const retryDelay = 500; // ms
+            
             try {
                 const response = await fetch('/api/status');
                 const data = await response.json();
@@ -1138,6 +1141,12 @@ Include:
                     }
                 }
             } catch (error) {
+                // Retry a few times on startup in case server isn't ready yet
+                if (retryCount < maxRetries) {
+                    console.log(`Status check failed, retrying in ${retryDelay}ms... (${retryCount + 1}/${maxRetries})`);
+                    setTimeout(() => checkStatus(retryCount + 1), retryDelay);
+                    return;
+                }
                 document.getElementById('statusIndicator').className = 'status-indicator error';
                 document.getElementById('statusText').textContent = 'Failed to check status';
             }
@@ -1346,9 +1355,11 @@ Include:
                     
                 case 'error':
                     // Check if this is a retryable error vs fatal error
-                    // Retryable errors: rate_limit, timeout, mcp_error, tool_error
+                    // Use is_retryable from backend if available, fallback to error_type check
                     const errorType = event.data.error_type;
-                    const isRetryable = ['rate_limit', 'timeout', 'mcp_error', 'tool_error'].includes(errorType);
+                    const isRetryable = event.data.is_retryable !== undefined 
+                        ? event.data.is_retryable 
+                        : ['rate_limit', 'timeout', 'mcp_error', 'tool_error'].includes(errorType);
                     
                     if (isRetryable) {
                         // Retryable error - show warning style, don't reject
@@ -1954,7 +1965,8 @@ Include:
                 const result = await response.json();
                 
                 if (result.success) {
-                    status.textContent = isRecreating ? '✓ Agents recreated!' : '✓ Agents created!';\n                    status.style.color = 'var(--success)';
+                    status.textContent = isRecreating ? '✓ Agents recreated!' : '✓ Agents created!';
+                    status.style.color = 'var(--success)';
                     
                     // Handle v2 format (object with name/version) or v1 format (string ID)
                     const getAgentDisplay = (agent) => {
