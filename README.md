@@ -271,7 +271,10 @@ See [docs/architecture.md](docs/architecture.md) for detailed pipeline architect
 | `.agent_ids.json` | Pipeline agent IDs after creation |
 | `.sessions/` | Persisted sessions for follow-up questions (git-ignored) |
 | `input-example.txt` | Example input notes |
-| `templates/index.html` | Web UI template |
+| `templates/index.html` | Web UI HTML structure |
+| `static/css/styles.css` | Web UI styles |
+| `static/js/main.js` | Core UI logic (streaming, TSG generation, images) |
+| `static/js/setup.js` | Setup modal functionality |
 | `tests/` | Pytest test suite with fixtures |
 
 ## Contributing

@@ -631,6 +631,16 @@ function skipQuestions() {
    ========================================================================== */
 
 async function clearSession() {
+    // Cancel any active run first
+    if (currentRunId) {
+        try {
+            await fetch(`/api/cancel/${currentRunId}`, { method: 'POST' });
+        } catch (e) {
+            // Ignore errors - run may have already finished
+        }
+        currentRunId = null;
+    }
+    
     // Clear server-side session if we have one
     if (currentThreadId) {
         try {

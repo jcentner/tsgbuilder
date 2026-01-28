@@ -223,7 +223,10 @@ Every TSG must:
 | `pipeline.py` | Multi-stage pipeline orchestration, error classification |
 | `tsg_constants.py` | TSG template, stage prompts, validation functions |
 | `web_app.py` | Flask server, SSE streaming, session management |
-| `templates/index.html` | Web UI |
+| `templates/index.html` | Web UI HTML structure |
+| `static/css/styles.css` | Web UI styles (CSS custom properties, component styles) |
+| `static/js/main.js` | Core UI logic (streaming, TSG generation, images) |
+| `static/js/setup.js` | Setup modal (config, validation, agent creation) |
 | `.agent_ids.json` | Stored agent names/IDs (created by setup) |
 | `docs/architecture.md` | Technical architecture details |
 | `examples/` | Test inputs, expected outputs, test run captures |

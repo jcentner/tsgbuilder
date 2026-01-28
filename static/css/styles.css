@@ -224,6 +224,15 @@ textarea:focus {
     background: var(--border);
 }
 
+.btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-secondary:disabled:hover {
+    background: var(--bg);
+}
+
 .btn-cancel {
     background: transparent;
     color: var(--error);
