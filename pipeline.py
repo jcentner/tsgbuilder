@@ -196,8 +196,8 @@ class PipelineError(Exception):
 # =============================================================================
 
 # Tool-level timeout: max time for any single tool call (Bing, MCP, etc.)
-# Set to 2 min because Bing is expected to complete in <30s
-TOOL_CALL_TIMEOUT = 120
+# Bing typically <30s, MCP <60s; 90s provides buffer while detecting stuck tools faster
+TOOL_CALL_TIMEOUT = 90
 
 # Stream idle timeout: max time to wait for the next event from the stream
 # If no event arrives within this time, assume the connection is hung
@@ -206,21 +206,38 @@ STREAM_IDLE_TIMEOUT = 120
 
 
 # =============================================================================
+# HINT CONSTANTS
+# =============================================================================
+# Reusable hint strings for user guidance. Keeps messaging consistent across
+# the codebase (pipeline, web_app, agent creation, etc.).
+# =============================================================================
+
+HINT_AUTH = "Run 'az login' to refresh your credentials."
+HINT_PERMISSION = "Check your Azure role assignments on the AI project."
+HINT_NOT_FOUND = "Try re-creating agents in Setup."
+HINT_RATE_LIMIT = "Wait a few minutes and try again."
+HINT_TIMEOUT = "Try again with shorter input, or check your network connection."
+HINT_CONNECTION = "Check your network connection and verify PROJECT_ENDPOINT is correct."
+HINT_SERVICE_ERROR = "This is usually temporary. Try again in a moment."
+
+
+# =============================================================================
 # HTTP STATUS CODE ERROR MESSAGES
 # =============================================================================
 # User-friendly messages for common Azure/HTTP error status codes.
-# These provide actionable guidance rather than generic error text.
+# Format: {status_code: (message, is_retryable, hint)}
 # =============================================================================
 
-HTTP_STATUS_MESSAGES: dict[int, tuple[str, bool]] = {
-    # (message, is_retryable)
-    401: ("Azure authentication failed. Run `az login` and try again.", False),
-    403: ("Permission denied. Check your Azure role assignments.", False),
-    404: ("Resource not found. Try re-creating agents in Setup.", False),
-    500: ("Azure service error. Please try again.", True),
-    502: ("Azure gateway error. Please try again.", True),
-    503: ("Azure AI service temporarily unavailable. Try again in a few minutes.", True),
-    504: ("Azure gateway timed out. Try again with shorter input.", True),
+HTTP_STATUS_MESSAGES: dict[int, tuple[str, bool, str | None]] = {
+    # (message, is_retryable, hint)
+    401: ("Azure authentication failed.", False, HINT_AUTH),
+    403: ("Permission denied.", False, HINT_PERMISSION),
+    404: ("Resource not found.", False, HINT_NOT_FOUND),
+    429: ("Rate limit exceeded.", True, HINT_RATE_LIMIT),
+    500: ("Azure service error.", True, HINT_SERVICE_ERROR),
+    502: ("Azure gateway error.", True, HINT_SERVICE_ERROR),
+    503: ("Azure AI service temporarily unavailable.", True, HINT_RATE_LIMIT),
+    504: ("Azure gateway timed out.", True, HINT_TIMEOUT),
 }
 
 # Common error phrase patterns and their classifications
@@ -311,6 +328,7 @@ class ErrorClassification:
     http_status_code: int | None     # Detected HTTP status code (if any)
     error_code: str | None           # API-specific error code (e.g., 'rate_limit_exceeded')
     user_message: str                # Human-friendly message for UI
+    hint: str | None                 # Actionable hint for the user
     raw_error: str                   # Original error for logging
 
 
@@ -396,13 +414,14 @@ def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassificatio
         is_retryable = True  # Default to retryable for API failures
         is_auth_error = False
         is_rate_limit = False
+        hint: str | None = None
         
         # Check for non-retryable error codes
         if error_code and error_code in API_ERROR_CODES:
             _, is_retryable, _ = API_ERROR_CODES[error_code]
         elif http_status_code:
             if http_status_code in HTTP_STATUS_MESSAGES:
-                _, is_retryable = HTTP_STATUS_MESSAGES[http_status_code]
+                _, is_retryable, hint = HTTP_STATUS_MESSAGES[http_status_code]
             is_auth_error = http_status_code in (401, 403)
             is_rate_limit = http_status_code == 429
         
@@ -417,6 +436,7 @@ def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassificatio
             http_status_code=http_status_code,
             error_code=error_code,
             user_message=user_message,
+            hint=hint,
             raw_error=error_str,
         )
     
@@ -437,6 +457,7 @@ def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassificatio
             http_status_code=http_status_code or original_classification.http_status_code,
             error_code=error_code or original_classification.error_code,
             user_message=original_classification.user_message,
+            hint=original_classification.hint,
             raw_error=error_str,
         )
     
@@ -447,12 +468,14 @@ def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassificatio
     is_tool_error = False
     is_retryable = False
     user_message = ""
+    hint: str | None = None
     
     # Check for HTTP status code first (most specific)
     if http_status_code and http_status_code in HTTP_STATUS_MESSAGES:
-        message, is_retryable = HTTP_STATUS_MESSAGES[http_status_code]
+        message, is_retryable, hint = HTTP_STATUS_MESSAGES[http_status_code]
         user_message = f"{stage_name}: {message}"
         is_auth_error = http_status_code in (401, 403)
+        is_rate_limit = http_status_code == 429
     
     # Rate limit detection (429 errors)
     if not user_message:
@@ -490,15 +513,19 @@ def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassificatio
     if not user_message:
         if isinstance(error, ToolTimeoutError):
             user_message = f"{stage_name}: {error.tool_name} timed out after {error.elapsed:.0f}s. Retrying..."
+            hint = HINT_TIMEOUT
         elif isinstance(error, StreamIdleTimeoutError):
             user_message = f"{stage_name}: Connection stalled (no response for {error.idle_time:.0f}s). Retrying..."
+            hint = HINT_TIMEOUT
         elif is_rate_limit:
             if is_tool_error and 'mcp' in error_lower:
                 user_message = f"{stage_name}: Microsoft Learn rate limited. Waiting to retry..."
             else:
                 user_message = f"{stage_name}: Rate limited. Waiting to retry..."
+            hint = HINT_RATE_LIMIT
         elif is_timeout:
             user_message = f"{stage_name} agent timed out. Retrying..."
+            hint = HINT_TIMEOUT
         elif is_tool_error:
             if 'mcp' in error_lower or 'learn.microsoft.com' in error_lower:
                 user_message = f"{stage_name}: Microsoft Learn error. Retrying..."
@@ -506,6 +533,7 @@ def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassificatio
                 user_message = f"{stage_name}: Bing search error. Retrying..."
             else:
                 user_message = f"{stage_name}: Tool error. Retrying..."
+            hint = HINT_SERVICE_ERROR
         else:
             # Non-retryable error - more descriptive message
             user_message = f"{stage_name} failed unexpectedly. Please try again."
@@ -523,6 +551,7 @@ def classify_error(error: Exception, stage: PipelineStage) -> ErrorClassificatio
         http_status_code=http_status_code,
         error_code=error_code,
         user_message=user_message,
+        hint=hint,
         raw_error=error_str,
     )
 
@@ -607,7 +636,7 @@ def _send_classified_error(
     
     # Priority 2: Check HTTP status code
     elif http_status_code and http_status_code in HTTP_STATUS_MESSAGES:
-        msg_template, is_retryable = HTTP_STATUS_MESSAGES[http_status_code]
+        msg_template, is_retryable, _ = HTTP_STATUS_MESSAGES[http_status_code]
         message = f"{stage_name}: {msg_template}"
         error_type = f"http_{http_status_code}"
         icon = "⏳" if is_retryable else "❌"

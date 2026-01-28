@@ -48,7 +48,22 @@ from tsg_constants import (
 )
 
 # Import pipeline for multi-stage generation
-from pipeline import run_pipeline, CancelledError, classify_error, PipelineStage, PipelineError
+from pipeline import (
+    run_pipeline,
+    CancelledError,
+    classify_error,
+    PipelineStage,
+    PipelineError,
+    # Hint constants for consistent messaging
+    HINT_AUTH,
+    HINT_PERMISSION,
+    HINT_NOT_FOUND,
+    HINT_RATE_LIMIT,
+    HINT_TIMEOUT,
+    HINT_CONNECTION,
+    HINT_SERVICE_ERROR,
+    HTTP_STATUS_MESSAGES,
+)
 
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
@@ -122,7 +137,7 @@ def _get_user_friendly_error(error: Exception) -> tuple[str, str | None]:
     Convert a pipeline exception to a user-friendly error message with optional hint.
     
     Handles Azure SDK exceptions, PipelineError, and falls back to classify_error()
-    for consistent messaging.
+    for consistent messaging. Uses hint constants from pipeline.py for consistency.
     
     Returns:
         Tuple of (user_message, hint) where hint may be None.
@@ -133,12 +148,8 @@ def _get_user_friendly_error(error: Exception) -> tuple[str, str | None]:
         classification = classify_error(error.original_error, stage)
         message = classification.user_message
         
-        # Generate hint based on error type
-        hint = None
-        if classification.is_auth_error:
-            hint = "Run 'az login' to refresh your credentials."
-        elif classification.http_status_code == 404:
-            hint = "Try re-creating agents in Setup."
+        # Use hint from classification (now includes hint field)
+        hint = classification.hint
         
         # Make message more final (retries exhausted at this point)
         if 'Retrying' in message:
@@ -149,50 +160,22 @@ def _get_user_friendly_error(error: Exception) -> tuple[str, str | None]:
     
     # 2. Handle Azure SDK exceptions (may come from non-pipeline code)
     if isinstance(error, ClientAuthenticationError):
-        return (
-            "Azure authentication failed.",
-            "Run 'az login' to refresh your credentials.",
-        )
+        return ("Azure authentication failed.", HINT_AUTH)
     
     if isinstance(error, ServiceRequestError):
-        return (
-            "Cannot connect to Azure service.",
-            "Check your network connection and verify PROJECT_ENDPOINT is correct.",
-        )
+        return ("Cannot connect to Azure service.", HINT_CONNECTION)
     
     if isinstance(error, ResourceNotFoundError):
-        return (
-            "Azure resource not found.",
-            "The agent may have been deleted. Try re-creating in Setup.",
-        )
+        return ("Azure resource not found.", HINT_NOT_FOUND)
     
     if isinstance(error, HttpResponseError):
         status_code = getattr(error, 'status_code', 500) or 500
-        if status_code == 401:
-            return (
-                "Azure authentication failed (401).",
-                "Run 'az login' to refresh credentials.",
-            )
-        elif status_code == 403:
-            return (
-                "Permission denied (403).",
-                "Check your Azure role assignments on the AI project.",
-            )
-        elif status_code == 404:
-            return (
-                "Resource not found (404).",
-                "Verify PROJECT_ENDPOINT and try re-creating agents.",
-            )
-        elif status_code == 429:
-            return (
-                "Rate limit exceeded (429).",
-                "Wait a few minutes and try again.",
-            )
+        # Use HTTP_STATUS_MESSAGES for consistent messaging
+        if status_code in HTTP_STATUS_MESSAGES:
+            msg, _, hint = HTTP_STATUS_MESSAGES[status_code]
+            return (f"{msg} ({status_code}).", hint)
         elif status_code >= 500:
-            return (
-                f"Azure service error ({status_code}).",
-                "This is usually temporary. Try again in a moment.",
-            )
+            return (f"Azure service error ({status_code}).", HINT_SERVICE_ERROR)
     
     # 3. Fall back to string-based stage detection for other exceptions
     error_str = str(error).lower()
@@ -208,20 +191,16 @@ def _get_user_friendly_error(error: Exception) -> tuple[str, str | None]:
     
     classification = classify_error(error, stage)
     
-    # Generate hint based on classification
-    hint = None
-    if classification.is_auth_error:
-        hint = "Run 'az login' to refresh your credentials."
-    elif classification.http_status_code == 404:
-        hint = "Try re-creating agents in Setup."
-    elif classification.is_timeout:
-        hint = "Try again with shorter input, or check your network connection."
+    # Use hint from classification
+    hint = classification.hint
     
     # Make message more final (retries exhausted)
     message = classification.user_message
     if 'Retrying' in message:
         message = message.replace('Retrying...', 'Please try again.')
         message = message.replace('Will retry...', 'Please try again.')
+    
+    return message, hint
     
     return message, hint
 
@@ -544,90 +523,41 @@ def api_config_set():
 def _classify_azure_sdk_error(error: Exception) -> tuple[str, str | None, int]:
     """Classify Azure SDK exceptions into user-friendly messages with hints.
     
-    Args:
-        error: The exception raised by Azure SDK
-        
-    Returns:
-        Tuple of (user_message, hint, http_status_code)
+    Uses shared constants from pipeline.py for consistent messaging across
+    the codebase. Returns (user_message, hint, http_status_code).
     """
     # ClientAuthenticationError - credentials/auth issues
     if isinstance(error, ClientAuthenticationError):
-        return (
-            "Azure authentication failed.",
-            "Run 'az login' to refresh your credentials, or check that DefaultAzureCredential has valid credentials.",
-            401,
-        )
+        return ("Azure authentication failed.", HINT_AUTH, 401)
     
     # ServiceRequestError - network/connectivity issues
     if isinstance(error, ServiceRequestError):
-        return (
-            "Could not connect to Azure service.",
-            "Check your network connection and verify PROJECT_ENDPOINT is correct.",
-            0,  # No HTTP status for connection failures
-        )
+        return ("Could not connect to Azure service.", HINT_CONNECTION, 0)
     
     # ResourceNotFoundError - resource doesn't exist
     if isinstance(error, ResourceNotFoundError):
-        return (
-            "Azure resource not found.",
-            "Verify your PROJECT_ENDPOINT and BING_CONNECTION_NAME are correct. The resource may have been deleted.",
-            404,
-        )
+        return ("Azure resource not found.", HINT_NOT_FOUND, 404)
     
     # HttpResponseError - general HTTP errors with status codes
     if isinstance(error, HttpResponseError):
         status_code = getattr(error, 'status_code', 500) or 500
-        reason = getattr(error, 'reason', '') or ''
         
-        # Map status codes to user-friendly messages and hints
-        if status_code == 401:
-            return (
-                "Azure authentication failed (401 Unauthorized).",
-                "Run 'az login' to refresh credentials.",
-                401,
-            )
-        elif status_code == 403:
-            return (
-                f"Permission denied (403 Forbidden).",
-                "Check your Azure role assignments. You need Contributor or Owner role on the AI project.",
-                403,
-            )
-        elif status_code == 404:
-            return (
-                "Resource not found (404).",
-                "Verify your PROJECT_ENDPOINT points to a valid Azure AI project.",
-                404,
-            )
-        elif status_code == 429:
-            return (
-                "Rate limit exceeded (429 Too Many Requests).",
-                "Wait a few minutes and try again.",
-                429,
-            )
+        # Use shared HTTP_STATUS_MESSAGES for consistent messaging
+        if status_code in HTTP_STATUS_MESSAGES:
+            msg, _, hint = HTTP_STATUS_MESSAGES[status_code]
+            return (f"{msg} ({status_code}).", hint, status_code)
         elif status_code >= 500:
-            return (
-                f"Azure service error ({status_code} {reason}).",
-                "This is usually temporary. Wait a moment and try again.",
-                status_code,
-            )
+            reason = getattr(error, 'reason', '') or ''
+            return (f"Azure service error ({status_code} {reason}).", HINT_SERVICE_ERROR, status_code)
         else:
-            # Other 4xx errors
+            # Other 4xx errors - use error message
             error_msg = str(error)
-            # Try to extract a cleaner message
             if hasattr(error, 'message') and error.message:
                 error_msg = error.message
-            return (
-                f"Request failed ({status_code}): {error_msg[:200]}",
-                None,
-                status_code,
-            )
+            return (f"Request failed ({status_code}): {error_msg[:200]}", None, status_code)
     
     # Generic fallback for unknown exceptions
-    return (
-        f"Unexpected error: {str(error)[:200]}",
-        "Check the logs for more details.",
-        500,
-    )
+    return (f"Unexpected error: {str(error)[:200]}", None, 500)
 
 
 @app.route("/api/create-agent", methods=["POST"])

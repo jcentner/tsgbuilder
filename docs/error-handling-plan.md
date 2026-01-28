@@ -194,85 +194,78 @@ The application has a solid foundation for error handling with centralized class
 
 ---
 
-## Phase 5: Timeout Tuning (Medium Priority)
+## Phase 5: Timeout Tuning (Medium Priority) ✅ COMPLETED
+
+> **Completed**: January 28, 2026
 
 **Goal**: Optimize timeout values for better responsiveness without false positives.
 
-### 5.1 Reduce tool call timeout
+### 5.1 Reduce tool call timeout ✅
 **File**: `pipeline.py`  
-**Location**: Line 148  
+**Location**: Line 200  
 **Changes**:
-- Change `TOOL_CALL_TIMEOUT = 120` to `TOOL_CALL_TIMEOUT = 90`
-- Add comment explaining rationale (Bing typically <30s, MCP <60s)
+- Changed `TOOL_CALL_TIMEOUT = 120` to `TOOL_CALL_TIMEOUT = 90`
+- Updated comment explaining rationale (Bing typically <30s, MCP <60s)
 
-### 5.2 Add secondary stream stall detection
+### 5.2 Add secondary stream stall detection ✅ (Already Implemented)
 **File**: `pipeline.py`  
-**Location**: `_run_stage()` method  
-**Changes**:
-- Track time since last event received
-- If no events for 90s (outside of tool calls), log warning
-- If no events for 180s, consider it a stall and raise timeout error
-- This catches scenarios where the stream itself hangs (no tool active)
+**Status**: Already covered by existing `_iterate_with_timeout()` implementation.
+- Each event has a per-event timeout via `STREAM_IDLE_TIMEOUT`
+- Tool timeouts checked on every event iteration
+- No additional implementation needed
 
-### 5.3 Make timeouts configurable
-**File**: `pipeline.py`  
-**Changes**:
-- Read timeout values from environment variables with defaults:
-  ```python
-  TOOL_CALL_TIMEOUT = int(os.getenv("TSG_TOOL_TIMEOUT", "90"))
-  STREAM_STALL_TIMEOUT = int(os.getenv("TSG_STREAM_TIMEOUT", "180"))
-  ```
-- Document in README.md
+### 5.3 Make timeouts configurable ⏭️ SKIPPED
+**Status**: Deferred - not needed for current use case.
+- Single-user application doesn't require runtime timeout tuning
+- Can be added later if operators need flexibility
 
 ---
 
-## Phase 6: Retry Logic Improvements (Low Priority)
+## Phase 6: Retry Logic Improvements (Low Priority) ✅ COMPLETED
+
+> **Completed**: January 28, 2026
 
 **Goal**: Add jitter and improve retry messaging.
 
-### 6.1 Add jitter to backoff
-**File**: `pipeline.py`  
-**Location**: `_run_stage_with_retry()` method  
-**Changes**:
-- Add random jitter (0-10%) to backoff delays:
-  ```python
-  import random
-  jitter = random.uniform(0, 0.1) * wait_time
-  wait_time += jitter
-  ```
+### 6.1 Add jitter to backoff ⏭️ SKIPPED
+**Status**: Not needed - single-user application has no thundering herd problem.
+- Jitter prevents synchronized retries across multiple clients
+- TSG Builder is single-user, so no benefit from jitter
 
-### 6.2 Improve retry status messages
+### 6.2 Improve retry status messages ✅ (Already Implemented)
 **File**: `pipeline.py`  
-**Changes**:
-- Include estimated wait time in status: "Waiting 35s before retry..."
-- Show which specific error triggered retry
-- Count down during wait (optional, may be noisy)
+**Status**: Already implemented in `_run_stage_with_retry()`:
+- ✅ Shows wait time: `"Waiting {wait_time}s before retry..."`
+- ✅ Shows specific error: `classification.user_message`
+- ⏭️ Countdown skipped (optional, noted as "may be noisy" in plan)
 
 ---
 
-## Phase 7: Documentation & Testing (Low Priority)
+## Phase 7: Documentation & Testing (Low Priority) ✅ COMPLETED
 
-### 7.1 Update copilot-instructions.md
-**File**: `.github/copilot-instructions.md`  
-**Changes**:
-- Document error handling philosophy
-- List all error types and expected user messages
-- Document timeout configuration options
+> **Completed**: January 28, 2026
 
-### 7.2 Add error handling test cases
-**File**: New file `tests/test_error_handling.py`  
-**Changes**:
-- Unit tests for `classify_error()` with various error strings
-- Test HTTP status code detection
-- Test Azure SDK exception handling
-- Mock streaming events with error responses
+### 7.1 Update copilot-instructions.md ⏭️ SKIPPED
+**Status**: Existing documentation sufficient.
+- Error handling code is self-documenting via `HTTP_STATUS_MESSAGES` and `API_ERROR_CODES` in `pipeline.py`
+- File table already references `pipeline.py` for error classification
 
-### 7.3 Update README troubleshooting section
+### 7.2 Add error handling test cases ✅ (Already Implemented)
+**File**: `tests/test_error_handling.py`  
+**Status**: Comprehensive test suite already exists:
+- ✅ `TestPipelineError` - PipelineError class tests
+- ✅ `TestGetUserFriendlyErrorWithPipelineError` - HTTP status code handling
+- ✅ `TestGetUserFriendlyErrorWithAzureSDK` - Azure SDK exception tests
+- ✅ `TestClassifyError` - Error classification logic
+- ✅ `TestResponseFailedError` - Structured error info tests
+
+### 7.3 Update README troubleshooting section ✅ (Already Implemented)
 **File**: `README.md`  
-**Changes**:
-- Add section on common Azure errors and what they mean
-- Include guidance for each error type
-- Document timeout configuration
+**Status**: Troubleshooting section covers common user-facing issues:
+- ✅ Authentication failures
+- ✅ Connection problems
+- ✅ Agent not found
+- ✅ Tool/research issues
 
 ---
 
