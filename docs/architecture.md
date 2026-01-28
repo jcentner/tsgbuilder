@@ -130,10 +130,13 @@ When the TSG has missing information:
 
 | File | Purpose |
 |------|---------|
-| `pipeline.py` | Multi-stage pipeline orchestration |
+| `pipeline.py` | Multi-stage pipeline orchestration, error classification |
 | `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
 | `web_app.py` | Flask web UI + agent creation |
 | `.agent_ids.json` | Stores agent IDs after creation |
+| `tests/` | Pytest test suite |
+| `tests/conftest.py` | Shared fixtures and test utilities |
+| `docs/error-handling-plan.md` | Error handling implementation plan |
 
 ## Design Decisions
 

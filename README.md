@@ -201,6 +201,8 @@ Run `make ui` (or the standalone executable) (http://localhost:5000 should open 
 | `make clean` | Remove venv and generated files |
 | `make clean DELETE_AGENTS=1` | Also delete agents from Azure before cleaning |
 | `make lint` | Check Python syntax |
+| `make test` | Run the test suite |
+| `make test-cov` | Run tests with coverage report |
 | `make help` | Show all commands |
 
 ## How It Works
@@ -270,6 +272,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed pipeline architect
 | `.sessions/` | Persisted sessions for follow-up questions (git-ignored) |
 | `input-example.txt` | Example input notes |
 | `templates/index.html` | Web UI template |
+| `tests/` | Pytest test suite with fixtures |
 
 ## Contributing
 
@@ -277,7 +280,8 @@ See [docs/architecture.md](docs/architecture.md) for detailed pipeline architect
 2. Create a feature branch
 3. Make your changes
 4. Run `make lint` to check syntax
-5. Submit a pull request
+5. Run `make test` to verify tests pass
+6. Submit a pull request
 
 ### Creating a Release
 

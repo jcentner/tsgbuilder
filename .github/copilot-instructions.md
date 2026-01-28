@@ -220,17 +220,35 @@ Every TSG must:
 
 | File | Purpose |
 |------|---------|
-| `pipeline.py` | Multi-stage pipeline orchestration |
+| `pipeline.py` | Multi-stage pipeline orchestration, error classification |
 | `tsg_constants.py` | TSG template, stage prompts, validation functions |
 | `web_app.py` | Flask server, SSE streaming, session management |
 | `templates/index.html` | Web UI |
 | `.agent_ids.json` | Stored agent names/IDs (created by setup) |
 | `docs/architecture.md` | Technical architecture details |
 | `examples/` | Test inputs, expected outputs, test run captures |
+| `tests/` | Pytest test suite |
+| `tests/conftest.py` | Shared fixtures and test utilities |
 
 ---
 
 ## Testing
+
+### Unit Tests
+
+Run the test suite with pytest:
+
+```bash
+make test          # Run all tests
+make test-verbose  # Verbose output
+make test-cov      # With coverage report
+make test-unit     # Only unit tests (fast)
+make test-quick    # Skip dep install (fastest)
+```
+
+Tests are in `tests/` and use shared fixtures from `tests/conftest.py`. See `tests/README.md` for details on writing tests.
+
+### Pipeline Test Mode
 
 Run the pipeline in test mode to capture raw stage outputs:
 
