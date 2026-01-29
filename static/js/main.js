@@ -571,7 +571,7 @@ async function generateTSG() {
         }
 
     } catch (error) {
-        showError(error.message);
+        showError(getUserFriendlyError(error));
         // Enable Clear Session so user can reset after errors
         if (currentThreadId || document.getElementById('notesInput').value.trim()) {
             document.getElementById('clearSessionBtn').disabled = false;
@@ -613,7 +613,7 @@ async function submitAnswers() {
         }
 
     } catch (error) {
-        showError(error.message);
+        showError(getUserFriendlyError(error));
         // Enable Clear Session so user can reset after errors
         document.getElementById('clearSessionBtn').disabled = false;
     } finally {
@@ -775,6 +775,33 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+/**
+ * Converts technical fetch/network errors into user-friendly messages.
+ * Used by generateTSG and submitAnswers to handle server disconnections gracefully.
+ */
+function getUserFriendlyError(error) {
+    const msg = (error.message || '').toLowerCase();
+    
+    // Detect server disconnection / network errors
+    if (msg.includes('failed to fetch') ||
+        msg.includes('networkerror') ||
+        msg.includes('network error') ||
+        msg.includes('connection refused') ||
+        msg.includes('net::err_connection_refused') ||
+        msg.includes('net::err_connection_reset') ||
+        msg.includes('load failed')) {
+        return 'Connection to server lost. Please restart TSG Builder and try again.';
+    }
+    
+    // Already has a user-friendly message from our code
+    if (msg.includes('connection lost during generation')) {
+        return error.message;
+    }
+    
+    // Return original message for other errors
+    return error.message;
 }
 
 function showSuccess(message) {
