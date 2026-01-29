@@ -77,8 +77,10 @@ jobs:
           cd release
           # Zip each executable individually to avoid browser download warnings
           for file in tsg-builder-*; do
-            echo "Zipping $file..."
-            zip "${file}.zip" "$file"
+            # Strip .exe extension if present for cleaner zip name
+            zipname="${file%.exe}.zip"
+            echo "Zipping $file -> $zipname"
+            zip "$zipname" "$file"
             rm "$file"  # Remove unzipped version
           done
           ls -la
@@ -107,7 +109,7 @@ jobs:
           files: |
             release/tsg-builder-linux.zip
             release/tsg-builder-macos.zip
-            release/tsg-builder-windows.exe.zip
+            release/tsg-builder-windows.zip
             release/SHA256SUMS.txt
           body: |
             ## TSG Builder ${{ github.ref_name }}
@@ -117,11 +119,11 @@ jobs:
             |----------|------|
             | Linux | `tsg-builder-linux.zip` |
             | macOS | `tsg-builder-macos.zip` |
-            | Windows | `tsg-builder-windows.exe.zip` |
+            | Windows | `tsg-builder-windows.zip` |
             
             ### First Run
-            1. Download the executable for your platform
-            2. Run it — a `.env` file will be created automatically
+            1. Download the zip for your platform and extract
+            2. Run the executable — a `.env` file will be created automatically
             3. Your browser will open to the setup wizard
             4. Configure your Azure AI Foundry settings
             
@@ -131,7 +133,7 @@ jobs:
             sha256sum -c SHA256SUMS.txt
             
             # Windows PowerShell
-            Get-FileHash tsg-builder-windows.exe -Algorithm SHA256
+            Get-FileHash tsg-builder-windows.zip -Algorithm SHA256
             ```
             
             ---
