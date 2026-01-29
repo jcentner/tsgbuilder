@@ -29,6 +29,7 @@ def get_platform_name() -> str:
 def clean_build_artifacts():
     """Remove previous build artifacts."""
     dirs_to_remove = ["build", "dist", "__pycache__"]
+    # Remove auto-generated .spec files (PyInstaller creates these)
     files_to_remove = list(Path(".").glob("*.spec"))
     
     for dir_name in dirs_to_remove:
@@ -64,8 +65,9 @@ def build_executable():
         "--name", exe_name,
         "--onefile",  # Single executable file
         "--console",  # Console app (needed for Flask server output)
-        # Add data files
+        # Add data files (templates and static assets for Flask)
         "--add-data", f"templates{os.pathsep}templates",
+        "--add-data", f"static{os.pathsep}static",
         # Hidden imports that PyInstaller might miss
         "--hidden-import", "azure.identity",
         "--hidden-import", "azure.ai.projects",

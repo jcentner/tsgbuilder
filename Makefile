@@ -11,7 +11,7 @@ help:
 	@echo "================================="
 	@echo ""
 	@echo "Quick Start (recommended):"
-	@echo "  make setup        - First-time setup (venv + deps + .env)"
+	@echo "  make setup        - First-time setup (venv + deps)"
 	@echo "  make ui           - Start the web UI (http://localhost:5000)"
 	@echo "                      Setup, validation, and agent creation are all"
 	@echo "                      available in the UI. The setup wizard opens"
@@ -40,7 +40,7 @@ help:
 	@echo "  make ui TEST=1           # Run with test output capture"
 	@echo "  make clean DELETE_AGENTS=1  # Clean and delete agents from Azure"
 
-setup: .venv install env-file
+setup: .venv install
 	@echo ""
 	@echo "========================================="
 	@echo "Setup complete!"
@@ -77,15 +77,6 @@ install-dev: install
 		pip install pytest pytest-cov; \
 	fi
 	@echo "Development dependencies installed."
-
-env-file:
-	@if [ ! -f ".env" ]; then \
-		echo "Creating .env from .env-sample..."; \
-		cp .env-sample .env; \
-		echo ".env created. Please edit it with your Azure configuration."; \
-	else \
-		echo ".env already exists."; \
-	fi
 
 validate:
 	@echo "Validating environment..."

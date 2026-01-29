@@ -100,7 +100,7 @@ def _get_app_dir() -> Path:
 
 
 def _ensure_env_file() -> Path:
-    """Ensure .env file exists, creating from .env-sample or defaults if needed.
+    """Ensure .env file exists, creating from defaults if needed.
     
     Returns the path to the .env file.
     """
@@ -108,13 +108,7 @@ def _ensure_env_file() -> Path:
     env_path = app_dir / ".env"
     
     if not env_path.exists():
-        # Try to copy from .env-sample first
-        sample_path = app_dir / ".env-sample"
-        if sample_path.exists():
-            env_path.write_text(sample_path.read_text(encoding="utf-8"), encoding="utf-8")
-        else:
-            # Use embedded defaults (for executable mode)
-            env_path.write_text(DEFAULT_ENV_CONTENT, encoding="utf-8")
+        env_path.write_text(DEFAULT_ENV_CONTENT, encoding="utf-8")
         print(f"📝 Created {env_path}")
     
     return env_path
@@ -129,7 +123,17 @@ TEST_MODE = os.getenv("TSG_TEST_MODE", "").strip() in ("1", "true", "True", "yes
 if TEST_MODE:
     print("🧪 Test mode enabled - stage outputs will be captured to test_output_*.json")
 
-app = Flask(__name__)
+# Configure Flask with proper paths for PyInstaller executable mode
+# When frozen, PyInstaller extracts bundled files to sys._MEIPASS temp directory
+if getattr(sys, 'frozen', False):
+    _bundle_dir = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    app = Flask(
+        __name__,
+        template_folder=_bundle_dir / 'templates',
+        static_folder=_bundle_dir / 'static'
+    )
+else:
+    app = Flask(__name__)
 
 
 def _get_user_friendly_error(error: Exception) -> tuple[str, str | None]:
