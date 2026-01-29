@@ -162,7 +162,7 @@ def check_bing_connection(endpoint: str, connection_id: str) -> bool:
         from azure.ai.projects import AIProjectClient
         
         with AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential()) as project:
-            connection = project.connections.get(connection_name=connection_name)
+            connection = project.connections.get(connection_name)
             print_ok(f"Found connection: {connection_name}")
             return True
     except Exception as e:

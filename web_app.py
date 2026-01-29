@@ -506,7 +506,7 @@ def api_validate():
             # Extract connection name from ARM resource ID if needed
             connection_name = bing_connection.split('/')[-1] if '/' in bing_connection else bing_connection
             with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
-                connection = project.connections.get(connection_name=connection_name)
+                connection = project.connections.get(connection_name)
                 checks.append({
                     "name": "Bing Connection",
                     "passed": True,

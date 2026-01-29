@@ -658,6 +658,7 @@ async function clearSession() {
     document.getElementById('notesInput').value = '';
     document.getElementById('tsgOutput').innerHTML = '<span style="color: var(--text-secondary);">Your generated TSG will appear here...</span>';
     document.getElementById('copyBtn').disabled = true;
+    document.getElementById('downloadBtn').disabled = true;
     document.getElementById('clearSessionBtn').disabled = true;
     document.getElementById('questionsPanel').classList.add('hidden');
     document.getElementById('answersInput').value = '';
@@ -682,6 +683,7 @@ function displayTSG(tsg) {
         output.textContent = tsg;
     }
     document.getElementById('copyBtn').disabled = false;
+    document.getElementById('downloadBtn').disabled = false;
     document.getElementById('clearSessionBtn').disabled = false;
 }
 
@@ -809,6 +811,7 @@ function clearInput() {
         '<span style="color: var(--text-secondary);">Your generated TSG will appear here...</span>';
     document.getElementById('questionsPanel').classList.add('hidden');
     document.getElementById('copyBtn').disabled = true;
+    document.getElementById('downloadBtn').disabled = true;
     document.getElementById('clearSessionBtn').disabled = true;
     hideMessages();
     currentThreadId = null;
@@ -829,6 +832,48 @@ async function copyTSG() {
     } catch (error) {
         showError('Failed to copy to clipboard');
     }
+}
+
+function downloadTSG() {
+    if (!currentTSG) return;
+    
+    // Extract title from TSG content (looks for # **Title** section)
+    let filename = null;
+    const titleMatch = currentTSG.match(/^#\s*\*\*(.+?)\*\*\s*$/m);
+    if (titleMatch && titleMatch[1]) {
+        // Sanitize title for filesystem: remove/replace invalid characters
+        filename = titleMatch[1]
+            .trim()
+            .replace(/[<>:"/\\|?*]/g, '-')  // Replace invalid filename chars
+            .replace(/\s+/g, '-')             // Replace spaces with dashes
+            .replace(/-+/g, '-')              // Collapse multiple dashes
+            .replace(/^-|-$/g, '')            // Remove leading/trailing dashes
+            .substring(0, 100);               // Limit length
+    }
+    
+    // Fallback to timestamp if title extraction failed or resulted in empty string
+    if (!filename) {
+        const now = new Date();
+        const timestamp = now.toISOString().replace(/[:.]/g, '-').substring(0, 19);
+        filename = `tsg-${timestamp}`;
+    }
+    
+    filename += '.md';
+    
+    // Create blob and trigger download
+    const blob = new Blob([currentTSG], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    // Show success message with filename
+    showSuccess(`TSG downloaded as "${filename}"`);
+    setTimeout(() => hideMessages(), 4000);
 }
 
 // Example input embedded directly to avoid file bundling issues in executable
