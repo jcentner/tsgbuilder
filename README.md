@@ -14,33 +14,43 @@ TSG Builder was born out of this frustration. The idea: **you provide a raw dump
 
 ## Table of Contents
 
-- [Overview](#overview)
 - [Quick Start](#quick-start)
-- [Web UI](#web-ui)
 - [Prerequisites](#prerequisites)
-- [Installation](#installation)
+- [Using TSG Builder](#using-tsg-builder)
 - [Configuration](#configuration)
-- [Makefile Commands](#makefile-commands)
 - [How It Works](#how-it-works)
 - [Troubleshooting](#troubleshooting)
-- [Architecture](#architecture)
-- [Files](#files)
-- [Contributing](#contributing)
+- [Development](#development)
 - [License](#license)
-
-## Overview
-
-TSG Builder uses Azure AI Foundry v2 Agents to:
-1. **Research** the issue using Bing Search and Microsoft Learn MCP
-2. **Generate** a structured TSG following your team's template
-3. **Iterate** by asking follow-up questions for missing information
-4. **Output** a high-quality markdown TSG draft
-
-Source template: [TSG-Template.md - ADO](https://dev.azure.com/Supportability/AzureCognitiveServices/_git/AzureML?path=/AzureML/Welcome/TSG-Template.md&version=GBmaster&_a=preview)
 
 ## Quick Start
 
-> See [Prerequisites](#prerequisites) for Windows/PowerShell instructions 
+### Option 1: Download & Run (Recommended)
+
+1. **Download** the executable for your platform from [Releases](../../releases):
+   | Platform | File |
+   |----------|------|
+   | Linux | `tsg-builder-linux` |
+   | macOS | `tsg-builder-macos` |
+   | Windows | `tsg-builder-windows.exe` |
+
+2. **Run it** — Your browser opens to `http://localhost:5000`
+
+3. **Complete setup** in the browser:
+   - Enter your Azure AI Foundry project endpoint
+   - Enter your Bing Search connection name  
+   - Click **Create Agents**
+
+4. **Start building TSGs!**
+
+> **Prerequisites**: [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) logged in (`az login`) + [Azure AI Foundry project](#azure-resources-required) with Bing Search connected
+
+### Option 2: Run from Source
+
+<details>
+<summary>Click to expand developer instructions</summary>
+
+Requires Python 3.9+, GNU Make, and Azure CLI.
 
 ```bash
 # 1. Clone and setup
@@ -50,36 +60,49 @@ make setup
 
 # 2. Start the Web UI
 make ui
-# Open http://localhost:5000 in your browser
+# Opens http://localhost:5000 in your browser
 ```
 
-The web UI will automatically open the setup wizard if configuration is needed. The setup wizard guides you through:
-1. **Configure** — Enter your Azure AI Foundry settings
-2. **Validate** — Verify authentication and connectivity
-3. **Create Agents** — Create the three pipeline agents (Researcher, Writer, Reviewer)
+The setup wizard opens automatically to guide you through configuration.
 
-## Web UI
+> **Windows (PowerShell)**: Install Make first:
+> ```powershell
+> winget install GnuWin32.Make
+> [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Program Files (x86)\GnuWin32\bin", "User")
+> ```
+> Then restart PowerShell.
 
-The web interface is the recommended way to use TSG Builder:
+</details>
 
-```bash
-make ui
-```
+## Prerequisites
 
-Then open **http://localhost:5000** in your browser if it doesn't automatically.
+### Azure Resources Required
 
-> ⏱️ **Timing**: A full run (Research → Write → Review) typically takes **2–5 minutes** depending on the complexity of your input and the amount of research needed. The UI shows real-time progress for each stage.
+| Resource | Purpose | How to Get |
+|----------|---------|------------|
+| **Azure AI Foundry Project** | Hosts the agent | [Create a project](https://learn.microsoft.com/azure/ai-foundry/how-to/create-projects) |
+| **Model Deployment** | LLM for the agent (recommended: `gpt-5.2`) | Deploy in your project |
+| **Bing Search Connection** | Web research capability | [Connect Bing Search](https://learn.microsoft.com/azure/ai-foundry/how-to/connections-add) |
 
-> ⚠️ **Note**: This web UI is intended for local development use only. Do not expose it to the internet without adding proper authentication and security measures.
+### Local Requirements
 
-> ⚠️ **Note**: This tool uses an Azure AI Agent to search the internet. Be mindful of customer data; it should never be in your input notes or input images. 
+- **Azure CLI** — Logged in with `az login` ([Install Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli))
+- **For source builds only**: Python 3.9+, GNU Make
+
+## Using TSG Builder
+
+> ⏱️ **Timing**: A full run (Research → Write → Review) typically takes **2–5 minutes** depending on the complexity of your input and the amount of research needed.
+
+> ⚠️ **Note**: This tool uses an Azure AI Agent to search the internet. Be mindful of customer data; it should never be in your input notes or input images.
 
 **Features:**
 - ⚙️ **Built-in setup wizard** — Configure, validate, and create agents from the browser
 - 📝 Paste notes directly in the browser
-- �️ **Image support** — Attach screenshots via drag-and-drop, file picker, or paste
+- 🖼️ **Image support** — Attach screenshots via drag-and-drop, file picker, or paste
 - 🔄 Interactive follow-up questions
-- 📋 One-click copy to clipboard- 👁️ **Raw/Preview toggle** — Switch between raw markdown (for copy/paste) and rendered preview- 📊 Real-time status indicator
+- 📋 One-click copy to clipboard
+- 👁️ **Raw/Preview toggle** — Switch between raw markdown and rendered preview
+- 📊 Real-time status indicators
 - 💡 Load example input with one click
 
 ### Attaching Images
@@ -99,70 +122,9 @@ Images are sent to the AI agent for visual analysis, which is especially useful 
 
 ![TSG Builder UI](docs/ui-screenshot.png)
 
-## Prerequisites
-
-### Azure Resources Required
-
-| Resource | Purpose | How to Get |
-|----------|---------|------------|
-| **Azure AI Foundry Project** | Hosts the agent | [Create a project](https://learn.microsoft.com/azure/ai-foundry/how-to/create-projects) |
-| **Model Deployment** | LLM for the agent (recommended: `gpt-5.2`) | Deploy in your project |
-| **Bing Search Connection** | Web research capability | [Connect Bing Search](https://learn.microsoft.com/azure/ai-foundry/how-to/connections-add) |
-
-### Local Requirements
-
-- Python 3.9+
-- GNU Make
-- Azure CLI (logged in with `az login`)
-- Access to an Azure AI Foundry project
-
-> **Recommended**: Linux or WSL 2 (Make and other tools work out of the box).
->
-> **Windows (PowerShell)**: Install Make and add to PATH:
-> ```powershell
-> winget install GnuWin32.Make
-> [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Program Files (x86)\GnuWin32\bin", "User")
-> ```
-> Then **restart PowerShell** for the PATH change to take effect.
-
-## Installation
-
-### Option 1: Run from Source (Recommended for Development)
-
-```bash
-make setup
-```
-
-This will:
-- Create a virtual environment (`.venv/`)
-- Install dependencies
-- Create `.env` from `.env-sample`
-
-Then run `make ui` to start the web interface.
-
-### Option 2: Standalone Executable
-
-Build a single-file executable that can be distributed without Python:
-
-```bash
-make build
-```
-
-This creates an executable in `dist/`:
-- **Linux**: `dist/tsg-builder-linux`
-- **macOS**: `dist/tsg-builder-macos`
-- **Windows**: `dist/tsg-builder-windows.exe`
-
-On first run, the executable:
-1. Creates a `.env` file with defaults in its directory
-2. Opens your browser to the setup wizard
-3. Guides you through Azure configuration
-
-> **Note**: The executable still requires Azure CLI authentication (`az login`) on the machine where it runs.
-
 ## Configuration
 
-Run `make ui` (or the standalone executable) (http://localhost:5000 should open automatically)
+The setup wizard (opens automatically on first run) guides you through configuration:
 
 1. Click the **⚙️ Setup** button (or it opens automatically)
 2. Enter your Azure configuration values
@@ -189,22 +151,6 @@ Run `make ui` (or the standalone executable) (http://localhost:5000 should open 
 1. In AI Foundry Portal, go to Deployments
 2. Use the name of your deployed model (e.g., `gpt-5.2`)
 
-## Makefile Commands
-
-| Command | Description |
-|---------|-------------|
-| `make setup` | First-time setup (venv + deps + .env) |
-| `make ui` | **Start the web UI** at http://localhost:5000 |
-| `make build` | Build standalone executable with PyInstaller |
-| `make validate` | Check environment configuration (CLI troubleshooting) |
-| `make install` | Install dependencies only |
-| `make clean` | Remove venv and generated files |
-| `make clean DELETE_AGENTS=1` | Also delete agents from Azure before cleaning |
-| `make lint` | Check Python syntax |
-| `make test` | Run the test suite |
-| `make test-cov` | Run tests with coverage report |
-| `make help` | Show all commands |
-
 ## How It Works
 
 TSG Builder uses a **three-stage pipeline**: Research → Write → Review.
@@ -224,13 +170,13 @@ TSG Builder uses a **three-stage pipeline**: Research → Write → Review.
 
 If information is missing, the agent inserts `{{MISSING::...}}` placeholders and asks follow-up questions.
 
-For detailed architecture information, see [docs/architecture.md](docs/architecture.md).
+Output follows the [DFM-copilot-optimized TSG template](https://dev.azure.com/Supportability/AzureCognitiveServices/_git/AzureML?path=/AzureML/Welcome/TSG-Template.md&version=GBmaster&_a=preview). For detailed architecture information, see [docs/architecture.md](docs/architecture.md).
 
 ## Troubleshooting
 
 ### "PROJECT_ENDPOINT is required"
 - Ensure `.env` file exists and contains `PROJECT_ENDPOINT`
-- Run `make validate` to check all variables
+- The executable creates `.env` automatically on first run
 
 ### "Azure authentication failed"
 - Ensure Azure CLI is installed ([Install Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli))
@@ -243,41 +189,74 @@ For detailed architecture information, see [docs/architecture.md](docs/architect
 
 ### "Agent not found"
 - Open the web UI and use the Setup wizard to create the agents
-- Check `.agent_ids.json` file exists
+- Check `.agent_ids.json` file exists in the same directory as the executable
 
 ### Agent doesn't use tools / research
 - The agent instructions mandate research before output
-- If this persists, recreate the agent via the Setup wizard in the web UI
+- If this persists, recreate the agent via the Setup wizard
 
 ### TSG missing documentation links
 - The agent is instructed to include URLs from research in "Related Information"
 - Check the agent is correctly configured with both Bing and Learn MCP tools
 
-## Architecture
+---
+
+## Development
+
+<details>
+<summary>Building from source, contributing, and architecture details</summary>
+
+### Building the Executable
+
+```bash
+make build
+```
+
+This creates executables in `dist/`:
+- **Linux**: `dist/tsg-builder-linux`
+- **macOS**: `dist/tsg-builder-macos`
+- **Windows**: `dist/tsg-builder-windows.exe`
+
+### Makefile Commands
+
+| Command | Description |
+|---------|-------------|
+| `make setup` | First-time setup (venv + dependencies) |
+| `make ui` | Start the web UI at http://localhost:5000 |
+| `make build` | Build standalone executable with PyInstaller |
+| `make validate` | Check environment configuration (CLI troubleshooting) |
+| `make clean` | Remove venv and generated files |
+| `make clean DELETE_AGENTS=1` | Also delete agents from Azure before cleaning |
+| `make lint` | Check Python syntax |
+| `make test` | Run the test suite |
+| `make test-cov` | Run tests with coverage report |
+| `make help` | Show all commands |
+
+### Architecture
 
 See [docs/architecture.md](docs/architecture.md) for detailed pipeline architecture, stage descriptions, and design decisions.
 
-## Files
+### Files
 
 | File | Purpose |
 |------|---------|
 | `web_app.py` | Flask web UI server (includes agent creation) |
-| `pipeline.py` | **Multi-stage pipeline orchestration** (Research → Write → Review) |
-| `build_exe.py` | Build standalone executable with PyInstaller |
-| `validate_setup.py` | Validate environment configuration (CLI troubleshooting) || `delete_agents.py` | Delete agents from Azure (used by `make clean DELETE_AGENTS=1`) || `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
+| `pipeline.py` | Multi-stage pipeline orchestration (Research → Write → Review) |
+| `build_exe.py` | PyInstaller build script (bundles templates/, static/) |
+| `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
+| `validate_setup.py` | Validate environment configuration (CLI troubleshooting) |
+| `delete_agents.py` | Delete agents from Azure (used by `make clean DELETE_AGENTS=1`) |
 | `Makefile` | Common operations |
 | `.env` | Your configuration (git-ignored, auto-created on first run) |
-| `.env-sample` | Configuration template (for developers) |
 | `.agent_ids.json` | Pipeline agent IDs after creation |
 | `.sessions/` | Persisted sessions for follow-up questions (git-ignored) |
-| `input-example.txt` | Example input notes |
 | `templates/index.html` | Web UI HTML structure |
 | `static/css/styles.css` | Web UI styles |
 | `static/js/main.js` | Core UI logic (streaming, TSG generation, images) |
 | `static/js/setup.js` | Setup modal functionality |
 | `tests/` | Pytest test suite with fixtures |
 
-## Contributing
+### Contributing
 
 1. Fork the repository
 2. Create a feature branch
@@ -302,6 +281,8 @@ This triggers a workflow that:
 3. Creates a **draft release** with all files attached
 
 After the workflow completes, go to the [Releases page](../../releases) to review and publish.
+
+</details>
 
 ## License
 

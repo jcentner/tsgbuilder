@@ -47,11 +47,11 @@ def check_pyinstaller():
     """Ensure PyInstaller is installed."""
     try:
         import PyInstaller
-        print(f"✓ PyInstaller {PyInstaller.__version__} found")
+        print(f"[OK] PyInstaller {PyInstaller.__version__} found")
     except ImportError:
         print("PyInstaller not found. Installing...")
         subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller"], check=True)
-        print("✓ PyInstaller installed")
+        print("[OK] PyInstaller installed")
 
 
 def build_executable():
@@ -88,13 +88,13 @@ def build_executable():
         "web_app.py",
     ]
     
-    print(f"\n🔨 Building {exe_name}...")
+    print(f"\n[BUILD] Building {exe_name}...")
     print(f"Command: {' '.join(args[2:])}\n")
     
     result = subprocess.run(args, check=False)
     
     if result.returncode != 0:
-        print("\n❌ Build failed!")
+        print("\n[FAILED] Build failed!")
         sys.exit(1)
     
     # Determine output path
@@ -105,18 +105,18 @@ def build_executable():
     
     if exe_path.exists():
         size_mb = exe_path.stat().st_size / (1024 * 1024)
-        print(f"\n✅ Build successful!")
-        print(f"   Executable: {exe_path}")
-        print(f"   Size: {size_mb:.1f} MB")
-        print(f"\n📋 To run:")
+        print(f"\n[OK] Build successful!")
+        print(f"    Executable: {exe_path}")
+        print(f"    Size: {size_mb:.1f} MB")
+        print(f"\n[INFO] To run:")
         if platform_name == "windows":
-            print(f"   .\\dist\\{exe_name}.exe")
+            print(f"    .\\dist\\{exe_name}.exe")
         else:
-            print(f"   ./dist/{exe_name}")
-        print(f"\n📝 On first run, a .env file will be created automatically.")
-        print(f"   The setup wizard will open in your browser to configure Azure settings.")
+            print(f"    ./dist/{exe_name}")
+        print(f"\n[INFO] On first run, a .env file will be created automatically.")
+        print(f"    The setup wizard will open in your browser to configure Azure settings.")
     else:
-        print(f"\n❌ Expected output not found: {exe_path}")
+        print(f"\n[FAILED] Expected output not found: {exe_path}")
         sys.exit(1)
 
 
@@ -144,10 +144,10 @@ def main():
     print("=" * 60)
     
     if args.clean or args.clean_only:
-        print("\n🧹 Cleaning build artifacts...")
+        print("\n[CLEAN] Cleaning build artifacts...")
         clean_build_artifacts()
         if args.clean_only:
-            print("✓ Clean complete")
+            print("[OK] Clean complete")
             return
     
     check_pyinstaller()

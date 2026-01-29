@@ -68,7 +68,7 @@ from pipeline import (
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
 
-# Default .env content (used when .env-sample is not available, e.g., in executable mode)
+# Default .env content (created automatically on first run)
 # These provide sensible defaults; users still need to fill in their Azure-specific values
 DEFAULT_ENV_CONTENT = """# Azure AI Foundry Configuration
 # example: https://<YOUR_RESOURCE>.services.ai.azure.com/api/projects/<YOUR_PROJECT>
