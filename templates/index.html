@@ -113,20 +113,22 @@ Include:
 
                     <!-- Follow-up Questions Panel -->
                     <div id="questionsPanel" class="questions-panel hidden">
-                        <h3>⚠️ Follow-up Questions</h3>
+                        <h3>📝 Feedback Needed</h3>
                         <p style="font-size: 13px; margin-bottom: 12px;">
-                            The agent needs more information to complete the TSG. Please answer the questions below:
+                            Please review the items below and provide any additional information or corrections:
                         </p>
-                        <pre id="questionsText"></pre>
+                        <div id="feedbackContent"></div>
                         <textarea 
                             id="answersInput" 
-                            placeholder="Enter your answers here..."
+                            placeholder="Enter your feedback here...
+
+Address any missing information and review notes above. You can also suggest corrections or additions."
                         ></textarea>
                         <div class="actions">
-                            <button class="btn btn-primary" onclick="submitAnswers()">
-                                Submit Answers
+                            <button class="btn btn-primary" id="submitAnswersBtn" onclick="submitAnswers()">
+                                Submit Feedback
                             </button>
-                            <button class="btn btn-secondary" onclick="skipQuestions()">
+                            <button class="btn btn-secondary" id="skipBtn" onclick="skipQuestions()">
                                 Skip (Use current TSG)
                             </button>
                         </div>

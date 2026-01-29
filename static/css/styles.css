@@ -450,7 +450,8 @@ textarea:focus {
     letter-spacing: 0.5px;
 }
 
-.questions-panel pre {
+.questions-panel pre,
+.questions-panel .questions-text {
     font-family: inherit;
     white-space: pre-wrap;
     margin-bottom: 12px;
@@ -460,6 +461,48 @@ textarea:focus {
 .questions-panel textarea {
     min-height: 100px;
     margin-bottom: 12px;
+}
+
+/* Feedback Panel Sections */
+.feedback-section {
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.feedback-section:last-child {
+    margin-bottom: 12px;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.feedback-section h4 {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text);
+}
+
+.feedback-section .questions-text {
+    background: rgba(255, 255, 255, 0.5);
+    padding: 12px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.review-notes-list {
+    margin: 0;
+    padding-left: 20px;
+    font-size: 13px;
+    color: var(--text);
+}
+
+.review-notes-list li {
+    margin-bottom: 6px;
+}
+
+.review-notes-list li:last-child {
+    margin-bottom: 0;
 }
 
 /* ==========================================================================

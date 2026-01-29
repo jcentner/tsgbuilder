@@ -559,13 +559,12 @@ async function generateTSG() {
         
         displayTSG(data.tsg);
 
-        // Show any warnings from the review stage
-        if (data.warnings && data.warnings.length > 0) {
-            showWarnings(data.warnings);
-        }
-
-        if (data.questions && !data.complete) {
-            showQuestions(data.questions);
+        // Check if we need feedback (MISSING items or review notes)
+        const hasQuestions = data.questions && !data.complete;
+        const hasWarnings = data.warnings && data.warnings.length > 0;
+        
+        if (hasQuestions || hasWarnings) {
+            showFeedbackPanel(hasQuestions ? data.questions : null, data.warnings);
         } else {
             showSuccess('TSG generated successfully!');
         }
@@ -599,13 +598,12 @@ async function submitAnswers() {
 
         displayTSG(data.tsg);
 
-        // Show any warnings from the review stage
-        if (data.warnings && data.warnings.length > 0) {
-            showWarnings(data.warnings);
-        }
-
-        if (data.questions && !data.complete) {
-            showQuestions(data.questions);
+        // Check if we need more feedback (MISSING items or review notes)
+        const hasQuestions = data.questions && !data.complete;
+        const hasWarnings = data.warnings && data.warnings.length > 0;
+        
+        if (hasQuestions || hasWarnings) {
+            showFeedbackPanel(hasQuestions ? data.questions : null, data.warnings);
             document.getElementById('answersInput').value = '';
         } else {
             document.getElementById('questionsPanel').classList.add('hidden');
@@ -692,14 +690,58 @@ function showQuestions(questions) {
     document.getElementById('questionsPanel').classList.remove('hidden');
 }
 
+/**
+ * Shows the unified feedback panel with MISSING items and/or review notes.
+ * @param {string|null} questions - MISSING item questions from the pipeline
+ * @param {string[]|null} warnings - Review notes/suggestions from the review stage
+ */
+function showFeedbackPanel(questions, warnings) {
+    const content = document.getElementById('feedbackContent');
+    let html = '';
+    
+    // Add MISSING items section if present
+    if (questions) {
+        html += `
+            <div class="feedback-section">
+                <h4>⚠️ Missing Information</h4>
+                <pre class="questions-text">${escapeHtml(questions)}</pre>
+            </div>
+        `;
+    }
+    
+    // Add review notes section if present
+    if (warnings && warnings.length > 0) {
+        const warningItems = warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('');
+        html += `
+            <div class="feedback-section">
+                <h4>📋 Review Notes</h4>
+                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
+                    The reviewer flagged these items. Address them if needed:
+                </p>
+                <ul class="review-notes-list">${warningItems}</ul>
+            </div>
+        `;
+    }
+    
+    content.innerHTML = html;
+    document.getElementById('questionsPanel').classList.remove('hidden');
+    // Hide the standalone warning banner since we're showing warnings in the panel
+    document.getElementById('warningBanner').classList.add('hidden');
+}
+
 function showLoading(show) {
     const loading = document.getElementById('loadingIndicator');
     const btn = document.getElementById('generateBtn');
     const cancelBtn = document.getElementById('cancelBtn');
+    const submitBtn = document.getElementById('submitAnswersBtn');
+    const skipBtn = document.getElementById('skipBtn');
     
     if (show) {
         loading.classList.remove('hidden');
         btn.disabled = true;
+        // Disable feedback buttons during generation
+        if (submitBtn) submitBtn.disabled = true;
+        if (skipBtn) skipBtn.disabled = true;
         // Reset cancel button state (will be enabled when run_started event arrives)
         cancelBtn.disabled = true;
         cancelBtn.textContent = '✕ Cancel';
@@ -708,6 +750,9 @@ function showLoading(show) {
     } else {
         loading.classList.add('hidden');
         btn.disabled = false;
+        // Re-enable feedback buttons
+        if (submitBtn) submitBtn.disabled = false;
+        if (skipBtn) skipBtn.disabled = false;
         // Clear run ID when loading hides
         currentRunId = null;
     }
