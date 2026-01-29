@@ -432,14 +432,15 @@ def api_validate():
             env_ok = False
     
     # 4. Check project connection (only if auth works)
+    project_client = None
     if env_ok:
         endpoint = os.getenv("PROJECT_ENDPOINT")
         try:
-            project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
-            with project:
+            project_client = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
+            with project_client:
                 # Actually make an API call to verify the token works for this resource
                 # This catches tenant mismatches that the auth check alone doesn't catch
-                _ = list(project.agents.list(limit=1))
+                _ = list(project_client.agents.list(limit=1))
             checks.append({
                 "name": "Project Connection",
                 "passed": True,
@@ -459,8 +460,84 @@ def api_validate():
                 "message": message,
                 "critical": True,
             })
+            project_client = None  # Can't proceed with deployment/connection checks
     
-    # 5. Check agent IDs (not critical)
+    # 5. Check model deployment exists (warning if can't verify)
+    model_name = os.getenv("MODEL_DEPLOYMENT_NAME", "")
+    if project_client and model_name:
+        try:
+            # Re-open project client for deployment check
+            with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
+                deployment = project.deployments.get(name=model_name)
+                checks.append({
+                    "name": "Model Deployment",
+                    "passed": True,
+                    "message": f"Found deployment: {deployment.name}",
+                    "critical": False,
+                })
+        except Exception as e:
+            error_str = str(e)
+            # Try to list available deployments for helpful error message
+            available_names = []
+            try:
+                with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
+                    deployments = list(project.deployments.list())
+                    available_names = [d.name for d in deployments]
+            except Exception:
+                pass
+            
+            if available_names:
+                message = f"Deployment '{model_name}' not found. Available: {', '.join(available_names[:5])}"
+            elif "404" in error_str or "NotFound" in error_str:
+                message = f"Deployment '{model_name}' not found in project"
+            else:
+                message = f"Could not verify deployment: {str(e)[:80]}"
+            checks.append({
+                "name": "Model Deployment",
+                "passed": False,
+                "message": message,
+                "critical": False,  # Warning, not blocking
+            })
+    
+    # 6. Check Bing connection exists (warning if can't verify)
+    bing_connection = os.getenv("BING_CONNECTION_NAME", "")
+    if project_client and bing_connection:
+        try:
+            # Extract connection name from ARM resource ID if needed
+            connection_name = bing_connection.split('/')[-1] if '/' in bing_connection else bing_connection
+            with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
+                connection = project.connections.get(connection_name=connection_name)
+                checks.append({
+                    "name": "Bing Connection",
+                    "passed": True,
+                    "message": f"Found connection: {connection_name}",
+                    "critical": False,
+                })
+        except Exception as e:
+            error_str = str(e)
+            # Try to list available connections for helpful error message
+            available_names = []
+            try:
+                with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
+                    connections = list(project.connections.list())
+                    available_names = [c.name for c in connections]
+            except Exception:
+                pass
+            
+            if available_names:
+                message = f"Connection '{connection_name}' not found. Available: {', '.join(available_names[:5])}"
+            elif "404" in error_str or "NotFound" in error_str:
+                message = f"Connection '{connection_name}' not found in project"
+            else:
+                message = f"Could not verify connection: {str(e)[:80]}"
+            checks.append({
+                "name": "Bing Connection",
+                "passed": False,
+                "message": message,
+                "critical": False,  # Warning, not blocking
+            })
+    
+    # 7. Check agent IDs (not critical)
     try:
         agent_ids = get_agent_ids()
         prefix = agent_ids.get("name_prefix", "TSG")
@@ -923,17 +1000,6 @@ def api_delete_session(thread_id):
     if thread_id in sessions:
         del sessions[thread_id]
     return jsonify({"success": True})
-
-
-@app.route("/api/example")
-def api_example():
-    """Return the example input file content."""
-    example_path = Path("examples/capability-host-input.txt")
-    if not example_path.exists():
-        return jsonify({"error": "Example file not found"}), 404
-    
-    content = example_path.read_text(encoding="utf-8")
-    return jsonify({"content": content})
 
 
 @app.route("/api/debug/threads")

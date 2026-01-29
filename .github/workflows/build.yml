@@ -72,6 +72,17 @@ jobs:
           find artifacts -type f -exec mv {} release/ \;
           ls -la release/
 
+      - name: Zip executables
+        run: |
+          cd release
+          # Zip each executable individually to avoid browser download warnings
+          for file in tsg-builder-*; do
+            echo "Zipping $file..."
+            zip "${file}.zip" "$file"
+            rm "$file"  # Remove unzipped version
+          done
+          ls -la
+
       - name: Generate SHA256 checksums
         run: |
           cd release
@@ -94,9 +105,9 @@ jobs:
           prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
           generate_release_notes: true
           files: |
-            release/tsg-builder-linux
-            release/tsg-builder-macos
-            release/tsg-builder-windows.exe
+            release/tsg-builder-linux.zip
+            release/tsg-builder-macos.zip
+            release/tsg-builder-windows.exe.zip
             release/SHA256SUMS.txt
           body: |
             ## TSG Builder ${{ github.ref_name }}
@@ -104,9 +115,9 @@ jobs:
             ### Downloads
             | Platform | File |
             |----------|------|
-            | Linux | `tsg-builder-linux` |
-            | macOS | `tsg-builder-macos` |
-            | Windows | `tsg-builder-windows.exe` |
+            | Linux | `tsg-builder-linux.zip` |
+            | macOS | `tsg-builder-macos.zip` |
+            | Windows | `tsg-builder-windows.exe.zip` |
             
             ### First Run
             1. Download the executable for your platform
