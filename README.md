@@ -27,14 +27,20 @@ TSG Builder was born out of this frustration. The idea: **you provide a raw dump
 
 ### Option 1: Download & Run (Recommended)
 
-1. **Download** the executable for your platform from [Releases](../../releases):
+1. **Download** the zip for your platform from [Releases](../../releases):
    | Platform | File |
    |----------|------|
-   | Linux | `tsg-builder-linux` |
-   | macOS | `tsg-builder-macos` |
-   | Windows | `tsg-builder-windows.exe` |
+   | Linux | `tsg-builder-linux.zip` |
+   | macOS | `tsg-builder-macos.zip` |
+   | Windows | `tsg-builder-windows.zip` |
 
-2. **Run it** — Your browser opens to `http://localhost:5000`
+2. **Extract and run**:
+   ```bash
+   # Linux/macOS: Make executable after extracting
+   chmod +x tsg-builder-linux   # or tsg-builder-macos
+   ./tsg-builder-linux
+   ```
+   Your browser opens to `http://localhost:5000`
 
 3. **Complete setup** in the browser:
    - Enter your Azure AI Foundry project endpoint
