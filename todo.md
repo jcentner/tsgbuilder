@@ -2,3 +2,8 @@
 
 - Option/toggle and new agent prompts for non-template TSG (e.g. informative on a concept, rather than troubleshooting a specific issue) 
 
+- TSGBuilder version in UI somewhere (setup?) 
+
+- Add link in UI to github project
+
+- 
