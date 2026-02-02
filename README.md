@@ -1,12 +1,12 @@
-# TSG Builder – Agent-based Troubleshooting Guide Generator (preview)
+# TSG Builder – Troubleshooting Guide Generator
 
-Turn raw troubleshooting notes into **Technical Support Guides (TSGs)** in minutes, not hours. TSG Builder uses a multi-agent pipeline to research, write, and review your guides automatically.
+Turn raw troubleshooting notes into polished **Technical Support Guides (TSGs)** in minutes. TSG Builder uses a multi-agent pipeline to research, write, and review your TSGs automatically.
 
 ## Why TSG Builder?
 
-Writing high-quality troubleshooting guides is essential to Support knowledge curation, but tedious. In fast-moving areas like Azure AI Support, new issues emerge constantly, each requiring a new TSG. 
+Writing high-quality troubleshooting guides is essential to Support knowledge curation, but tedious. In fast-moving areas like Azure AI Support, new issues emerge constantly, each requiring a new TSG for ease-of-reference by Support Engineers and AI-based support tools.
 
-TSG Builder was born out of this frustration. The idea: **you provide a raw dump of info to start from, the tool researches and formats**.
+TSG Builder was born out of this need. The idea: **you provide a raw dump of info to start from, the tool researches and formats**.
 
 - **Human + AI collaboration** — You curate initial notes from cases, threads with engineering, incidents; the agent enhances them with research from public docs like Microsoft Learn and relevant GitHub discussions
 - **Fits existing workflows** — Support and supportability teams already review common issues to identify TSG candidates; those notes become your input
