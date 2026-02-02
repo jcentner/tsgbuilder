@@ -99,7 +99,7 @@ The setup wizard opens automatically to guide you through configuration.
 
 > ⏱️ **Timing**: A full run (Research → Write → Review) typically takes **2–5 minutes** depending on the complexity of your input and the amount of research needed.
 
-> ⚠️ **Note**: This tool uses an Azure AI Agent to search the internet. Be mindful of customer data; it should never be in your input notes or input images.
+> ⚠️ **Note**: This tool uses a Foundry Agent to search the internet. Be mindful of customer data; it should never be in your input notes or input images.
 
 **Features:**
 - ⚙️ **Built-in setup wizard** — Configure, validate, and create agents from the browser
