@@ -1,5 +1,4 @@
-- major cleanup before merge
+-  Customer Info/PII: Run a quick safeguard check on notes to flag this and reject if included; warning in UI not to add any of this
 
-- ask what features the UI might be missing
+- Option/toggle and new agent prompts for non-template TSG (e.g. informative on a concept, rather than troubleshooting a specific issue) 
 
-- agent is not putting title as title, but instead making a "title" section and putting the title underneath 
