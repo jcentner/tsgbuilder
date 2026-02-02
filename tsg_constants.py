@@ -4,10 +4,10 @@ Shared TSG template, markers, and instruction text.
 
 TSG_TEMPLATE = """[[_TOC_]]
 
-# **Title**
-_Include, ideally, Error Message/ Error code or Scenario with keywords._
-_For example_ **'message': 'ScriptExecutionException was caused by StreamAccessException.\\n StreamAccessException was caused by AuthenticationException.** OR 
-**Datareference to ADLSGen2 Datastore fails.**
+# **<Your Title Here>**
+_The first H1 heading IS the title, with no text beneath. Ideally, include Error Message/Error code or Scenario with keywords (concisely)._
+_For example:_ **# **'ScriptExecutionException was caused by StreamAccessException'**** OR 
+**# **Datareference to ADLSGen2 Datastore fails****
 
 # **Issue Description / Symptoms**
 _Describe what the Customer/CSS Engineer would see as an issue. This would include the error message and the stack trace (if available)_
@@ -65,8 +65,8 @@ REQUIRED_TOC = "[[_TOC_]]"
 # --- Output Validation ---
 
 # Required TSG section headings (must appear exactly as written)
+# Note: The first H1 heading is the title itself (not "# **Title**") — validated separately
 REQUIRED_TSG_HEADINGS = [
-    "# **Title**",
     "# **Issue Description / Symptoms**",
     "# **When does the TSG not Apply**",
     "# **Diagnosis**",
@@ -107,7 +107,13 @@ def validate_tsg_output(response_text: str) -> dict:
     if REQUIRED_TOC not in tsg_content:
         issues.append(f"Missing required table of contents: {REQUIRED_TOC}")
     
-    # Check for required headings
+    # Check for title heading (first H1 after TOC should be the title, not "# **Title**")
+    import re
+    title_pattern = re.compile(r'\[\[_TOC_\]\]\s*\n+\s*# \*\*[^*]+\*\*')
+    if tsg_content and not title_pattern.search(tsg_content):
+        issues.append("Missing title heading after [[_TOC_]] (should be # **Your Title Here**)")
+    
+    # Check for required headings (excludes title since it's dynamic)
     for heading in REQUIRED_TSG_HEADINGS:
         if heading not in tsg_content:
             issues.append(f"Missing required heading: {heading}")
@@ -319,7 +325,7 @@ Internal tools (Kusto queries, ASC actions, Acis commands) are Azure-internal an
 3. Internal tools (Kusto queries, ASC actions, Acis commands) won't be in research—mark as MISSING
 4. Include only URLs that directly help diagnose or resolve this issue
 5. Include code samples from notes in the Mitigation/Resolution section."
-6. The TSG MUST start with `[[_TOC_]]` followed by `# **Title**` section
+6. The TSG MUST start with `[[_TOC_]]` followed by the title as the first H1 heading. The title IS the heading itself, e.g., `# **Azure AI Foundry: Model deployments not visible**` — do NOT create a separate "Title" section.
 7. **Do NOT include**: source attributions, inline citations, "(from notes)", "(per docs)", "(community-sourced)", or any reference to where information came from. Don't add any commentary.
 
 ## Output Format
@@ -401,8 +407,7 @@ Review the draft TSG against the research and notes for:
 4. **Format**: Correct markers
 
 ## Required TSG Sections
-The TSG must start with `[[_TOC_]]` and contain these exact headings:
-- # **Title**
+The TSG must start with `[[_TOC_]]` followed by the title as the first H1 heading (e.g., `# **Azure AI Foundry: Error XYZ**`), then these exact headings:
 - # **Issue Description / Symptoms**
 - # **When does the TSG not Apply**
 - # **Diagnosis** (must include: "Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM.")
