@@ -9,7 +9,8 @@ This directory contains example input files, expected outputs, and test run resu
 | File | Description |
 |------|-------------|
 | `capability-host-input.txt` | Input about Azure AI Foundry agents not seeing connected OpenAI resources |
-| `tool-type-exists.txt` | Input about tool type already exists error |
+| `tool-type-exists-input.txt` | Input about tool type already exists error |
+| `41-300k-functiontool-def-input.txt` | Large input (~300KB) for stress testing with function tool definitions |
 
 ### Expected Outputs
 
