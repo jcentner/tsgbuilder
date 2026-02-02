@@ -25,6 +25,9 @@
             <button class="btn btn-secondary" id="setupBtn" onclick="openSetup()" style="padding: 6px 12px; font-size: 12px;">
                 ⚙️ Setup
             </button>
+            <button class="btn btn-secondary" id="aboutBtn" onclick="openAbout()" style="padding: 6px 12px; font-size: 12px;">
+                ℹ️ About
+            </button>
         </div>
 
         <div class="main-layout">
@@ -230,6 +233,26 @@ Address any missing information and review notes above. You can also suggest cor
                 </div>
                 <div class="btn-group">
                     <button class="btn btn-secondary" onclick="closeSetup()">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- About Modal -->
+    <div id="aboutModal" class="modal-overlay hidden">
+        <div class="modal" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2>ℹ️ About TSG Builder</h2>
+                <button class="modal-close" onclick="closeAbout()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="aboutContent" style="font-size: 14px;">
+                    <p style="text-align: center; color: var(--text-secondary);">Loading...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="btn-group">
+                    <button class="btn btn-secondary" onclick="closeAbout()">Close</button>
                 </div>
             </div>
         </div>

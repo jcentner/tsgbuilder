@@ -1,6 +1,6 @@
 # TSG Builder – Agent-based Troubleshooting Guide Generator (preview)
 
-Transform raw troubleshooting notes into structured **Technical Support Guides (TSGs)** using an Azure AI Foundry Agent with Bing Search and Microsoft Learn MCP integration.
+Turn raw troubleshooting notes into **Technical Support Guides (TSGs)** in minutes, not hours. TSG Builder uses a multi-agent pipeline to research, write, and review your guides automatically.
 
 ## Why TSG Builder?
 

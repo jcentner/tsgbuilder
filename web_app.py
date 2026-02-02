@@ -68,6 +68,9 @@ from pipeline import (
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
 
+# Application version - update this for each release (see docs/releasing.md)
+APP_VERSION = "1.0.0"
+
 # Default .env content (created automatically on first run)
 # These provide sensible defaults; users still need to fill in their Azure-specific values
 DEFAULT_ENV_CONTENT = """# Azure AI Foundry Configuration
@@ -367,6 +370,37 @@ def api_status():
         result["error"] = "Agents not created. Please run Setup to create agents."
     
     return jsonify(result)
+
+
+@app.route("/api/about")
+def api_about():
+    """Return application information for the About dialog."""
+    import azure.ai.projects
+    
+    # Get agent info
+    agent_info = {}
+    try:
+        agent_ids = get_agent_ids()
+        agent_info = {
+            "name_prefix": agent_ids.get("name_prefix", ""),
+            "researcher": agent_ids.get("researcher", {}).get("name", "") if isinstance(agent_ids.get("researcher"), dict) else "",
+            "writer": agent_ids.get("writer", {}).get("name", "") if isinstance(agent_ids.get("writer"), dict) else "",
+            "reviewer": agent_ids.get("reviewer", {}).get("name", "") if isinstance(agent_ids.get("reviewer"), dict) else "",
+        }
+    except ValueError:
+        agent_info = {"configured": False}
+    
+    return jsonify({
+        "app_name": "TSG Builder",
+        "version": APP_VERSION,
+        "python_version": sys.version.split()[0],
+        "azure_sdk_version": azure.ai.projects.__version__,
+        "endpoint": os.getenv("PROJECT_ENDPOINT", ""),
+        "model": os.getenv("MODEL_DEPLOYMENT_NAME", ""),
+        "bing_connection": os.getenv("BING_CONNECTION_NAME", ""),
+        "agents": agent_info,
+        "github_url": "https://github.com/jcentner/tsgbuilder",
+    })
 
 
 @app.route("/api/validate")

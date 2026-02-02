@@ -948,6 +948,130 @@ function downloadTSG() {
     setTimeout(() => hideMessages(), 4000);
 }
 
+/* ==========================================================================
+   About Modal
+   ========================================================================== */
+
+function openAbout() {
+    document.getElementById('aboutModal').classList.remove('hidden');
+    loadAboutInfo();
+}
+
+function closeAbout() {
+    document.getElementById('aboutModal').classList.add('hidden');
+}
+
+function copyAboutValue(elementId) {
+    const input = document.getElementById(elementId);
+    if (input && input.value) {
+        navigator.clipboard.writeText(input.value).then(() => {
+            // Brief visual feedback - find the button and flash it
+            const btn = input.previousElementSibling;
+            if (btn && btn.tagName === 'BUTTON') {
+                const originalText = btn.textContent;
+                btn.textContent = '✓';
+                setTimeout(() => { btn.textContent = originalText; }, 1000);
+            }
+        }).catch(err => {
+            console.error('Failed to copy:', err);
+        });
+    }
+}
+
+async function loadAboutInfo() {
+    const container = document.getElementById('aboutContent');
+    container.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">Loading...</p>';
+    
+    try {
+        const response = await fetch('/api/about');
+        const data = await response.json();
+        
+        // Helper to mask sensitive values
+        const mask = (val, showChars = 30) => {
+            if (!val) return '<span style="color: var(--text-secondary);">Not configured</span>';
+            if (val.length <= showChars) return escapeHtml(val);
+            return escapeHtml(val.substring(0, showChars)) + '...';
+        };
+        
+        // Helper to create a copyable value with button
+        const copyableValue = (val, id, showChars = 30) => {
+            if (!val) return '<span style="color: var(--text-secondary);">Not configured</span>';
+            const displayVal = val.length <= showChars ? escapeHtml(val) : escapeHtml(val.substring(0, showChars)) + '...';
+            return `<span style="display: flex; align-items: center; gap: 8px;">
+                <span style="flex: 1; word-break: break-all;" title="${escapeHtml(val)}">${displayVal}</span>
+                <button onclick="copyAboutValue('${id}')" style="padding: 2px 6px; font-size: 11px; cursor: pointer; border: 1px solid var(--border); border-radius: 4px; background: var(--card-bg);" title="Copy full value">📋</button>
+                <input type="hidden" id="${id}" value="${escapeHtml(val)}">
+            </span>`;
+        };
+        
+        // Build the about content
+        let html = `
+            <div style="margin-bottom: 20px; text-align: center;">
+                <div style="font-size: 24px; font-weight: 600; margin-bottom: 4px;">🔧 ${escapeHtml(data.app_name)}</div>
+                <div style="color: var(--text-secondary);">Version ${escapeHtml(data.version)}</div>
+            </div>
+            
+            <div style="background: var(--bg); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                <h4 style="margin-bottom: 12px; font-size: 13px; text-transform: uppercase; color: var(--text-secondary);">Environment</h4>
+                <table style="width: 100%; font-size: 13px;">
+                    <tr><td style="padding: 4px 0; color: var(--text-secondary);">Python</td><td style="padding: 4px 0;">${escapeHtml(data.python_version)}</td></tr>
+                    <tr><td style="padding: 4px 0; color: var(--text-secondary);">Azure AI SDK</td><td style="padding: 4px 0;">${escapeHtml(data.azure_sdk_version)}</td></tr>
+                </table>
+            </div>
+            
+            <div style="background: var(--bg); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                <h4 style="margin-bottom: 12px; font-size: 13px; text-transform: uppercase; color: var(--text-secondary);">Configuration</h4>
+                <table style="width: 100%; font-size: 13px;">
+                    <tr><td style="padding: 4px 0; color: var(--text-secondary); width: 100px;">Endpoint</td><td style="padding: 4px 0;">${copyableValue(data.endpoint, 'aboutEndpoint')}</td></tr>
+                    <tr><td style="padding: 4px 0; color: var(--text-secondary);">Model</td><td style="padding: 4px 0;">${mask(data.model)}</td></tr>
+                    <tr><td style="padding: 4px 0; color: var(--text-secondary);">Bing Connection</td><td style="padding: 4px 0;">${copyableValue(data.bing_connection, 'aboutBing', 40)}</td></tr>
+                </table>
+            </div>
+        `;
+        
+        // Agents section
+        if (data.agents && !data.agents.configured === false) {
+            html += `
+                <div style="background: var(--bg); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                    <h4 style="margin-bottom: 12px; font-size: 13px; text-transform: uppercase; color: var(--text-secondary);">Agents</h4>
+                    <table style="width: 100%; font-size: 13px;">
+                        <tr><td style="padding: 4px 0; color: var(--text-secondary);">Name Prefix</td><td style="padding: 4px 0;">${mask(data.agents.name_prefix)}</td></tr>
+                        <tr><td style="padding: 4px 0; color: var(--text-secondary);">Researcher</td><td style="padding: 4px 0;">${mask(data.agents.researcher)}</td></tr>
+                        <tr><td style="padding: 4px 0; color: var(--text-secondary);">Writer</td><td style="padding: 4px 0;">${mask(data.agents.writer)}</td></tr>
+                        <tr><td style="padding: 4px 0; color: var(--text-secondary);">Reviewer</td><td style="padding: 4px 0;">${mask(data.agents.reviewer)}</td></tr>
+                    </table>
+                </div>
+            `;
+        }
+        
+        // GitHub link
+        if (data.github_url) {
+            html += `
+                <div style="text-align: center; margin-top: 16px; display: flex; justify-content: center; gap: 24px;">
+                    <a href="${escapeHtml(data.github_url)}" target="_blank" style="color: var(--primary); text-decoration: none; font-size: 13px;">
+                        📂 View on GitHub
+                    </a>
+                    <a href="${escapeHtml(data.github_url)}/releases" target="_blank" style="color: var(--primary); text-decoration: none; font-size: 13px;">
+                        🆕 What's New
+                    </a>
+                </div>
+            `;
+        }
+        
+        container.innerHTML = html;
+    } catch (error) {
+        container.innerHTML = `<p style="color: var(--error);">Failed to load about information: ${escapeHtml(error.message)}</p>`;
+    }
+}
+
+// Helper function to escape HTML (if not already defined)
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 // Example input embedded directly to avoid file bundling issues in executable
 const EXAMPLE_INPUT = `Problem/questions:
 

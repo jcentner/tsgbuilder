@@ -36,7 +36,7 @@ Tags containing `-` are automatically marked as pre-releases.
 ### 1. Prepare the Release
 
 1. Ensure all changes are committed and pushed to `main`
-2. Update any version references if needed
+2. **Update `APP_VERSION` in `web_app.py`** to match the new version (e.g., `APP_VERSION = "1.1.0"`)
 3. Verify tests pass: `make test`
 
 ### 2. Create and Push Tag
