@@ -14,7 +14,8 @@ git tag v1.0.0-beta.1
 git push origin v1.0.0-beta.1
 ```
 
-After pushing, go to [Releases](../../releases) to review and publish the draft.
+After pushing, go to [Actions](../../actions) to ensure the build workflow completes. 
+Then go to [Releases](../../releases) to review and publish the draft (appears after build). 
 
 ---
 
