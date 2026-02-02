@@ -31,7 +31,7 @@ def print_warn(msg: str) -> None:
 
 def check_env_vars() -> tuple[bool, dict[str, str]]:
     """Check that required environment variables are set."""
-    print("\n[1/5] Checking environment variables...")
+    print("\n[1/7] Checking environment variables...")
     
     required = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME", "BING_CONNECTION_NAME"]
     optional = ["AGENT_NAME"]
@@ -66,7 +66,7 @@ def check_env_vars() -> tuple[bool, dict[str, str]]:
 
 def check_dotenv_file() -> bool:
     """Check if .env file exists."""
-    print("\n[0/5] Checking .env file...")
+    print("\n[0/7] Checking .env file...")
     
     dotenv_path = find_dotenv()
     if dotenv_path:
@@ -79,7 +79,7 @@ def check_dotenv_file() -> bool:
 
 def check_azure_auth() -> bool:
     """Check Azure authentication works."""
-    print("\n[2/5] Checking Azure authentication...")
+    print("\n[2/7] Checking Azure authentication...")
     
     try:
         from azure.identity import DefaultAzureCredential

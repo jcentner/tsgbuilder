@@ -29,6 +29,8 @@ def valid_tsg_content():
     headings = "\n\n".join(REQUIRED_TSG_HEADINGS)
     return f"""{REQUIRED_TOC}
 
+# **Sample Issue Title**
+
 {headings}
 
 {REQUIRED_DIAGNOSIS_LINE}
@@ -88,7 +90,7 @@ class TestValidTSG:
         """Should extract TSG content between markers."""
         result = validate_tsg_output(valid_tsg_response)
         assert REQUIRED_TOC in result["tsg_content"]
-        assert "# **Title**" in result["tsg_content"]
+        assert "# **Sample Issue Title**" in result["tsg_content"]
     
     @pytest.mark.unit
     def test_valid_tsg_extracts_questions(self, valid_tsg_response):
@@ -212,8 +214,8 @@ NO_MISSING
     @pytest.mark.unit
     def test_missing_required_heading(self, valid_tsg_content):
         """Missing a required heading should fail validation."""
-        # Remove one heading
-        content = valid_tsg_content.replace("# **Title**", "")
+        # Remove one of the required section headings
+        content = valid_tsg_content.replace("# **Cause**", "")
         response = f"""
 {TSG_BEGIN}
 {content}
@@ -225,7 +227,7 @@ NO_MISSING
 """
         result = validate_tsg_output(response)
         assert result["valid"] is False
-        assert any("Title" in issue for issue in result["issues"])
+        assert any("Cause" in issue for issue in result["issues"])
     
     @pytest.mark.unit
     def test_missing_diagnosis_line(self, valid_tsg_content):

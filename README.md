@@ -255,7 +255,6 @@ See [docs/architecture.md](docs/architecture.md) for detailed pipeline architect
 | `Makefile` | Common operations |
 | `.env` | Your configuration (git-ignored, auto-created on first run) |
 | `.agent_ids.json` | Pipeline agent IDs after creation |
-| `.sessions/` | Persisted sessions for follow-up questions (git-ignored) |
 | `templates/index.html` | Web UI HTML structure |
 | `static/css/styles.css` | Web UI styles |
 | `static/js/main.js` | Core UI logic (streaming, TSG generation, images) |
