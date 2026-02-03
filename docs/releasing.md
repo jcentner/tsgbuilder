@@ -4,6 +4,8 @@ This document covers the release process and build infrastructure for TSG Builde
 
 ## Quick Reference
 
+> Remember to update the version in version.py first
+
 ```bash
 # Create and push a release tag
 git tag v1.0.0
