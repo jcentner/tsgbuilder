@@ -1098,7 +1098,7 @@ def _open_browser(url: str) -> None:
         is_wsl = False
         if sys.platform == "linux":
             try:
-                with open("/proc/version", "r") as f:
+                with open("/proc/version", "r", encoding="utf-8") as f:
                     is_wsl = "microsoft" in f.read().lower()
             except (FileNotFoundError, PermissionError):
                 pass
