@@ -42,6 +42,8 @@ TSG Builder was born out of this need. The idea: **you provide a raw dump of inf
    ```
    Your browser opens to `http://localhost:5000`
 
+   > **Note**: The executables are unsigned. On **Windows**, click "More info" → "Run anyway" when SmartScreen warns. On **macOS**, right-click → "Open" → "Open" to bypass Gatekeeper.
+
 3. **Complete setup** in the browser:
    - Enter your Azure AI Foundry project endpoint
    - Enter your Bing Search connection name  

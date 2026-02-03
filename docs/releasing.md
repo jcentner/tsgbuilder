@@ -136,6 +136,31 @@ python build_exe.py --clean
 
 ---
 
+## Unsigned Executables
+
+The executables are **not code-signed**, so users may see security warnings on first run.
+
+### Windows SmartScreen
+
+Windows will show "Windows protected your PC" warning:
+
+1. Click **More info**
+2. Click **Run anyway**
+
+### macOS Gatekeeper
+
+macOS will block the app as "unidentified developer":
+
+1. Right-click the executable → **Open**
+2. Click **Open** in the dialog
+3. (Or: System Preferences → Security & Privacy → **Allow Anyway**)
+
+### Linux
+
+No warnings — Linux doesn't require code signing.
+
+---
+
 ## Troubleshooting
 
 ### Build fails on Windows with Unicode error
