@@ -220,6 +220,7 @@ Every TSG must:
 
 | File | Purpose |
 |------|---------|
+| `version.py` | **Single source of truth** for version, GitHub URL, and TSG signature |
 | `pipeline.py` | Multi-stage pipeline orchestration, error classification |
 | `tsg_constants.py` | TSG template, stage prompts, validation functions |
 | `web_app.py` | Flask server, SSE streaming, session management |
@@ -282,4 +283,26 @@ This is **correct behavior**. `approved: false` with issues means "TSG is struct
 
 ---
 
+## Version Management
+
+**`version.py` is the single source of truth** for all version-related constants:
+
+- `APP_VERSION` — Semantic version string (e.g., `"1.0.0"`)
+- `GITHUB_URL` — Project repository URL
+- `TSG_SIGNATURE` — Signature appended to every generated TSG for usage tracking
+
+When releasing a new version:
+1. Update `APP_VERSION` in `version.py` only
+2. Tag the commit with `v{version}` (e.g., `v1.0.0`)
+3. Push the tag to trigger the release workflow
+
+The signature appears at the bottom of every TSG as:
+```
+---
+*Drafted with [TSG Builder](https://github.com/jcentner/tsgbuilder) v1.0.0*
+```
+
+This enables searching for TSG Builder-generated content in the ADO wiki.
+
+---
 

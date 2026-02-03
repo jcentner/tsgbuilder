@@ -64,12 +64,10 @@ from pipeline import (
     HINT_SERVICE_ERROR,
     HTTP_STATUS_MESSAGES,
 )
+from version import APP_VERSION, GITHUB_URL
 
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
-
-# Application version - update this for each release (see docs/releasing.md)
-APP_VERSION = "1.0.0"
 
 # Default .env content (created automatically on first run)
 # These provide sensible defaults; users still need to fill in their Azure-specific values
@@ -399,7 +397,7 @@ def api_about():
         "model": os.getenv("MODEL_DEPLOYMENT_NAME", ""),
         "bing_connection": os.getenv("BING_CONNECTION_NAME", ""),
         "agents": agent_info,
-        "github_url": "https://github.com/jcentner/tsgbuilder",
+        "github_url": GITHUB_URL,
     })
 
 

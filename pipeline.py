@@ -44,6 +44,7 @@ from tsg_constants import (
     extract_research_block,
     extract_review_block,
 )
+from version import TSG_SIGNATURE
 
 
 # =============================================================================
@@ -1668,6 +1669,8 @@ Please fix these issues and regenerate the TSG with correct format.
                             start = final_tsg.find(TSG_BEGIN) + len(TSG_BEGIN)
                             end = final_tsg.find(TSG_END)
                             tsg_content = final_tsg[start:end].strip()
+                            # Append signature for usage tracking
+                            tsg_content = tsg_content + TSG_SIGNATURE
                         
                         if QUESTIONS_BEGIN in final_tsg and QUESTIONS_END in final_tsg:
                             start = final_tsg.find(QUESTIONS_BEGIN) + len(QUESTIONS_BEGIN)
