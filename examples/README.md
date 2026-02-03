@@ -1,19 +1,33 @@
-# Example Inputs
+# Examples
 
-This directory contains example input files and their expected outputs to help you understand the TSG Builder workflow.
+This directory contains example input files, expected outputs, and test run results to help you understand the TSG Builder workflow.
 
 ## Files
+
+### Inputs
 
 | File | Description |
 |------|-------------|
 | `capability-host-input.txt` | Input about Azure AI Foundry agents not seeing connected OpenAI resources |
-| `capability-host-expected.md` | Expected TSG output (what the agent should produce) |
+| `tool-type-exists-input.txt` | Input about tool type already exists error |
+| `41-300k-functiontool-def-input.txt` | Large input (~300KB) for stress testing with function tool definitions |
+
+### Expected Outputs
+
+| File | Description |
+|------|-------------|
+| `capability-host-expected.md` | Reference TSG (ground truth, written by a human) for capability-host-input |
+| `sample-output.md` | Output TSG for capability-host-input, written by TSG Builder |
+
+### Test Run Results
+
+JSON files named `test_output_{date}_{time}` show full end-to-end capture of test runs. 
 
 ## Usage
 
 1. Start the web UI: `make ui`
 2. Open http://localhost:5000
-3. Click "Load example" to load `input-example.txt`, or paste content from your own notes on an issue
+3. Click "Load example" to load `capability-host-input.txt`, or paste content from your own notes
 4. Click "Generate TSG"
 
 ## Notes
