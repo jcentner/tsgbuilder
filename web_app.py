@@ -9,30 +9,31 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import threading
 import queue
+import uuid
+import webbrowser
 from pathlib import Path
-from dataclasses import dataclass
 from typing import Any, Generator
 
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from dotenv import load_dotenv, find_dotenv, set_key
 from azure.identity import DefaultAzureCredential
+from azure.core.exceptions import (
+    HttpResponseError,
+    ClientAuthenticationError,
+    ServiceRequestError,
+    ResourceNotFoundError,
+)
 from azure.ai.projects import AIProjectClient
-from azure.ai.agents.models import (
-    AgentEventHandler,
-    MessageDeltaChunk,
-    ThreadMessage,
-    ThreadRun,
-    RunStep,
-    RunStepToolCallDetails,
-    RunStepMcpToolCall,
-    RunStepBingGroundingToolCall,
-    BingGroundingTool,
-    McpTool,
-    MessageImageUrlParam,
-    MessageInputTextBlock,
-    MessageInputImageUrlBlock,
+from azure.ai.projects.models import (
+    PromptAgentDefinition,
+    MCPTool,
+    BingGroundingAgentTool,
+    BingGroundingSearchToolParameters,
+    BingGroundingSearchConfiguration,
 )
 
 from tsg_constants import (
@@ -47,150 +48,187 @@ from tsg_constants import (
 )
 
 # Import pipeline for multi-stage generation
-from pipeline import run_pipeline
+from pipeline import (
+    run_pipeline,
+    CancelledError,
+    classify_error,
+    PipelineStage,
+    PipelineError,
+    # Hint constants for consistent messaging
+    HINT_AUTH,
+    HINT_PERMISSION,
+    HINT_NOT_FOUND,
+    HINT_RATE_LIMIT,
+    HINT_TIMEOUT,
+    HINT_CONNECTION,
+    HINT_SERVICE_ERROR,
+    HTTP_STATUS_MESSAGES,
+)
 
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
 
-# Load environment variables
-load_dotenv(find_dotenv())
+# Application version - update this for each release (see docs/releasing.md)
+APP_VERSION = "1.0.0"
 
-app = Flask(__name__)
+# Default .env content (created automatically on first run)
+# These provide sensible defaults; users still need to fill in their Azure-specific values
+DEFAULT_ENV_CONTENT = """# Azure AI Foundry Configuration
+# example: https://<YOUR_RESOURCE>.services.ai.azure.com/api/projects/<YOUR_PROJECT>
+PROJECT_ENDPOINT=
 
-# Store active sessions (thread_id -> session data)
+# from management center -> project -> connected resources
+# example: /subscriptions/<SUB>/resourceGroups/<RG>/providers/Microsoft.CognitiveServices/accounts/<RESOURCE>/projects/<PROJECT>/connections/<CONNECTION>
+BING_CONNECTION_NAME=
+
+# recommend gpt-5.2 for v2 agents
+MODEL_DEPLOYMENT_NAME=gpt-5.2
+
+AGENT_NAME=TSG-Builder
+"""
+
+
+def _get_app_dir() -> Path:
+    """Get the application directory (where .env and .agent_ids.json should live).
+    
+    For normal Python execution, this is the current working directory.
+    For PyInstaller executables, this is the directory containing the executable.
+    """
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller executable
+        return Path(sys.executable).parent
+    else:
+        # Running as normal Python script
+        return Path.cwd()
+
+
+def _ensure_env_file() -> Path:
+    """Ensure .env file exists, creating from defaults if needed.
+    
+    Returns the path to the .env file.
+    """
+    app_dir = _get_app_dir()
+    env_path = app_dir / ".env"
+    
+    if not env_path.exists():
+        env_path.write_text(DEFAULT_ENV_CONTENT, encoding="utf-8")
+        print(f"📝 Created {env_path}")
+    
+    return env_path
+
+
+# Load environment variables (create .env from defaults if needed)
+_env_file = _ensure_env_file()
+load_dotenv(_env_file)
+
+# Check for test mode from environment variable
+TEST_MODE = os.getenv("TSG_TEST_MODE", "").strip() in ("1", "true", "True", "yes")
+if TEST_MODE:
+    print("🧪 Test mode enabled - stage outputs will be captured to test_output_*.json")
+
+# Configure Flask with proper paths for PyInstaller executable mode
+# When frozen, PyInstaller extracts bundled files to sys._MEIPASS temp directory
+if getattr(sys, 'frozen', False):
+    _bundle_dir = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    app = Flask(
+        __name__,
+        template_folder=_bundle_dir / 'templates',
+        static_folder=_bundle_dir / 'static'
+    )
+else:
+    app = Flask(__name__)
+
+
+def _get_user_friendly_error(error: Exception) -> tuple[str, str | None]:
+    """
+    Convert a pipeline exception to a user-friendly error message with optional hint.
+    
+    Handles Azure SDK exceptions, PipelineError, and falls back to classify_error()
+    for consistent messaging. Uses hint constants from pipeline.py for consistency.
+    
+    Returns:
+        Tuple of (user_message, hint) where hint may be None.
+    """
+    # 1. Handle PipelineError (has stage info directly)
+    if isinstance(error, PipelineError):
+        stage = error.stage
+        classification = classify_error(error.original_error, stage)
+        message = classification.user_message
+        
+        # Use hint from classification (now includes hint field)
+        hint = classification.hint
+        
+        # Make message more final (retries exhausted at this point)
+        if 'Retrying' in message:
+            message = message.replace('Retrying...', 'Please try again.')
+            message = message.replace('Will retry...', 'Please try again.')
+        
+        return message, hint
+    
+    # 2. Handle Azure SDK exceptions (may come from non-pipeline code)
+    if isinstance(error, ClientAuthenticationError):
+        return ("Azure authentication failed.", HINT_AUTH)
+    
+    if isinstance(error, ServiceRequestError):
+        return ("Cannot connect to Azure service.", HINT_CONNECTION)
+    
+    if isinstance(error, ResourceNotFoundError):
+        return ("Azure resource not found.", HINT_NOT_FOUND)
+    
+    if isinstance(error, HttpResponseError):
+        status_code = getattr(error, 'status_code', 500) or 500
+        # Use HTTP_STATUS_MESSAGES for consistent messaging
+        if status_code in HTTP_STATUS_MESSAGES:
+            msg, _, hint = HTTP_STATUS_MESSAGES[status_code]
+            return (f"{msg} ({status_code}).", hint)
+        elif status_code >= 500:
+            return (f"Azure service error ({status_code}).", HINT_SERVICE_ERROR)
+    
+    # 3. Fall back to string-based stage detection for other exceptions
+    error_str = str(error).lower()
+    
+    if 'research' in error_str:
+        stage = PipelineStage.RESEARCH
+    elif 'write' in error_str:
+        stage = PipelineStage.WRITE
+    elif 'review' in error_str:
+        stage = PipelineStage.REVIEW
+    else:
+        stage = PipelineStage.FAILED
+    
+    classification = classify_error(error, stage)
+    
+    # Use hint from classification
+    hint = classification.hint
+    
+    # Make message more final (retries exhausted)
+    message = classification.user_message
+    if 'Retrying' in message:
+        message = message.replace('Retrying...', 'Please try again.')
+        message = message.replace('Will retry...', 'Please try again.')
+    
+    return message, hint
+
+
+def _get_agent_ids_file() -> Path:
+    """Get the agent IDs file path (in app directory)."""
+    return _get_app_dir() / ".agent_ids.json"
+
+
+# Store active sessions in memory (thread_id -> session data)
+# Sessions only live while the server is running
 sessions: dict[str, dict] = {}
 
+# Track active runs for cancellation support
+# Maps run_id -> threading.Event (set = cancelled)
+active_runs: dict[str, threading.Event] = {}
 
-class SSEEventHandler(AgentEventHandler):
-    """Event handler that queues events for SSE streaming."""
-    
-    def __init__(self, event_queue: queue.Queue, thread_id: str = ""):
-        super().__init__()
-        self.event_queue = event_queue
-        self.response_text = ""
-        self._current_status = ""
-        self._thread_id = thread_id
-        self._run_id = ""
-        self._last_error = None
-    
-    def _send_event(self, event_type: str, data: dict):
-        """Queue an event for SSE streaming."""
-        self.event_queue.put({"type": event_type, "data": data})
-    
-    def on_thread_run(self, run: ThreadRun) -> None:
-        """Called when the run status changes."""
-        # Track the run ID for debugging
-        if run.id and not self._run_id:
-            self._run_id = run.id
-            self._send_event("debug_info", {
-                "thread_id": self._thread_id,
-                "run_id": run.id,
-            })
-        
-        if run.status != self._current_status:
-            self._current_status = run.status
-            self._send_event("status", {
-                "status": run.status,
-                "message": self._get_status_message(run.status)
-            })
-        
-        if run.status == "failed":
-            # Capture detailed error information
-            error_details = {
-                "message": str(run.last_error) if run.last_error else "Unknown error",
-                "thread_id": self._thread_id,
-                "run_id": run.id,
-            }
-            # Try to extract more error details if available
-            if run.last_error:
-                if hasattr(run.last_error, "code"):
-                    error_details["error_code"] = run.last_error.code
-                if hasattr(run.last_error, "message"):
-                    error_details["error_message"] = run.last_error.message
-            self._last_error = error_details
-            self._send_event("error", error_details)
-    
-    def _get_status_message(self, status: str) -> str:
-        """Get a user-friendly status message."""
-        messages = {
-            "queued": "Request queued...",
-            "in_progress": "Agent is working...",
-            "requires_action": "Processing tool results...",
-            "completed": "Generation complete",
-            "failed": "Generation failed",
-            "cancelled": "Generation cancelled",
-            "expired": "Request expired",
-        }
-        return messages.get(status, status)
-    
-    def on_run_step(self, step: RunStep) -> None:
-        """Called when a run step is created or updated."""
-        if step.type == "tool_calls" and hasattr(step, "step_details"):
-            self._handle_tool_calls(step)
-        elif step.type == "message_creation":
-            if step.status == "in_progress":
-                self._send_event("activity", {
-                    "activity": "generating",
-                    "message": "Generating response..."
-                })
-    
-    def _handle_tool_calls(self, step: RunStep) -> None:
-        """Extract and display tool call information."""
-        if not isinstance(step.step_details, RunStepToolCallDetails):
-            return
-        
-        for tool_call in step.step_details.tool_calls:
-            tool_name = None
-            tool_icon = "🔧"
-            
-            if isinstance(tool_call, RunStepMcpToolCall):
-                tool_name = "Microsoft Learn"
-                tool_icon = "📚"
-            elif isinstance(tool_call, RunStepBingGroundingToolCall):
-                tool_name = "Bing Search"
-                tool_icon = "🔍"
-            elif hasattr(tool_call, "type"):
-                tool_name = str(tool_call.type).replace("_", " ").title()
-            
-            if tool_name:
-                if step.status == "in_progress":
-                    self._send_event("tool", {
-                        "tool": tool_name,
-                        "icon": tool_icon,
-                        "status": "running",
-                        "message": f"Using {tool_name}..."
-                    })
-                elif step.status == "completed":
-                    self._send_event("tool", {
-                        "tool": tool_name,
-                        "icon": "✓",
-                        "status": "completed",
-                        "message": f"{tool_name} completed"
-                    })
-    
-    def on_message_delta(self, delta: MessageDeltaChunk) -> None:
-        """Called when message content is streamed."""
-        if delta.text:
-            self.response_text += delta.text
-    
-    def on_thread_message(self, message: ThreadMessage) -> None:
-        """Called when a complete message is available."""
-        if message.role == "assistant" and message.content:
-            for content_item in message.content:
-                if hasattr(content_item, "text") and content_item.text:
-                    self.response_text = content_item.text.value
-    
-    def on_error(self, data: str) -> None:
-        """Called when an error occurs."""
-        self._send_event("error", {"message": data})
-    
-    def on_done(self) -> None:
-        """Called when the stream is complete."""
-        self._send_event("done", {"message": "Agent completed"})
-    
-    def on_unhandled_event(self, event_type: str, event_data: Any) -> None:
-        """Handle any events not covered by other methods."""
-        pass
+
+def _is_valid_thread_id(thread_id: str) -> bool:
+    """Validate thread_id format."""
+    if not thread_id:
+        return False
+    return thread_id.replace("-", "").replace("_", "").isalnum()
 
 
 def get_project_client() -> AIProjectClient:
@@ -201,20 +239,18 @@ def get_project_client() -> AIProjectClient:
     return AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
 
 
-# Agent IDs JSON file path
-AGENT_IDS_FILE = Path(".agent_ids.json")
-
-
 def get_agent_ids() -> dict:
-    """Get all pipeline agent IDs from JSON file.
+    """Get all pipeline agent info from JSON file.
     
     Returns dict with keys: researcher, writer, reviewer, name_prefix
+    Each agent value is a dict with: name, version, id (v2 format)
     Raises ValueError if agents not configured.
     """
-    if not AGENT_IDS_FILE.exists():
+    agent_ids_file = _get_agent_ids_file()
+    if not agent_ids_file.exists():
         raise ValueError("No agents configured. Use Setup to create agents.")
     
-    data = json.loads(AGENT_IDS_FILE.read_text(encoding="utf-8"))
+    data = json.loads(agent_ids_file.read_text(encoding="utf-8"))
     
     required = ["researcher", "writer", "reviewer"]
     missing = [k for k in required if not data.get(k)]
@@ -224,15 +260,29 @@ def get_agent_ids() -> dict:
     return data
 
 
-def save_agent_ids(researcher: str, writer: str, reviewer: str, name_prefix: str):
-    """Save all pipeline agent IDs to JSON file."""
+def get_agent_id(agent_info) -> str | None:
+    """Extract agent ID from v1 (string) or v2 (dict with 'id') format.
+    
+    Args:
+        agent_info: Either a string (v1) or dict with 'id' key (v2)
+    
+    Returns:
+        The agent ID string, or None if not found
+    """
+    if isinstance(agent_info, dict):
+        return agent_info.get("id")
+    return agent_info  # v1 format: direct string ID
+
+
+def save_agent_ids(researcher: dict, writer: dict, reviewer: dict, name_prefix: str):
+    """Save all pipeline agent info to JSON file (v2 format with name/version/id)."""
     data = {
         "researcher": researcher,
         "writer": writer,
         "reviewer": reviewer,
         "name_prefix": name_prefix,
     }
-    AGENT_IDS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    _get_agent_ids_file().write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def extract_blocks(content: str) -> tuple[str, str]:
@@ -245,45 +295,6 @@ def extract_blocks(content: str) -> tuple[str, str]:
         return s[i + len(start) : j].strip()
 
     return between(content, TSG_BEGIN, TSG_END), between(content, QUESTIONS_BEGIN, QUESTIONS_END)
-
-
-@dataclass
-class AgentRunResult:
-    """Result of an agent run, including response and debug info."""
-    response_text: str
-    thread_id: str
-    run_id: str
-    error: dict | None = None
-
-
-def run_agent_with_streaming(
-    project: AIProjectClient, 
-    thread_id: str, 
-    agent_id: str,
-    event_queue: queue.Queue,
-    tool_resources: Any = None
-) -> AgentRunResult:
-    """Run the agent with streaming and queue events for SSE."""
-    handler = SSEEventHandler(event_queue, thread_id=thread_id)
-    
-    # Build streaming run kwargs
-    stream_kwargs = {
-        "thread_id": thread_id,
-        "agent_id": agent_id,
-        "event_handler": handler,
-    }
-    if tool_resources is not None:
-        stream_kwargs["tool_resources"] = tool_resources
-    
-    with project.agents.runs.stream(**stream_kwargs) as stream:
-        stream.until_done()
-    
-    return AgentRunResult(
-        response_text=handler.response_text,
-        thread_id=thread_id,
-        run_id=handler._run_id,
-        error=handler._last_error,
-    )
 
 
 @app.route("/")
@@ -314,9 +325,9 @@ def api_status():
         "error": None,
     }
     
-    # Check .env file
-    dotenv_path = find_dotenv()
-    result["config"]["has_env_file"] = bool(dotenv_path)
+    # Check .env file (use app directory, works for both normal and executable mode)
+    env_path = _get_app_dir() / ".env"
+    result["config"]["has_env_file"] = env_path.exists()
     
     # Check environment variables
     endpoint = os.getenv("PROJECT_ENDPOINT")
@@ -331,9 +342,13 @@ def api_status():
     try:
         agent_ids = get_agent_ids()
         result["agents"]["configured"] = True
-        result["agents"]["researcher"] = agent_ids.get("researcher", "")[:8] + "..."
-        result["agents"]["writer"] = agent_ids.get("writer", "")[:8] + "..."
-        result["agents"]["reviewer"] = agent_ids.get("reviewer", "")[:8] + "..."
+        # Handle v2 format (dict with name/version) vs v1 format (string ID)
+        for role in ["researcher", "writer", "reviewer"]:
+            agent_info = agent_ids.get(role, "")
+            if isinstance(agent_info, dict):
+                result["agents"][role] = agent_info.get("name", "")[:20] + "..."
+            else:
+                result["agents"][role] = str(agent_info)[:8] + "..."
         result["agents"]["name_prefix"] = agent_ids.get("name_prefix")
     except ValueError:
         result["agents"]["configured"] = False
@@ -357,24 +372,55 @@ def api_status():
     return jsonify(result)
 
 
+@app.route("/api/about")
+def api_about():
+    """Return application information for the About dialog."""
+    import azure.ai.projects
+    
+    # Get agent info
+    agent_info = {}
+    try:
+        agent_ids = get_agent_ids()
+        agent_info = {
+            "name_prefix": agent_ids.get("name_prefix", ""),
+            "researcher": agent_ids.get("researcher", {}).get("name", "") if isinstance(agent_ids.get("researcher"), dict) else "",
+            "writer": agent_ids.get("writer", {}).get("name", "") if isinstance(agent_ids.get("writer"), dict) else "",
+            "reviewer": agent_ids.get("reviewer", {}).get("name", "") if isinstance(agent_ids.get("reviewer"), dict) else "",
+        }
+    except ValueError:
+        agent_info = {"configured": False}
+    
+    return jsonify({
+        "app_name": "TSG Builder",
+        "version": APP_VERSION,
+        "python_version": sys.version.split()[0],
+        "azure_sdk_version": azure.ai.projects.__version__,
+        "endpoint": os.getenv("PROJECT_ENDPOINT", ""),
+        "model": os.getenv("MODEL_DEPLOYMENT_NAME", ""),
+        "bing_connection": os.getenv("BING_CONNECTION_NAME", ""),
+        "agents": agent_info,
+        "github_url": "https://github.com/jcentner/tsgbuilder",
+    })
+
+
 @app.route("/api/validate")
 def api_validate():
     """Run validation checks and return structured results."""
     checks = []
     
-    # 1. Check .env file
-    dotenv_path = find_dotenv()
+    # 1. Check .env file (use app directory, works for both normal and executable mode)
+    env_path = _get_app_dir() / ".env"
     checks.append({
         "name": ".env file",
-        "passed": bool(dotenv_path),
-        "message": f"Found at: {dotenv_path}" if dotenv_path else "Not found. Copy .env-sample to .env",
+        "passed": env_path.exists(),
+        "message": f"Found at: {env_path}" if env_path.exists() else "Not found. Use Setup to create configuration.",
         "critical": True,
     })
     
     # 2. Check environment variables
     required_vars = [
         ("PROJECT_ENDPOINT", "Azure AI Foundry project endpoint"),
-        ("MODEL_DEPLOYMENT_NAME", "Model deployment name (e.g., gpt-4.1)"),
+        ("MODEL_DEPLOYMENT_NAME", "Model deployment name (e.g., gpt-5.2)"),
         ("BING_CONNECTION_NAME", "Bing Search connection resource ID"),
     ]
     
@@ -420,12 +466,15 @@ def api_validate():
             env_ok = False
     
     # 4. Check project connection (only if auth works)
+    project_client = None
     if env_ok:
         endpoint = os.getenv("PROJECT_ENDPOINT")
         try:
-            project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
-            with project:
-                pass  # Just verify we can create the context
+            project_client = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
+            with project_client:
+                # Actually make an API call to verify the token works for this resource
+                # This catches tenant mismatches that the auth check alone doesn't catch
+                _ = list(project_client.agents.list(limit=1))
             checks.append({
                 "name": "Project Connection",
                 "passed": True,
@@ -433,14 +482,96 @@ def api_validate():
                 "critical": True,
             })
         except Exception as e:
+            error_str = str(e).lower()
+            # Check for tenant mismatch specifically
+            if "tenant" in error_str and "does not match" in error_str:
+                message = "Wrong subscription. Switch to the subscription containing your AI project."
+            else:
+                message = f"Failed: {str(e)[:100]}"
             checks.append({
                 "name": "Project Connection",
                 "passed": False,
-                "message": f"Failed: {str(e)[:100]}",
+                "message": message,
                 "critical": True,
             })
+            project_client = None  # Can't proceed with deployment/connection checks
     
-    # 5. Check agent IDs (not critical)
+    # 5. Check model deployment exists (warning if can't verify)
+    model_name = os.getenv("MODEL_DEPLOYMENT_NAME", "")
+    if project_client and model_name:
+        try:
+            # Re-open project client for deployment check
+            with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
+                deployment = project.deployments.get(name=model_name)
+                checks.append({
+                    "name": "Model Deployment",
+                    "passed": True,
+                    "message": f"Found deployment: {deployment.name}",
+                    "critical": False,
+                })
+        except Exception as e:
+            error_str = str(e)
+            # Try to list available deployments for helpful error message
+            available_names = []
+            try:
+                with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
+                    deployments = list(project.deployments.list())
+                    available_names = [d.name for d in deployments]
+            except Exception:
+                pass
+            
+            if available_names:
+                message = f"Deployment '{model_name}' not found. Available: {', '.join(available_names[:5])}"
+            elif "404" in error_str or "NotFound" in error_str:
+                message = f"Deployment '{model_name}' not found in project"
+            else:
+                message = f"Could not verify deployment: {str(e)[:80]}"
+            checks.append({
+                "name": "Model Deployment",
+                "passed": False,
+                "message": message,
+                "critical": False,  # Warning, not blocking
+            })
+    
+    # 6. Check Bing connection exists (warning if can't verify)
+    bing_connection = os.getenv("BING_CONNECTION_NAME", "")
+    if project_client and bing_connection:
+        try:
+            # Extract connection name from ARM resource ID if needed
+            connection_name = bing_connection.split('/')[-1] if '/' in bing_connection else bing_connection
+            with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
+                connection = project.connections.get(connection_name)
+                checks.append({
+                    "name": "Bing Connection",
+                    "passed": True,
+                    "message": f"Found connection: {connection_name}",
+                    "critical": False,
+                })
+        except Exception as e:
+            error_str = str(e)
+            # Try to list available connections for helpful error message
+            available_names = []
+            try:
+                with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
+                    connections = list(project.connections.list())
+                    available_names = [c.name for c in connections]
+            except Exception:
+                pass
+            
+            if available_names:
+                message = f"Connection '{connection_name}' not found. Available: {', '.join(available_names[:5])}"
+            elif "404" in error_str or "NotFound" in error_str:
+                message = f"Connection '{connection_name}' not found in project"
+            else:
+                message = f"Could not verify connection: {str(e)[:80]}"
+            checks.append({
+                "name": "Bing Connection",
+                "passed": False,
+                "message": message,
+                "critical": False,  # Warning, not blocking
+            })
+    
+    # 7. Check agent IDs (not critical)
     try:
         agent_ids = get_agent_ids()
         prefix = agent_ids.get("name_prefix", "TSG")
@@ -486,17 +617,9 @@ def api_config_set():
     """Update configuration values in .env file."""
     data = request.get_json()
     
-    # Find or create .env file
-    dotenv_path = find_dotenv()
-    if not dotenv_path:
-        dotenv_path = Path(".env")
-        # Create from sample if it exists
-        sample_path = Path(".env-sample")
-        if sample_path.exists():
-            dotenv_path.write_text(sample_path.read_text(encoding="utf-8"), encoding="utf-8")
-        else:
-            dotenv_path.touch()
-        dotenv_path = str(dotenv_path.absolute())
+    # Use app directory for .env (works for both normal and executable mode)
+    env_path = _ensure_env_file()
+    dotenv_path = str(env_path)
     
     allowed_keys = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME", "BING_CONNECTION_NAME", "AGENT_NAME"]
     updated = []
@@ -516,6 +639,46 @@ def api_config_set():
         "updated": updated,
         "message": f"Updated {len(updated)} configuration value(s)",
     })
+
+
+def _classify_azure_sdk_error(error: Exception) -> tuple[str, str | None, int]:
+    """Classify Azure SDK exceptions into user-friendly messages with hints.
+    
+    Uses shared constants from pipeline.py for consistent messaging across
+    the codebase. Returns (user_message, hint, http_status_code).
+    """
+    # ClientAuthenticationError - credentials/auth issues
+    if isinstance(error, ClientAuthenticationError):
+        return ("Azure authentication failed.", HINT_AUTH, 401)
+    
+    # ServiceRequestError - network/connectivity issues
+    if isinstance(error, ServiceRequestError):
+        return ("Could not connect to Azure service.", HINT_CONNECTION, 0)
+    
+    # ResourceNotFoundError - resource doesn't exist
+    if isinstance(error, ResourceNotFoundError):
+        return ("Azure resource not found.", HINT_NOT_FOUND, 404)
+    
+    # HttpResponseError - general HTTP errors with status codes
+    if isinstance(error, HttpResponseError):
+        status_code = getattr(error, 'status_code', 500) or 500
+        
+        # Use shared HTTP_STATUS_MESSAGES for consistent messaging
+        if status_code in HTTP_STATUS_MESSAGES:
+            msg, _, hint = HTTP_STATUS_MESSAGES[status_code]
+            return (f"{msg} ({status_code}).", hint, status_code)
+        elif status_code >= 500:
+            reason = getattr(error, 'reason', '') or ''
+            return (f"Azure service error ({status_code} {reason}).", HINT_SERVICE_ERROR, status_code)
+        else:
+            # Other 4xx errors - use error message
+            error_msg = str(error)
+            if hasattr(error, 'message') and error.message:
+                error_msg = error.message
+            return (f"Request failed ({status_code}): {error_msg[:200]}", None, status_code)
+    
+    # Generic fallback for unknown exceptions
+    return (f"Unexpected error: {str(error)[:200]}", None, 500)
 
 
 @app.route("/api/create-agent", methods=["POST"])
@@ -544,50 +707,66 @@ def api_create_agent():
     try:
         project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
         
-        # Build tools for research agent (Bing + MCP)
-        research_tools = []
-        bing_tool = BingGroundingTool(connection_id=conn_id)
-        research_tools.extend(bing_tool.definitions)
+        # Build tools for research agent (Bing + MCP) - v2 patterns
+        # Note: count limits the number of search results (default 5, max 50)
+        # Limiting to 5 to reduce response time and token load
+        bing_tool = BingGroundingAgentTool(
+            bing_grounding=BingGroundingSearchToolParameters(
+                search_configurations=[
+                    BingGroundingSearchConfiguration(
+                        project_connection_id=conn_id,
+                        count=5,  # Limit search results to reduce latency
+                    )
+                ]
+            )
+        )
         
-        mcp_tool = McpTool(server_label="learn", server_url=LEARN_MCP_URL)
-        mcp_tool.set_approval_mode("never")
-        research_tools.extend(mcp_tool.definitions)
+        mcp_tool = MCPTool(
+            server_label="learn",
+            server_url=LEARN_MCP_URL,
+            require_approval="never",
+        )
+        
+        research_tools = [mcp_tool, bing_tool]
         
         created_agents = {}
         
         with project:
-            # Create Researcher agent (with tools)
-            researcher = project.agents.create_agent(
-                model=model,
-                name=f"{agent_name}-Researcher",
-                instructions=RESEARCH_STAGE_INSTRUCTIONS,
-                tools=research_tools,
-                tool_resources=mcp_tool.resources,
-                temperature=0,
+            # Create Researcher agent (with tools) - v2 pattern
+            researcher = project.agents.create_version(
+                agent_name=f"{agent_name}-Researcher",
+                definition=PromptAgentDefinition(
+                    model=model,
+                    instructions=RESEARCH_STAGE_INSTRUCTIONS,
+                    tools=research_tools,
+                    temperature=0,
+                ),
             )
-            created_agents["researcher"] = researcher.id
+            created_agents["researcher"] = {"name": researcher.name, "version": researcher.version, "id": researcher.id}
             
-            # Create Writer agent (no tools)
-            writer = project.agents.create_agent(
-                model=model,
-                name=f"{agent_name}-Writer",
-                instructions=WRITER_STAGE_INSTRUCTIONS,
-                tools=None,
-                temperature=0,
+            # Create Writer agent (no tools) - v2 pattern
+            writer = project.agents.create_version(
+                agent_name=f"{agent_name}-Writer",
+                definition=PromptAgentDefinition(
+                    model=model,
+                    instructions=WRITER_STAGE_INSTRUCTIONS,
+                    temperature=0,
+                ),
             )
-            created_agents["writer"] = writer.id
+            created_agents["writer"] = {"name": writer.name, "version": writer.version, "id": writer.id}
             
-            # Create Reviewer agent (no tools)
-            reviewer = project.agents.create_agent(
-                model=model,
-                name=f"{agent_name}-Reviewer",
-                instructions=REVIEW_STAGE_INSTRUCTIONS,
-                tools=None,
-                temperature=0,
+            # Create Reviewer agent (no tools) - v2 pattern
+            reviewer = project.agents.create_version(
+                agent_name=f"{agent_name}-Reviewer",
+                definition=PromptAgentDefinition(
+                    model=model,
+                    instructions=REVIEW_STAGE_INSTRUCTIONS,
+                    temperature=0,
+                ),
             )
-            created_agents["reviewer"] = reviewer.id
+            created_agents["reviewer"] = {"name": reviewer.name, "version": reviewer.version, "id": reviewer.id}
         
-        # Save all agent IDs
+        # Save all agent IDs (v2 format with name + version)
         save_agent_ids(
             researcher=created_agents["researcher"],
             writer=created_agents["writer"],
@@ -598,6 +777,7 @@ def api_create_agent():
         return jsonify({
             "success": True,
             "agents": {
+                # Return v2 format (dict) - frontend handles display
                 "researcher": created_agents["researcher"],
                 "writer": created_agents["writer"],
                 "reviewer": created_agents["reviewer"],
@@ -606,46 +786,36 @@ def api_create_agent():
             "message": f"Created 3 pipeline agents: {agent_name}-Researcher, {agent_name}-Writer, {agent_name}-Reviewer",
         })
     
+    except (ClientAuthenticationError, ServiceRequestError, ResourceNotFoundError, HttpResponseError) as e:
+        # Classify Azure SDK errors with user-friendly messages and hints
+        user_message, hint, status_code = _classify_azure_sdk_error(e)
+        response = {
+            "success": False,
+            "error": user_message,
+            "error_type": type(e).__name__,
+        }
+        if hint:
+            response["hint"] = hint
+        # Use appropriate HTTP status (minimum 400 for errors)
+        http_status = status_code if status_code >= 400 else 500
+        return jsonify(response), http_status
+    
     except Exception as e:
+        # Generic fallback for unexpected errors
         return jsonify({
             "success": False,
-            "error": str(e),
+            "error": f"Unexpected error: {str(e)}",
+            "error_type": "UnexpectedError",
+            "hint": "Check the server logs for more details.",
         }), 500
-
-
-def build_message_content(text: str, images: list[dict] | None = None) -> list | str:
-    """Build message content with text and optional images.
-    
-    Args:
-        text: The text content of the message
-        images: Optional list of image dicts with 'data' (base64) and 'type' (mime type) keys
-        
-    Returns:
-        Either a string (text only) or list of content blocks (with images)
-    """
-    if not images:
-        return text
-    
-    # Build content blocks: text first, then images
-    content_blocks = [MessageInputTextBlock(text=text)]
-    
-    for img in images:
-        # Construct data URL from base64 data
-        mime_type = img.get("type", "image/png")
-        base64_data = img.get("data", "")
-        data_url = f"data:{mime_type};base64,{base64_data}"
-        
-        url_param = MessageImageUrlParam(url=data_url, detail="high")
-        content_blocks.append(MessageInputImageUrlBlock(image_url=url_param))
-    
-    return content_blocks
 
 
 def generate_pipeline_sse_events(
     notes: str,
     thread_id: str | None = None,
     answers: str | None = None,
-    images: list[dict] | None = None
+    images: list[dict] | None = None,
+    run_id: str | None = None,
 ) -> Generator[str, None, None]:
     """Generator that yields SSE events during multi-stage pipeline execution.
     
@@ -659,24 +829,48 @@ def generate_pipeline_sse_events(
         thread_id: Optional existing thread ID for follow-up
         answers: Optional answers to follow-up questions
         images: Optional list of image dicts with 'data' (base64) and 'type' (mime type)
+        run_id: Unique identifier for this run (for cancellation support)
     """
+    # Generate run_id if not provided
+    if not run_id:
+        run_id = str(uuid.uuid4())
+    
+    # Create cancel event for this run
+    cancel_event = threading.Event()
+    active_runs[run_id] = cancel_event
+    
     event_queue: queue.Queue = queue.Queue()
-    result_holder: dict[str, Any] = {"result": None, "error": None}
+    result_holder: dict[str, Any] = {"result": None, "error": None, "cancelled": False}
     
     def run_pipeline_thread():
         try:
+            # Get session data for follow-ups
+            session_data = sessions.get(thread_id, {}) if thread_id else {}
+            
             result = run_pipeline(
                 notes=notes,
                 images=images,
                 event_queue=event_queue,
                 thread_id=thread_id,
-                prior_tsg=sessions.get(thread_id, {}).get("current_tsg") if thread_id else None,
+                prior_tsg=session_data.get("current_tsg"),
+                prior_research=session_data.get("research_report"),  # Reuse research for follow-ups
                 user_answers=answers,
+                test_mode=TEST_MODE,
+                cancel_event=cancel_event,
             )
             result_holder["result"] = result
+        except CancelledError:
+            result_holder["cancelled"] = True
+            event_queue.put({"type": "cancelled", "data": {"message": "Run cancelled by user"}})
         except Exception as e:
-            result_holder["error"] = str(e)
-            event_queue.put({"type": "error", "data": {"message": str(e)}})
+            # Generate user-friendly error message with optional hint
+            user_message, hint = _get_user_friendly_error(e)
+            result_holder["error"] = user_message
+            # Send user-friendly message to UI (fatal = all retries exhausted)
+            error_data = {"message": user_message, "fatal": True}
+            if hint:
+                error_data["hint"] = hint
+            event_queue.put({"type": "error", "data": error_data})
         finally:
             event_queue.put(None)  # Signal end of events
     
@@ -684,23 +878,33 @@ def generate_pipeline_sse_events(
     pipeline_thread = threading.Thread(target=run_pipeline_thread)
     pipeline_thread.start()
     
+    # Send run_id to client immediately so it can cancel if needed
+    yield f"data: {json.dumps({'type': 'run_started', 'data': {'run_id': run_id}})}\n\n"
+    
     # Yield SSE events as they arrive
-    while True:
-        try:
-            event = event_queue.get(timeout=180)  # 3 minute timeout for pipeline
-            if event is None:
-                break
-            
-            yield f"data: {json.dumps(event)}\n\n"
-            
-        except queue.Empty:
-            # Send keepalive
-            yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
+    try:
+        while True:
+            try:
+                event = event_queue.get(timeout=30)  # 30s keepalive interval to prevent connection drops
+                if event is None:
+                    break
+                
+                yield f"data: {json.dumps(event)}\n\n"
+                
+            except queue.Empty:
+                # Send keepalive to prevent connection timeout
+                yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
+    finally:
+        # Clean up: remove from active runs when generator exits
+        # (this happens when client disconnects or stream completes)
+        active_runs.pop(run_id, None)
     
     pipeline_thread.join()
     
-    # Send final result
-    if result_holder["error"]:
+    # Send final result (unless cancelled)
+    if result_holder["cancelled"]:
+        yield f"data: {json.dumps({'type': 'cancelled', 'data': {'message': 'Run cancelled'}})}\n\n"
+    elif result_holder["error"]:
         yield f"data: {json.dumps({'type': 'error', 'data': {'message': result_holder['error']}})}\n\n"
     elif result_holder["result"]:
         result = result_holder["result"]
@@ -708,18 +912,19 @@ def generate_pipeline_sse_events(
         if result.success:
             has_questions = result.questions_content and result.questions_content.strip() != "NO_MISSING"
             
-            # Store session
+            # Store session in memory
             if result.thread_id:
-                sessions[result.thread_id] = {
+                session_data = {
                     "notes": notes,
                     "current_tsg": result.tsg_content,
                     "questions": result.questions_content if has_questions else None,
                     "research_report": result.research_report,
                 }
+                sessions[result.thread_id] = session_data
             
-            # Include review warnings if any
+            # Include review warnings if any (regardless of approved status)
             review_warnings = []
-            if result.review_result and not result.review_result.get("approved", True):
+            if result.review_result:
                 review_warnings = (
                     result.review_result.get("accuracy_issues", []) +
                     result.review_result.get("suggestions", [])
@@ -775,7 +980,13 @@ def api_answer_stream():
     thread_id = data.get("thread_id")
     answers = data.get("answers", "").strip()
     
-    if not thread_id or thread_id not in sessions:
+    if not thread_id:
+        return jsonify({"error": "No session ID provided"}), 400
+    
+    if not _is_valid_thread_id(thread_id):
+        return jsonify({"error": "Invalid session ID format"}), 400
+    
+    if thread_id not in sessions:
         return jsonify({"error": "Invalid or expired session"}), 400
     
     if not answers:
@@ -793,23 +1004,59 @@ def api_answer_stream():
     )
 
 
+@app.route("/api/cancel/<run_id>", methods=["POST"])
+def api_cancel_run(run_id):
+    """Cancel an active pipeline run.
+    
+    The run will stop at the next cancellation checkpoint (between stages or retries).
+    Note: This cannot interrupt an in-flight Azure API call, but will prevent the next stage from starting.
+    """
+    # Validate run_id format (UUID)
+    try:
+        uuid.UUID(run_id)
+    except ValueError:
+        return jsonify({"error": "Invalid run ID format"}), 400
+    
+    cancel_event = active_runs.get(run_id)
+    if not cancel_event:
+        return jsonify({"error": "Run not found or already completed"}), 404
+    
+    # Set the cancel event - pipeline will check this at next checkpoint
+    cancel_event.set()
+    return jsonify({"success": True, "message": "Cancellation requested"})
+
+
 @app.route("/api/session/<thread_id>", methods=["DELETE"])
 def api_delete_session(thread_id):
-    """Clean up a session."""
+    """Clean up a session from memory."""
+    if not _is_valid_thread_id(thread_id):
+        return jsonify({"error": "Invalid session ID format"}), 400
     if thread_id in sessions:
         del sessions[thread_id]
     return jsonify({"success": True})
 
 
-@app.route("/api/example")
-def api_example():
-    """Return the example input file content."""
-    example_path = Path("examples/capability-host-input.txt")
-    if not example_path.exists():
-        return jsonify({"error": "Example file not found"}), 404
+@app.route("/api/debug/threads")
+def api_debug_threads():
+    """Debug endpoint: show active threads and runs (only available in debug mode)."""
+    # Only allow in debug mode
+    if not app.debug:
+        return jsonify({"error": "Debug endpoint not available in production"}), 403
     
-    content = example_path.read_text(encoding="utf-8")
-    return jsonify({"content": content})
+    import threading
+    threads = []
+    for t in threading.enumerate():
+        threads.append({
+            "name": t.name,
+            "daemon": t.daemon,
+            "alive": t.is_alive(),
+        })
+    return jsonify({
+        "thread_count": threading.active_count(),
+        "threads": threads,
+        "active_runs": list(active_runs.keys()),
+        "sessions": list(sessions.keys()),
+    })
 
 
 def main():
@@ -831,10 +1078,47 @@ def main():
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
     
-    print(f"\n🚀 TSG Builder UI starting at http://localhost:{port}")
+    url = f"http://localhost:{port}"
+    print(f"\n🚀 TSG Builder UI starting at {url}")
     print("Press Ctrl+C to stop\n")
     
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    # Auto-open browser after a short delay (skip in debug mode reloader subprocess)
+    # The JS checkStatus() has retry logic, so a short delay is fine
+    if not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        threading.Timer(0.5, lambda: _open_browser(url)).start()
+    
+    # Listen on localhost only (not 0.0.0.0) for security
+    app.run(host="127.0.0.1", port=port, debug=debug)
+
+
+def _open_browser(url: str) -> None:
+    """Open browser in a cross-platform way (Linux, macOS, Windows, WSL2)."""
+    try:
+        # Check if running in WSL2 by looking for WSL-specific indicators
+        is_wsl = False
+        if sys.platform == "linux":
+            try:
+                with open("/proc/version", "r", encoding="utf-8") as f:
+                    is_wsl = "microsoft" in f.read().lower()
+            except (FileNotFoundError, PermissionError):
+                pass
+        
+        if is_wsl:
+            # WSL2: Use Windows' cmd.exe to open the browser
+            # Replace localhost with the URL that Windows can access
+            subprocess.run(
+                ["cmd.exe", "/c", "start", url.replace("&", "^&")],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            # Native Linux, macOS, or Windows: use webbrowser module
+            webbrowser.open(url)
+    except Exception as e:
+        # Silently fail - browser opening is a convenience, not critical
+        print(f"Could not open browser automatically: {e}")
+        print(f"Please open {url} manually.")
 
 
 if __name__ == "__main__":

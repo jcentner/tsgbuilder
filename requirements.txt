@@ -1,7 +1,13 @@
-azure-ai-projects==1.0.0
-azure-ai-agents>=1.2.0b6
-azure-identity==1.19.0
-python-dotenv==1.0.1
+# Azure AI Foundry v2 SDK
+# IMPORTANT: Do NOT add azure-ai-agents - it forces classic Foundry mode!
+azure-ai-projects>=2.0.0b3
+azure-identity>=1.19.0
+python-dotenv>=1.0.1
+openai>=1.0.0
+httpx>=0.25.0
 
 # Web UI
 flask>=3.0.0
+
+# Build tools
+pyinstaller>=6.0.0

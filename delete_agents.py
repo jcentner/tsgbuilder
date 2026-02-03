@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Delete TSG Builder agents from Azure AI Foundry.
 
-This script reads agent IDs from .agent_ids.json and deletes them
-from the configured Azure AI project.
+This script reads agent info from .agent_ids.json and deletes them
+from the configured Azure AI project using v2 API (delete_version).
 
 Usage:
     python delete_agents.py         # Interactive confirmation
@@ -37,7 +37,7 @@ def delete_agents(skip_confirm: bool = False) -> bool:
         print("No .agent_ids.json file found. Nothing to delete.")
         return True
     
-    # Load agent IDs
+    # Load agent info
     try:
         data = json.loads(AGENT_IDS_FILE.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
@@ -50,18 +50,22 @@ def delete_agents(skip_confirm: bool = False) -> bool:
         "reviewer": data.get("reviewer"),
     }
     
-    # Filter out empty IDs
+    # Filter out empty entries
     agents = {k: v for k, v in agents.items() if v}
     
     if not agents:
-        print("No agent IDs found in .agent_ids.json. Nothing to delete.")
+        print("No agent info found in .agent_ids.json. Nothing to delete.")
         return True
     
     # Show what will be deleted
     name_prefix = data.get("name_prefix", "TSG")
     print(f"\nAgents to delete (prefix: {name_prefix}):")
-    for role, agent_id in agents.items():
-        print(f"  - {role}: {agent_id}")
+    for role, agent_info in agents.items():
+        # Handle both v1 (string ID) and v2 (dict with name/version) formats
+        if isinstance(agent_info, dict):
+            print(f"  - {role}: {agent_info.get('name')} (version {agent_info.get('version')})")
+        else:
+            print(f"  - {role}: {agent_info} (v1 format)")
     
     # Confirm unless --yes flag
     if not skip_confirm:
@@ -82,7 +86,7 @@ def delete_agents(skip_confirm: bool = False) -> bool:
         from azure.ai.projects import AIProjectClient
     except ImportError:
         print("Error: azure-ai-projects package not installed.")
-        print("Run: pip install azure-ai-projects")
+        print("Run: pip install --pre azure-ai-projects")
         return False
     
     # Delete agents
@@ -92,13 +96,24 @@ def delete_agents(skip_confirm: bool = False) -> bool:
         project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
         
         with project:
-            for role, agent_id in agents.items():
+            for role, agent_info in agents.items():
                 try:
-                    project.agents.delete_agent(agent_id)
-                    print(f"  ✓ Deleted {role}: {agent_id}")
+                    # Handle v2 format (dict with name/version)
+                    if isinstance(agent_info, dict):
+                        agent_name = agent_info.get("name")
+                        agent_version = agent_info.get("version")
+                        project.agents.delete_version(
+                            agent_name=agent_name,
+                            agent_version=agent_version
+                        )
+                        print(f"  ✓ Deleted {role}: {agent_name} (version {agent_version})")
+                    else:
+                        # Fallback for v1 format (string ID) - try v1 delete
+                        project.agents.delete_agent(agent_info)
+                        print(f"  ✓ Deleted {role}: {agent_info}")
                 except Exception as e:
                     # Agent may already be deleted or not exist
-                    print(f"  ⚠ Could not delete {role} ({agent_id}): {e}")
+                    print(f"  ⚠ Could not delete {role}: {e}")
         
         print("\nAgent deletion complete.")
         return True

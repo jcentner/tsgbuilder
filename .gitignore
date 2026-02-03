@@ -14,11 +14,22 @@ __pycache__/
 
 # Output files
 output.md
+test_output*
 *.bak
+
+# Verbose logs
+logs/
 
 # IDE
 .vscode/
 .idea/
+.claude/
 
 # TODO file
 .TODO
+todo.md
+
+# PyInstaller
+build/
+dist/
+*.spec
