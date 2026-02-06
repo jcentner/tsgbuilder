@@ -217,10 +217,14 @@ function addActivity(icon, message, type = 'status') {
     const item = document.createElement('div');
     item.className = `activity-item ${type}`;
     
+    // Strip leading emoji from message if icon is already provided separately
+    // (server includes icon in both the icon field and the message text)
+    const cleanMessage = icon ? message.replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}]\uFE0F?\s*/u, '') : message;
+    
     const time = new Date().toLocaleTimeString();
     item.innerHTML = `
         <span class="activity-icon">${icon}</span>
-        <span class="activity-message">${message}</span>
+        <span class="activity-message">${cleanMessage}</span>
         <span class="activity-time">${time}</span>
     `;
     
@@ -795,9 +799,9 @@ function showError(message) {
     // Add debug info section (always visible for easier debugging)
     if (debugPart) {
         html += `
-            <div style="margin-top: 10px; padding: 10px; background: #2d2d2d; border-radius: 4px; border-left: 3px solid var(--primary);">
+            <div style="margin-top: 10px; padding: 10px; background: var(--code-block-bg); border-radius: 4px; border-left: 3px solid var(--primary);">
                 <strong style="color: var(--primary);">🔍 Debug Information</strong>
-                <pre style="margin-top: 8px; font-size: 12px; white-space: pre-wrap; color: #ccc;">${escapeHtml(debugPart)}</pre>
+                <pre style="margin-top: 8px; font-size: 12px; white-space: pre-wrap; color: var(--code-block-text);">${escapeHtml(debugPart)}</pre>
             </div>
         `;
     }
@@ -807,7 +811,7 @@ function showError(message) {
         html += `
             <details style="margin-top: 10px;">
                 <summary style="cursor: pointer; color: var(--primary);">Show raw agent response</summary>
-                <pre style="margin-top: 8px; padding: 10px; background: #1e1e1e; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; max-height: 300px; overflow-y: auto;">${escapeHtml(rawPart)}</pre>
+                <pre style="margin-top: 8px; padding: 10px; background: var(--code-block-bg); border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; max-height: 300px; overflow-y: auto; color: var(--code-block-text);">${escapeHtml(rawPart)}</pre>
             </details>
         `;
     }

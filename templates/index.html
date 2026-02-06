@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TSG Builder</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        // Apply saved theme immediately to prevent flash of wrong theme
+        (function() {
+            var theme = localStorage.getItem('tsg-builder-theme') || 'light';
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
@@ -146,7 +153,10 @@ Address any missing information and review notes above. You can also suggest cor
         <div class="modal">
             <div class="modal-header">
                 <h2>⚙️ TSG Builder Setup</h2>
-                <button class="modal-close" onclick="closeSetup()">&times;</button>
+                <div class="modal-header-actions">
+                    <button class="theme-toggle" onclick="toggleTheme()" id="themeToggle" title="Toggle dark/light mode">🌙</button>
+                    <button class="modal-close" onclick="closeSetup()">&times;</button>
+                </div>
             </div>
             <div class="modal-body">
                 <!-- Step 1: Configuration -->
