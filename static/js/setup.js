@@ -14,6 +14,7 @@
 
 async function openSetup() {
     document.getElementById('setupModal').classList.remove('hidden');
+    updateThemeIcon();
     await loadConfig();
     updateSetupOverallStatus();
 }
@@ -21,6 +22,27 @@ async function openSetup() {
 function closeSetup() {
     document.getElementById('setupModal').classList.add('hidden');
     checkStatus(); // Refresh main status
+}
+
+/* ==========================================================================
+   Theme Toggle
+   ========================================================================== */
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'light';
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('tsg-builder-theme', next);
+    updateThemeIcon();
+}
+
+function updateThemeIcon() {
+    const theme = document.documentElement.getAttribute('data-theme') || 'light';
+    const btn = document.getElementById('themeToggle');
+    if (btn) {
+        btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+        btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+    }
 }
 
 /* ==========================================================================

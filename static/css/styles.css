@@ -4,16 +4,86 @@
    CSS Variables (Design Tokens)
    ========================================================================== */
 :root {
+    /* Core palette */
     --primary: #0078d4;
     --primary-dark: #106ebe;
     --success: #107c10;
     --warning: #ff8c00;
     --error: #d13438;
+
+    /* Layout */
     --bg: #f5f5f5;
     --card-bg: #ffffff;
     --text: #323130;
     --text-secondary: #605e5c;
     --border: #e1dfdd;
+    --header-bg: #0078d4;
+
+    /* Surfaces & code */
+    --surface: #fafafa;
+    --surface-hover: #f0f0f0;
+    --code-bg: #e8e8e8;
+    --code-block-bg: #2d2d2d;
+    --code-block-text: #f8f8f2;
+
+    /* Semantic backgrounds */
+    --warning-bg: #fff8e5;
+    --warning-text: #5c4813;
+    --error-bg: #fde7e9;
+    --success-bg: #dff6dd;
+    --info-bg: #e6f2ff;
+    --stage-complete-bg: #e6ffe6;
+    --rate-limit-bg: #fff4ce;
+
+    /* Overlays & focus */
+    --overlay-bg: rgba(0, 0, 0, 0.5);
+    --focus-ring: rgba(0, 120, 212, 0.2);
+    --primary-subtle: rgba(0, 120, 212, 0.05);
+    --primary-subtle-hover: rgba(0, 120, 212, 0.1);
+    --feedback-bg: rgba(255, 255, 255, 0.5);
+    --feedback-border: rgba(0, 0, 0, 0.1);
+}
+
+/* Dark Theme */
+[data-theme="dark"] {
+    /* Core palette */
+    --primary: #4a9eff;
+    --primary-dark: #3a8eef;
+    --success: #4caf50;
+    --warning: #ffb74d;
+    --error: #f44336;
+
+    /* Layout */
+    --bg: #1a1a1a;
+    --card-bg: #2d2d2d;
+    --text: #e0e0e0;
+    --text-secondary: #a0a0a0;
+    --border: #404040;
+    --header-bg: #1e3050;
+
+    /* Surfaces & code */
+    --surface: #252525;
+    --surface-hover: #383838;
+    --code-bg: #383838;
+    --code-block-bg: #1e1e1e;
+    --code-block-text: #f8f8f2;
+
+    /* Semantic backgrounds */
+    --warning-bg: #3d3520;
+    --warning-text: #ffb74d;
+    --error-bg: #3d2020;
+    --success-bg: #1e3d1e;
+    --info-bg: #1e2d3d;
+    --stage-complete-bg: #1e3d1e;
+    --rate-limit-bg: #3d3520;
+
+    /* Overlays & focus */
+    --overlay-bg: rgba(0, 0, 0, 0.7);
+    --focus-ring: rgba(74, 158, 255, 0.3);
+    --primary-subtle: rgba(74, 158, 255, 0.08);
+    --primary-subtle-hover: rgba(74, 158, 255, 0.15);
+    --feedback-bg: rgba(255, 255, 255, 0.05);
+    --feedback-border: rgba(255, 255, 255, 0.1);
 }
 
 /* ==========================================================================
@@ -58,7 +128,7 @@ body {
    Header
    ========================================================================== */
 header {
-    background: var(--primary);
+    background: var(--header-bg);
     color: white;
     padding: 16px 0;
     margin-bottom: 24px;
@@ -143,12 +213,14 @@ textarea {
     font-size: 13px;
     resize: vertical;
     line-height: 1.6;
+    background: var(--surface);
+    color: var(--text);
 }
 
 textarea:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+    box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 .form-group {
@@ -176,12 +248,14 @@ textarea:focus {
     border-radius: 6px;
     font-size: 13px;
     font-family: 'Consolas', 'Monaco', monospace;
+    background: var(--surface);
+    color: var(--text);
 }
 
 .form-group input:focus {
     outline: none;
     border-color: var(--primary);
-    box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+    box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 /* ==========================================================================
@@ -289,7 +363,7 @@ textarea:focus {
     max-height: 600px;
     overflow-y: auto;
     padding: 16px;
-    background: #fafafa;
+    background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 6px;
     font-family: 'Consolas', 'Monaco', monospace;
@@ -337,7 +411,7 @@ textarea:focus {
 }
 
 .output-area.preview-mode code {
-    background: #e8e8e8;
+    background: var(--code-bg);
     padding: 0.15em 0.4em;
     border-radius: 3px;
     font-family: 'Consolas', 'Monaco', monospace;
@@ -345,8 +419,8 @@ textarea:focus {
 }
 
 .output-area.preview-mode pre {
-    background: #2d2d2d;
-    color: #f8f8f2;
+    background: var(--code-block-bg);
+    color: var(--code-block-text);
     padding: 12px;
     border-radius: 6px;
     overflow-x: auto;
@@ -373,7 +447,7 @@ textarea:focus {
 }
 
 .output-area.preview-mode th {
-    background: #f0f0f0;
+    background: var(--surface-hover);
     font-weight: 600;
 }
 
@@ -428,7 +502,7 @@ textarea:focus {
 }
 
 .toggle-btn:hover:not(.active) {
-    background: #f0f0f0;
+    background: var(--surface-hover);
 }
 
 /* ==========================================================================
@@ -437,7 +511,7 @@ textarea:focus {
 .questions-panel {
     margin-top: 20px;
     padding: 16px;
-    background: #fff8e5;
+    background: var(--warning-bg);
     border: 1px solid var(--warning);
     border-radius: 6px;
 }
@@ -467,7 +541,7 @@ textarea:focus {
 .feedback-section {
     margin-bottom: 16px;
     padding-bottom: 16px;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid var(--feedback-border);
 }
 
 .feedback-section:last-child {
@@ -484,7 +558,7 @@ textarea:focus {
 }
 
 .feedback-section .questions-text {
-    background: rgba(255, 255, 255, 0.5);
+    background: var(--feedback-bg);
     padding: 12px;
     border-radius: 4px;
     font-size: 13px;
@@ -545,7 +619,7 @@ textarea:focus {
     max-height: 200px;
     overflow-y: auto;
     padding: 12px;
-    background: #f8f8f8;
+    background: var(--surface);
     border-radius: 6px;
     font-size: 13px;
 }
@@ -555,7 +629,7 @@ textarea:focus {
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
-    background: white;
+    background: var(--card-bg);
     border-radius: 4px;
     border-left: 3px solid var(--border);
     animation: slideIn 0.2s ease-out;
@@ -567,13 +641,13 @@ textarea:focus {
 
 .activity-item.stage-start {
     border-left-color: var(--primary);
-    background: #e6f2ff;
+    background: var(--info-bg);
     font-weight: 500;
 }
 
 .activity-item.stage-complete {
     border-left-color: var(--success);
-    background: #e6ffe6;
+    background: var(--stage-complete-bg);
 }
 
 .activity-item.tool {
@@ -586,12 +660,12 @@ textarea:focus {
 
 .activity-item.error {
     border-left-color: var(--error);
-    background: #fde7e9;
+    background: var(--error-bg);
 }
 
 .activity-item.rate-limit {
     border-left-color: var(--warning);
-    background: #fff4ce;
+    background: var(--rate-limit-bg);
 }
 
 .activity-item.rate-limit .activity-icon {
@@ -636,7 +710,7 @@ textarea:focus {
    ========================================================================== */
 .error-message {
     padding: 12px 16px;
-    background: #fde7e9;
+    background: var(--error-bg);
     border: 1px solid var(--error);
     border-radius: 6px;
     color: var(--error);
@@ -645,7 +719,7 @@ textarea:focus {
 
 .success-message {
     padding: 12px 16px;
-    background: #dff6dd;
+    background: var(--success-bg);
     border: 1px solid var(--success);
     border-radius: 6px;
     color: var(--success);
@@ -654,10 +728,10 @@ textarea:focus {
 
 .warning-banner {
     padding: 12px 16px;
-    background: #fff8e5;
+    background: var(--warning-bg);
     border: 1px solid var(--warning);
     border-radius: 6px;
-    color: #5c4813;
+    color: var(--warning-text);
     margin-bottom: 16px;
 }
 
@@ -711,7 +785,7 @@ textarea:focus {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--overlay-bg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -810,24 +884,24 @@ textarea:focus {
     align-items: center;
     gap: 10px;
     padding: 10px 12px;
-    background: #fafafa;
+    background: var(--surface);
     border-radius: 6px;
     margin-bottom: 8px;
     border: 1px solid var(--border);
 }
 
 .validation-item.passed {
-    background: #dff6dd;
+    background: var(--success-bg);
     border-color: var(--success);
 }
 
 .validation-item.failed {
-    background: #fde7e9;
+    background: var(--error-bg);
     border-color: var(--error);
 }
 
 .validation-item.warning {
-    background: #fff8e5;
+    background: var(--warning-bg);
     border-color: var(--warning);
 }
 
@@ -864,7 +938,7 @@ textarea:focus {
 
 .agent-info {
     padding: 16px;
-    background: #dff6dd;
+    background: var(--success-bg);
     border: 1px solid var(--success);
     border-radius: 6px;
     display: flex;
@@ -913,17 +987,17 @@ textarea:focus {
     text-align: center;
     cursor: pointer;
     transition: all 0.2s ease;
-    background: #fafafa;
+    background: var(--surface);
 }
 
 .image-drop-zone:hover {
     border-color: var(--primary);
-    background: rgba(0, 120, 212, 0.05);
+    background: var(--primary-subtle);
 }
 
 .image-drop-zone.dragover {
     border-color: var(--primary);
-    background: rgba(0, 120, 212, 0.1);
+    background: var(--primary-subtle-hover);
     border-style: solid;
 }
 
@@ -958,7 +1032,7 @@ textarea:focus {
     border-radius: 8px;
     overflow: hidden;
     border: 1px solid var(--border);
-    background: #f5f5f5;
+    background: var(--surface);
 }
 
 .image-preview img {
@@ -1013,4 +1087,28 @@ textarea:focus {
 /* Hidden file input */
 .image-input {
     display: none;
+}
+
+/* ==========================================================================
+   Theme Toggle
+   ========================================================================== */
+.modal-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.theme-toggle {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 18px;
+    padding: 4px 8px;
+    line-height: 1;
+    transition: all 0.15s ease;
+}
+
+.theme-toggle:hover {
+    background: var(--surface-hover);
 }
