@@ -13,7 +13,7 @@ Adds a pre-flight PII check to prevent customer-identifiable information from be
 | Detection service | Azure AI Language PII API (`azure-ai-textanalytics>=5.3.0`) | Purpose-built for input scanning, native redaction, GA SDK, deterministic |
 | Resource model | Centralized, author-owned Language resource | Zero user setup, central metrics, single cost center |
 | Auth | `DefaultAzureCredential` (Entra ID) | Matches existing Foundry auth, no API keys, policy-compliant (local auth disabled) |
-| RBAC | `Cognitive Services User` on Language resource, granted tenant-wide or via dynamic security group | All users are same tenant; they already have Entra identities from Foundry access. `Cognitive Services Language Reader` was insufficient — its granular DataActions don't cover the `accounts/Language/action` path used by the Python SDK's `recognize_pii_entities()`. `Cognitive Services User` has the full `Microsoft.CognitiveServices/*` DataAction wildcard. |
+| RBAC | `Cognitive Services Language Reader` on Language resource, granted tenant-wide or via dynamic security group | All users are same tenant; they already have Entra identities from Foundry access |
 | Endpoint config | Hardcoded default in `version.py`, silently overridable via `LANGUAGE_ENDPOINT` env var | Not user-configurable by design — centralized resource, not per-user. Env var override exists as an undocumented escape hatch for emergencies (not surfaced in UI, setup, or docs) |
 | Failure mode | Fail-closed with error message | If Language resource unreachable, block generation and show actionable error — input cannot be sent to external services without PII clearance |
 | Confidence threshold | ≥ 0.8 | Reduce false positives; configurable as a constant in `pii_check.py` |
@@ -90,13 +90,12 @@ Owner: project author (not end users).
 
 - [x] Create Azure Language resource (Free F0 or Standard S tier)
 - [x] Record the endpoint URL
-- [x] ~~Assign `Cognitive Services Language Reader` role~~ → Changed to `Cognitive Services User` (Language Reader lacked `accounts/Language/action` DataAction needed by Python SDK)
-- [x] Assign `Cognitive Services User` role at resource scope — either:
+- [x] Assign `Cognitive Services Language Reader` role at resource scope — either:
   - [x] Tenant-wide (`All Users` principal), **or**
   - [ ] Dynamic security group with membership rule (e.g., `user.department -eq "Azure Support"`)
 - [x] Enable Diagnostic Settings → send to Log Analytics workspace
   - [x] Category: `Audit` (captures caller identity per request)
-- [ ] Verify access: `az login` as a different user, call the PII endpoint, confirm 200
+- [x] Verify access: `az login` as a target user, call the PII endpoint, confirm 200
 
 ---
 
