@@ -150,23 +150,10 @@ def _get_user_friendly_error(error: Exception) -> tuple[str, str | None]:
         return message, hint
     
     # 2. Handle Azure SDK exceptions (may come from non-pipeline code)
-    if isinstance(error, ClientAuthenticationError):
-        return ("Azure authentication failed.", HINT_AUTH)
-    
-    if isinstance(error, ServiceRequestError):
-        return ("Cannot connect to Azure service.", HINT_CONNECTION)
-    
-    if isinstance(error, ResourceNotFoundError):
-        return ("Azure resource not found.", HINT_NOT_FOUND)
-    
-    if isinstance(error, HttpResponseError):
-        status_code = getattr(error, 'status_code', 500) or 500
-        # Use HTTP_STATUS_MESSAGES for consistent messaging
-        if status_code in HTTP_STATUS_MESSAGES:
-            msg, _, hint = HTTP_STATUS_MESSAGES[status_code]
-            return (f"{msg} ({status_code}).", hint)
-        elif status_code >= 500:
-            return (f"Azure service error ({status_code}).", HINT_SERVICE_ERROR)
+    if isinstance(error, (ClientAuthenticationError, ServiceRequestError,
+                          ResourceNotFoundError, HttpResponseError)):
+        user_msg, hint, _ = classify_azure_sdk_error(error)
+        return (user_msg, hint)
     
     # 3. Fall back to string-based stage detection for other exceptions
     error_str = str(error).lower()

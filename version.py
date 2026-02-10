@@ -25,5 +25,5 @@ TSG_SIGNATURE = f"\n\n---\n*Drafted with [TSG Builder]({GITHUB_URL}) v{APP_VERSI
 # undocumented escape hatch for emergencies (not surfaced in UI, setup, or docs).
 LANGUAGE_ENDPOINT = os.getenv(
     "LANGUAGE_ENDPOINT",
-    "https://tsgbuilder-language.cognitiveservices.azure.com/",
+    "https://tsgbuilder-pii-language.cognitiveservices.azure.com/",
 )

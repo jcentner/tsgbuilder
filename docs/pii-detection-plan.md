@@ -88,9 +88,9 @@ The PII check is a **hard gate** — if it can't confirm the input is clean, gen
 
 Owner: project author (not end users).
 
-- [ ] Create Azure Language resource (Free F0 or Standard S tier)
-- [ ] Record the endpoint URL
-- [ ] Assign `Cognitive Services Language Reader` role at resource scope — either:
+- [x] Create Azure Language resource (Free F0 or Standard S tier)
+- [x] Record the endpoint URL
+- [x] Assign `Cognitive Services Language Reader` role at resource scope — either:
   - [ ] Tenant-wide (`All Users` principal), **or**
   - [ ] Dynamic security group with membership rule (e.g., `user.department -eq "Azure Support"`)
 - [ ] Enable Diagnostic Settings → send to Log Analytics workspace
@@ -101,15 +101,15 @@ Owner: project author (not end users).
 
 ## Phase 2: Backend — `pii_check.py` + Constants
 
-- [ ] Add `LANGUAGE_ENDPOINT` to `version.py` — hardcoded default with silent `os.getenv()` override: `LANGUAGE_ENDPOINT = os.getenv("LANGUAGE_ENDPOINT", "https://<resource>.cognitiveservices.azure.com/")`  (undocumented escape hatch, not surfaced in UI or docs)
-- [ ] Add `azure-ai-textanalytics>=5.3.0` to `requirements.txt`
-- [ ] Create `pii_check.py` with:
-  - [ ] `PII_CATEGORIES` — list of `PiiEntityCategory` enum constants to detect (map from table above)
-  - [ ] `PII_CONFIDENCE_THRESHOLD = 0.8`
-  - [ ] `PII_CHUNK_SIZE = 5120` — max characters per document (synchronous API limit)
-  - [ ] `PII_MAX_DOCS_PER_REQUEST = 5` — max documents per synchronous API call
-  - [ ] `get_language_client()` — creates `TextAnalyticsClient` with `DefaultAzureCredential` + `LANGUAGE_ENDPOINT` (endpoint is hardcoded constant, always available)
-  - [ ] `check_for_pii(text: str) -> dict` — calls `recognize_pii_entities()` with `disable_service_logs=True` and `categories_filter=PII_CATEGORIES`, filters by confidence threshold, returns:
+- [x] Add `LANGUAGE_ENDPOINT` to `version.py` — hardcoded default with silent `os.getenv()` override: `LANGUAGE_ENDPOINT = os.getenv("LANGUAGE_ENDPOINT", "https://tsgbuilder-pii-language.cognitiveservices.azure.com/")`  (undocumented escape hatch, not surfaced in UI or docs)
+- [x] Add `azure-ai-textanalytics>=5.3.0` to `requirements.txt`
+- [x] Create `pii_check.py` with:
+  - [x] `PII_CATEGORIES` — list of `PiiEntityCategory` enum constants to detect (map from table above)
+  - [x] `PII_CONFIDENCE_THRESHOLD = 0.8`
+  - [x] `PII_CHUNK_SIZE = 5120` — max characters per document (synchronous API limit)
+  - [x] `PII_MAX_DOCS_PER_REQUEST = 5` — max documents per synchronous API call
+  - [x] `get_language_client()` — creates `TextAnalyticsClient` with `DefaultAzureCredential` + `LANGUAGE_ENDPOINT` (endpoint is hardcoded constant, always available)
+  - [x] `check_for_pii(text: str) -> dict` — calls `recognize_pii_entities()` with `disable_service_logs=True` and `categories_filter=PII_CATEGORIES`, filters by confidence threshold, returns:
     ```python
     {
         "pii_detected": bool,
@@ -119,14 +119,14 @@ Owner: project author (not end users).
         "hint": str | None,          # actionable user hint on failure, None on success
     }
     ```
-  - [ ] **Chunking for large inputs**:
+  - [x] **Chunking for large inputs**:
     - Split input into chunks of ≤ `PII_CHUNK_SIZE` characters, breaking at whitespace boundaries to avoid splitting words/entities
     - Batch chunks in groups of `PII_MAX_DOCS_PER_REQUEST` (5) per API call
     - **Reassemble `redacted_text`**: concatenate each chunk's `redacted_text` in order to produce the full redacted document
     - **Adjust offsets**: shift each chunk's entity offsets by the cumulative character count of preceding chunks so findings reference positions in the original input
     - If any individual chunk returns `is_error=True`, **fail-closed**: log warning (without input text), stop processing, and return result with `error` + `hint` fields set — do NOT continue with remaining chunks or allow generation to proceed
-  - [ ] **Error handling** — reuse the existing `_classify_azure_sdk_error()` from `web_app.py`. Refactor it into a shared utility (e.g., `error_utils.py` or move to `pipeline.py`) so both `web_app.py` and `pii_check.py` import the same classifier. This avoids duplicating Azure SDK error-to-message mapping. Catch `ClientAuthenticationError`, `ServiceRequestError`, `HttpResponseError`, and generic `Exception`; classify via shared utility; on any error, return result with `error` + `hint` fields set (caller blocks generation)
-  - [ ] **Logging** — print warnings on errors (e.g., `"⚠️ PII check failed (ErrorType): message"`) without logging any input text or PII content
+  - [x] **Error handling** — reuse the existing `_classify_azure_sdk_error()` from `web_app.py`. Refactored into `error_utils.py` so both `web_app.py` and `pii_check.py` import the same classifier (`classify_azure_sdk_error()`). Catches `ClientAuthenticationError`, `ServiceRequestError`, `HttpResponseError`, and generic `Exception`; classifies via shared utility; on any error, returns result with `error` + `hint` fields set (caller blocks generation)
+  - [x] **Logging** — print warnings on errors (e.g., `"⚠️ PII check failed (ErrorType): message"`) without logging any input text or PII content
 
 ---
 
