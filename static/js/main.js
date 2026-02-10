@@ -535,6 +535,57 @@ async function cancelRun() {
    TSG Generation & Answer Submission
    ========================================================================== */
 
+/**
+ * Run PII pre-flight check on the given text.
+ * @param {string} text - The text to check for PII.
+ * @param {string} targetTextarea - The id of the textarea ('notesInput' or 'answersInput').
+ * @param {HTMLButtonElement} btn - The button to show "Checking..." state on.
+ * @returns {Promise<boolean>} true if safe to proceed, false if blocked (PII found, error, or network failure).
+ */
+async function runPiiCheck(text, targetTextarea, btn) {
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span>🔍</span> Checking...';
+
+    try {
+        const resp = await fetch('/api/pii-check', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notes: text })
+        });
+
+        const result = await resp.json();
+
+        if (!resp.ok) {
+            // 4xx/5xx — Language service error
+            const msg = result.error || 'PII check failed';
+            const hint = result.hint ? `\n\n💡 ${result.hint}` : '';
+            showError(msg + hint);
+            return false;
+        }
+
+        // 200 but the Language service itself errored (check_for_pii sets error field)
+        if (result.error) {
+            const hint = result.hint ? `\n\n💡 ${result.hint}` : '';
+            showError(result.error + hint);
+            return false;
+        }
+
+        if (result.pii_detected) {
+            openPiiModal(result.findings, result.redacted_text, targetTextarea);
+            return false;
+        }
+
+        return true; // Clean — safe to proceed
+    } catch (err) {
+        showError('Could not reach PII check service. Please check your network connection and try again.');
+        return false;
+    } finally {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+    }
+}
+
 async function generateTSG() {
     const notes = document.getElementById('notesInput').value.trim();
     if (!notes) {
@@ -542,8 +593,13 @@ async function generateTSG() {
         return;
     }
 
-    showLoading(true);
+    // PII pre-flight check
     hideMessages();
+    const genBtn = document.getElementById('generateBtn');
+    const safe = await runPiiCheck(notes, 'notesInput', genBtn);
+    if (!safe) return;
+
+    showLoading(true);
     document.getElementById('questionsPanel').classList.add('hidden');
 
     try {
@@ -591,8 +647,13 @@ async function submitAnswers() {
         return;
     }
 
-    showLoading(true);
+    // PII pre-flight check
     hideMessages();
+    const submitBtn = document.getElementById('submitAnswersBtn');
+    const safe = await runPiiCheck(answers, 'answersInput', submitBtn);
+    if (!safe) return;
+
+    showLoading(true);
 
     try {
         const data = await generateTSGWithStreaming('/api/answer/stream', {
@@ -950,6 +1011,48 @@ function downloadTSG() {
     // Show success message with filename
     showSuccess(`TSG downloaded as "${filename}"`);
     setTimeout(() => hideMessages(), 4000);
+}
+
+/* ==========================================================================
+   PII Detection Modal
+   ========================================================================== */
+
+// PII modal state
+let piiRedactedText = null;
+let piiTargetTextarea = null;
+
+function openPiiModal(findings, redactedText, targetTextarea) {
+    piiRedactedText = redactedText;
+    piiTargetTextarea = targetTextarea;
+
+    const container = document.getElementById('piiFindings');
+    container.innerHTML = findings.map(f => {
+        const label = f.category.replace(/_/g, ' ');
+        const pct = Math.round(f.confidence * 100);
+        return `<div class="pii-finding">
+            <span class="pii-category-badge">${escapeHtml(label)}</span>
+            <span class="pii-text-snippet">${escapeHtml(f.text)}</span>
+            <span class="pii-confidence">${pct}%</span>
+        </div>`;
+    }).join('');
+
+    document.getElementById('piiModal').classList.remove('hidden');
+}
+
+function closePiiModal(focusTextarea) {
+    document.getElementById('piiModal').classList.add('hidden');
+    if (focusTextarea && piiTargetTextarea) {
+        document.getElementById(piiTargetTextarea).focus();
+    }
+    piiRedactedText = null;
+    piiTargetTextarea = null;
+}
+
+function redactAndContinue() {
+    if (piiRedactedText !== null && piiTargetTextarea) {
+        document.getElementById(piiTargetTextarea).value = piiRedactedText;
+    }
+    closePiiModal(true);
 }
 
 /* ==========================================================================

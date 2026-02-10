@@ -54,6 +54,7 @@ from pipeline import (
     PipelineError,
 )
 from error_utils import classify_azure_sdk_error
+from pii_check import check_for_pii
 from version import APP_VERSION, GITHUB_URL
 
 # Microsoft Learn MCP URL for agent creation
@@ -815,6 +816,32 @@ def generate_pipeline_sse_events(
             yield f"data: {json.dumps({'type': 'error', 'data': {'message': result.error or 'Pipeline failed to produce TSG', 'stages_completed': [s.value for s in result.stages_completed]}})}\n\n"
 
 
+@app.route("/api/pii-check", methods=["POST"])
+def api_pii_check():
+    """Check notes for personally identifiable information (PII).
+    
+    Returns 200 with PII results (even when PII is found — that's a data response,
+    not an error). Returns 500 when the Language service itself errors.
+    """
+    data = request.get_json()
+    notes = data.get("notes", "").strip() if data else ""
+    
+    if not notes:
+        return jsonify({"error": "No notes provided"}), 400
+    
+    result = check_for_pii(notes)
+    
+    # Language service error → 500
+    if result["error"]:
+        return jsonify({
+            "error": result["error"],
+            "hint": result["hint"],
+        }), 500
+    
+    # Success (PII found or not) → 200
+    return jsonify(result)
+
+
 @app.route("/api/generate/stream", methods=["POST"])
 def api_generate_stream():
     """Start TSG generation with SSE streaming for real-time updates.
@@ -831,6 +858,13 @@ def api_generate_stream():
     
     if not notes:
         return jsonify({"error": "No notes provided"}), 400
+    
+    # Defense-in-depth PII gate (frontend already checks, this prevents bypass)
+    pii_result = check_for_pii(notes)
+    if pii_result["error"]:
+        return jsonify({"error": pii_result["error"], "hint": pii_result["hint"]}), 500
+    if pii_result["pii_detected"]:
+        return jsonify({"error": "PII detected in notes", "findings": pii_result["findings"]}), 400
     
     # Validate images if provided
     if images:
@@ -871,6 +905,13 @@ def api_answer_stream():
     
     if not answers:
         return jsonify({"error": "No answers provided"}), 400
+    
+    # Defense-in-depth PII gate on follow-up answers
+    pii_result = check_for_pii(answers)
+    if pii_result["error"]:
+        return jsonify({"error": pii_result["error"], "hint": pii_result["hint"]}), 500
+    if pii_result["pii_detected"]:
+        return jsonify({"error": "PII detected in answers", "findings": pii_result["findings"]}), 400
     
     notes = sessions[thread_id].get("notes", "")
     

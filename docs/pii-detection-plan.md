@@ -13,7 +13,7 @@ Adds a pre-flight PII check to prevent customer-identifiable information from be
 | Detection service | Azure AI Language PII API (`azure-ai-textanalytics>=5.3.0`) | Purpose-built for input scanning, native redaction, GA SDK, deterministic |
 | Resource model | Centralized, author-owned Language resource | Zero user setup, central metrics, single cost center |
 | Auth | `DefaultAzureCredential` (Entra ID) | Matches existing Foundry auth, no API keys, policy-compliant (local auth disabled) |
-| RBAC | `Cognitive Services Language Reader` on Language resource, granted tenant-wide or via dynamic security group | All users are same tenant; they already have Entra identities from Foundry access |
+| RBAC | `Cognitive Services User` on Language resource, granted tenant-wide or via dynamic security group | All users are same tenant; they already have Entra identities from Foundry access. `Cognitive Services Language Reader` was insufficient — its granular DataActions don't cover the `accounts/Language/action` path used by the Python SDK's `recognize_pii_entities()`. `Cognitive Services User` has the full `Microsoft.CognitiveServices/*` DataAction wildcard. |
 | Endpoint config | Hardcoded default in `version.py`, silently overridable via `LANGUAGE_ENDPOINT` env var | Not user-configurable by design — centralized resource, not per-user. Env var override exists as an undocumented escape hatch for emergencies (not surfaced in UI, setup, or docs) |
 | Failure mode | Fail-closed with error message | If Language resource unreachable, block generation and show actionable error — input cannot be sent to external services without PII clearance |
 | Confidence threshold | ≥ 0.8 | Reduce false positives; configurable as a constant in `pii_check.py` |
@@ -90,12 +90,13 @@ Owner: project author (not end users).
 
 - [x] Create Azure Language resource (Free F0 or Standard S tier)
 - [x] Record the endpoint URL
-- [x] Assign `Cognitive Services Language Reader` role at resource scope — either:
-  - [ ] Tenant-wide (`All Users` principal), **or**
+- [x] ~~Assign `Cognitive Services Language Reader` role~~ → Changed to `Cognitive Services User` (Language Reader lacked `accounts/Language/action` DataAction needed by Python SDK)
+- [x] Assign `Cognitive Services User` role at resource scope — either:
+  - [x] Tenant-wide (`All Users` principal), **or**
   - [ ] Dynamic security group with membership rule (e.g., `user.department -eq "Azure Support"`)
-- [ ] Enable Diagnostic Settings → send to Log Analytics workspace
-  - [ ] Category: `Audit` (captures caller identity per request)
-- [ ] Verify access: `az login` as a target user, call the PII endpoint, confirm 200
+- [x] Enable Diagnostic Settings → send to Log Analytics workspace
+  - [x] Category: `Audit` (captures caller identity per request)
+- [ ] Verify access: `az login` as a different user, call the PII endpoint, confirm 200
 
 ---
 
@@ -132,57 +133,57 @@ Owner: project author (not end users).
 
 ## Phase 3: Backend — Web Endpoints
 
-- [ ] Add `POST /api/pii-check` endpoint to `web_app.py`:
-  - [ ] Accepts `{"notes": "..."}`
-  - [ ] Validates notes is non-empty — return `400` with `{"error": "No notes provided"}` if empty/missing
-  - [ ] Calls `check_for_pii()`
-  - [ ] Returns `{"pii_detected", "findings", "redacted_text", "error", "hint"}`
-  - [ ] Returns 200 when check succeeds (PII detected is not an HTTP error — it's a data response)
-  - [ ] Returns 500 with `{"error": "...", "hint": "..."}` when the Language service is unreachable or errors
-- [ ] Add server-side PII gate at top of `POST /api/generate/stream`:
-  - [ ] Call `check_for_pii()` before starting the SSE stream
-  - [ ] If PII detected, return `400` with `{"error": "PII detected in notes", "findings": [...]}`
-  - [ ] If PII check returned an error, return `500` with `{"error": "...", "hint": "..."}` — do NOT proceed
-  - [ ] Defense-in-depth — frontend already blocks, this prevents bypass
-- [ ] Add server-side PII gate at top of `POST /api/answer/stream`:
-  - [ ] Call `check_for_pii()` on the answers text before starting the SSE stream
-  - [ ] Same behavior as generate/stream gate — block if PII found, block on errors
-  - [ ] Rationale: follow-up answers can also contain PII (e.g., "the customer's email is...")
+- [x] Add `POST /api/pii-check` endpoint to `web_app.py`:
+  - [x] Accepts `{"notes": "..."}`
+  - [x] Validates notes is non-empty — return `400` with `{"error": "No notes provided"}` if empty/missing
+  - [x] Calls `check_for_pii()`
+  - [x] Returns `{"pii_detected", "findings", "redacted_text", "error", "hint"}`
+  - [x] Returns 200 when check succeeds (PII detected is not an HTTP error — it's a data response)
+  - [x] Returns 500 with `{"error": "...", "hint": "..."}` when the Language service is unreachable or errors
+- [x] Add server-side PII gate at top of `POST /api/generate/stream`:
+  - [x] Call `check_for_pii()` before starting the SSE stream
+  - [x] If PII detected, return `400` with `{"error": "PII detected in notes", "findings": [...]}`
+  - [x] If PII check returned an error, return `500` with `{"error": "...", "hint": "..."}` — do NOT proceed
+  - [x] Defense-in-depth — frontend already blocks, this prevents bypass
+- [x] Add server-side PII gate at top of `POST /api/answer/stream`:
+  - [x] Call `check_for_pii()` on the answers text before starting the SSE stream
+  - [x] Same behavior as generate/stream gate — block if PII found, block on errors
+  - [x] Rationale: follow-up answers can also contain PII (e.g., "the customer's email is...")
 
 ---
 
 ## Phase 4: Frontend — PII Modal
 
-- [ ] Add `#piiModal` to `templates/index.html`:
-  - [ ] Follows existing `.modal-overlay > .modal` pattern (from `#setupModal`)
-  - [ ] Error-themed header (`--error` / `--error-bg` CSS variables, already defined in styles.css)
-  - [ ] Body: scrollable list of findings (category badge + masked text snippet)
-  - [ ] Footer: two buttons:
-    - [ ] **"Go Back & Edit"** — closes modal, focuses textarea
-    - [ ] **"Redact & Continue"** — replaces textarea value with `redacted_text`, closes modal (does NOT auto-generate — user reviews first)
-- [ ] Add PII modal styles to `static/css/styles.css`:
-  - [ ] `.pii-finding` — finding row layout
-  - [ ] `.pii-category-badge` — category label styling
-  - [ ] `.pii-text-snippet` — matched text display (monospace, subtle background)
+- [x] Add `#piiModal` to `templates/index.html`:
+  - [x] Follows existing `.modal-overlay > .modal` pattern (from `#setupModal`)
+  - [x] Error-themed header (`--error` / `--error-bg` CSS variables, already defined in styles.css)
+  - [x] Body: scrollable list of findings (category badge + masked text snippet)
+  - [x] Footer: two buttons:
+    - [x] **"Go Back & Edit"** — closes modal, focuses textarea
+    - [x] **"Redact & Continue"** — replaces textarea value with `redacted_text`, closes modal (does NOT auto-generate — user reviews first)
+- [x] Add PII modal styles to `static/css/styles.css`:
+  - [x] `.pii-finding` — finding row layout
+  - [x] `.pii-category-badge` — category label styling
+  - [x] `.pii-text-snippet` — matched text display (monospace, subtle background)
 
 ---
 
 ## Phase 5: Frontend — Generate Flow Integration
 
-- [ ] Modify `generateTSG()` in `static/js/main.js`:
-  - [ ] Disable the Generate button and show brief loading state (e.g., button text → "Checking...") during the PII check request to prevent double-clicks and signal activity during the ~100-300ms call
-  - [ ] After existing "notes empty" check, `POST` to `/api/pii-check`
-  - [ ] If `pii_detected === true`: populate `#piiModal` with findings, stash `redacted_text`, show modal, `return` early
-  - [ ] If `pii_detected === false` and no `error`: proceed to `generateTSGWithStreaming()` as normal
-  - [ ] If `error` is set (Language service unreachable, auth failed, etc.): show error message with hint using `showError()`, `return` early — do NOT proceed with generation
-  - [ ] If PII check request fails entirely (network error, fetch exception) or returns 4xx/5xx: parse error/hint from response body if available, otherwise show "Could not reach PII check service", `return` early — do NOT proceed
-- [ ] Modify `submitAnswers()` in `static/js/main.js`:
-  - [ ] Before submitting, `POST` to `/api/pii-check` with answers text
-  - [ ] Same PII modal / block-on-error behavior as `generateTSG()`
-- [ ] Add `openPiiModal(findings, redactedText, targetTextarea)` function
-  - [ ] `targetTextarea` param: `'notesInput'` for generate flow, `'answersInput'` for answer flow — determines which textarea "Go Back & Edit" focuses and "Redact & Continue" updates
-- [ ] Add `closePiiModal()` function (matches `closeSetup()` pattern)
-- [ ] Add `redactAndContinue()` function — sets target textarea value, closes modal
+- [x] Modify `generateTSG()` in `static/js/main.js`:
+  - [x] Disable the Generate button and show brief loading state (e.g., button text → "Checking...") during the PII check request to prevent double-clicks and signal activity during the ~100-300ms call
+  - [x] After existing "notes empty" check, `POST` to `/api/pii-check`
+  - [x] If `pii_detected === true`: populate `#piiModal` with findings, stash `redacted_text`, show modal, `return` early
+  - [x] If `pii_detected === false` and no `error`: proceed to `generateTSGWithStreaming()` as normal
+  - [x] If `error` is set (Language service unreachable, auth failed, etc.): show error message with hint using `showError()`, `return` early — do NOT proceed with generation
+  - [x] If PII check request fails entirely (network error, fetch exception) or returns 4xx/5xx: parse error/hint from response body if available, otherwise show "Could not reach PII check service", `return` early — do NOT proceed
+- [x] Modify `submitAnswers()` in `static/js/main.js`:
+  - [x] Before submitting, `POST` to `/api/pii-check` with answers text
+  - [x] Same PII modal / block-on-error behavior as `generateTSG()`
+- [x] Add `openPiiModal(findings, redactedText, targetTextarea)` function
+  - [x] `targetTextarea` param: `'notesInput'` for generate flow, `'answersInput'` for answer flow — determines which textarea "Go Back & Edit" focuses and "Redact & Continue" updates
+- [x] Add `closePiiModal()` function (matches `closeSetup()` pattern)
+- [x] Add `redactAndContinue()` function — sets target textarea value, closes modal
 
 ---
 

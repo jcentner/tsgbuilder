@@ -242,6 +242,30 @@ Address any missing information and review notes above. You can also suggest cor
         </div>
     </div>
 
+    <!-- PII Detection Modal -->
+    <div id="piiModal" class="modal-overlay hidden">
+        <div class="modal" style="max-width: 600px;">
+            <div class="modal-header pii-modal-header">
+                <h2>🛡️ PII Detected</h2>
+                <button class="modal-close" onclick="closePiiModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+                    The following personally identifiable information (PII) was found in your input. This content cannot be sent to external AI services.
+                </p>
+                <div class="pii-findings-list" id="piiFindings">
+                    <!-- Findings populated by JS -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="btn-group">
+                    <button class="btn btn-secondary" onclick="closePiiModal(true)">✏️ Go Back &amp; Edit</button>
+                    <button class="btn btn-primary" onclick="redactAndContinue()">🔒 Redact &amp; Continue</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- About Modal -->
     <div id="aboutModal" class="modal-overlay hidden">
         <div class="modal" style="max-width: 500px;">
