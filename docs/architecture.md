@@ -59,7 +59,7 @@ The Research agent has access to external tools and is responsible for gathering
   - Known limitations and workarounds
   - Configuration guides
 
-- **Bing Search** (via Web Search Tool) for:
+- **Web Search** (uses Bing under the hood) for:
   - GitHub discussions and issues
   - Community workarounds
   - Stack Overflow solutions
