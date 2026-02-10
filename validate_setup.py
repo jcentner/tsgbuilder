@@ -30,7 +30,7 @@ def print_warn(msg: str) -> None:
 
 def check_env_vars() -> tuple[bool, dict[str, str]]:
     """Check that required environment variables are set."""
-    print("\n[1/7] Checking environment variables...")
+    print("\n[1/6] Checking environment variables...")
     
     required = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME"]
     optional = ["AGENT_NAME"]
@@ -65,7 +65,7 @@ def check_env_vars() -> tuple[bool, dict[str, str]]:
 
 def check_dotenv_file() -> bool:
     """Check if .env file exists."""
-    print("\n[0/7] Checking .env file...")
+    print("\n[0/6] Checking .env file...")
     
     dotenv_path = find_dotenv()
     if dotenv_path:
@@ -78,7 +78,7 @@ def check_dotenv_file() -> bool:
 
 def check_azure_auth() -> bool:
     """Check Azure authentication works."""
-    print("\n[2/7] Checking Azure authentication...")
+    print("\n[2/6] Checking Azure authentication...")
     
     try:
         from azure.identity import DefaultAzureCredential
@@ -96,7 +96,7 @@ def check_azure_auth() -> bool:
 
 def check_project_connection(endpoint: str) -> bool:
     """Check connection to Azure AI Project."""
-    print("\n[3/7] Checking Azure AI Project connection...")
+    print("\n[3/6] Checking Azure AI Project connection...")
     
     try:
         from azure.identity import DefaultAzureCredential
@@ -116,7 +116,7 @@ def check_project_connection(endpoint: str) -> bool:
 
 def check_model_deployment(endpoint: str, deployment_name: str) -> bool:
     """Check if the specified model deployment exists in the project."""
-    print("\n[4/7] Checking model deployment...")
+    print("\n[4/6] Checking model deployment...")
     
     try:
         from azure.identity import DefaultAzureCredential
@@ -151,7 +151,7 @@ def check_model_deployment(endpoint: str, deployment_name: str) -> bool:
 
 def check_agent_ref() -> bool:
     """Check if agent IDs file exists."""
-    print("\n[6/7] Checking pipeline agents...")
+    print("\n[5/6] Checking pipeline agents...")
     
     agent_ids_file = Path(".agent_ids.json")
     
@@ -172,7 +172,7 @@ def check_agent_ref() -> bool:
 
 def check_dependencies() -> bool:
     """Check that required Python packages are installed with correct versions."""
-    print("\n[7/7] Checking Python dependencies...")
+    print("\n[6/6] Checking Python dependencies...")
     
     all_ok = True
     
