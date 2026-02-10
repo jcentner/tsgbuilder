@@ -14,30 +14,31 @@ Adds a pre-flight PII check to prevent customer-identifiable information from be
 | Resource model | Centralized, author-owned Language resource | Zero user setup, central metrics, single cost center |
 | Auth | `DefaultAzureCredential` (Entra ID) | Matches existing Foundry auth, no API keys, policy-compliant (local auth disabled) |
 | RBAC | `Cognitive Services Language Reader` on Language resource, granted tenant-wide or via dynamic security group | All users are same tenant; they already have Entra identities from Foundry access |
-| Endpoint config | Hardcoded constant in `version.py` | Not user-configurable — centralized resource, not per-user (unlike `PROJECT_ENDPOINT` which is per-user) |
+| Endpoint config | Hardcoded default in `version.py`, silently overridable via `LANGUAGE_ENDPOINT` env var | Not user-configurable by design — centralized resource, not per-user. Env var override exists as an undocumented escape hatch for emergencies (not surfaced in UI, setup, or docs) |
 | Failure mode | Fail-closed with error message | If Language resource unreachable, block generation and show actionable error — input cannot be sent to external services without PII clearance |
 | Confidence threshold | ≥ 0.8 | Reduce false positives; configurable as a constant in `pii_check.py` |
 
 ### PII Categories to Detect
 
-| Category | Why |
-|----------|-----|
-| `Email` | Direct customer identifier |
-| `PhoneNumber` | Direct customer identifier |
-| `IPAddress` | Can identify customer infrastructure |
-| `Person` | Customer/contact names |
-| `AzureDocumentDBAuthKey` | Credential leak |
-| `AzureStorageAccountKey` | Credential leak |
-| `AzureSAS` | Credential leak |
-| `AzureIoTConnectionString` | Credential leak |
-| `SQLServerConnectionString` | Credential leak |
-| `Password` | Credential leak |
-| `CreditCardNumber` | Financial PII |
-| `USSocialSecurityNumber` | Government PII |
+| SDK Enum Constant | Category | Why |
+|-------------------|----------|-----|
+| `EMAIL` | Email | Direct customer identifier |
+| `PHONE_NUMBER` | PhoneNumber | Direct customer identifier |
+| `IP_ADDRESS` | IPAddress | Can identify customer infrastructure |
+| `PERSON` | Person | Customer/contact names |
+| `AZURE_DOCUMENT_DB_AUTH_KEY` | AzureDocumentDBAuthKey | Credential leak |
+| `AZURE_STORAGE_ACCOUNT_KEY` | AzureStorageAccountKey | Credential leak |
+| `AZURE_SAS` | AzureSAS | Credential leak |
+| `AZURE_IO_T_CONNECTION_STRING` | AzureIoTConnectionString | Credential leak (note: SDK splits IoT as `IO_T`) |
+| `SQL_SERVER_CONNECTION_STRING` | SQLServerConnectionString | Credential leak |
+| `CREDIT_CARD_NUMBER` | CreditCardNumber | Financial PII |
+| `US_SOCIAL_SECURITY_NUMBER` | USSocialSecurityNumber | Government PII |
 
 > **Not flagged**: Bare GUIDs (too common in Azure error messages). Only GUIDs in credential/connection string context are caught via the Azure-specific categories above.
 
-> **SDK mapping**: These category names must be mapped to `PiiEntityCategory` enum constants from the SDK (e.g., `AzureDocumentDBAuthKey` → `PiiEntityCategory.AZURE_DOCUMENT_DB_AUTH_KEY`). Verify each constant exists in `azure-ai-textanalytics>=5.3.0` during implementation.
+> **Intentionally excluded**: `Organization` — too noisy for Azure troubleshooting notes that routinely mention "Microsoft", service names, and partner companies. `Password` — does not exist as a `PiiEntityCategory` enum constant in the SDK; Azure-specific credential categories above already cover connection strings, keys, and SAS tokens.
+
+> **SDK mapping**: The table above lists the exact `PiiEntityCategory` enum constant names. Use `PiiEntityCategory.<CONSTANT>` directly in `PII_CATEGORIES` (e.g., `PiiEntityCategory.AZURE_DOCUMENT_DB_AUTH_KEY`). All constants verified against `azure-ai-textanalytics>=5.3.0`.
 
 ### Metrics & Tracking
 
@@ -100,7 +101,7 @@ Owner: project author (not end users).
 
 ## Phase 2: Backend — `pii_check.py` + Constants
 
-- [ ] Add `LANGUAGE_ENDPOINT` constant to `version.py` (hardcoded, not user-configurable)
+- [ ] Add `LANGUAGE_ENDPOINT` to `version.py` — hardcoded default with silent `os.getenv()` override: `LANGUAGE_ENDPOINT = os.getenv("LANGUAGE_ENDPOINT", "https://<resource>.cognitiveservices.azure.com/")`  (undocumented escape hatch, not surfaced in UI or docs)
 - [ ] Add `azure-ai-textanalytics>=5.3.0` to `requirements.txt`
 - [ ] Create `pii_check.py` with:
   - [ ] `PII_CATEGORIES` — list of `PiiEntityCategory` enum constants to detect (map from table above)
@@ -123,8 +124,8 @@ Owner: project author (not end users).
     - Batch chunks in groups of `PII_MAX_DOCS_PER_REQUEST` (5) per API call
     - **Reassemble `redacted_text`**: concatenate each chunk's `redacted_text` in order to produce the full redacted document
     - **Adjust offsets**: shift each chunk's entity offsets by the cumulative character count of preceding chunks so findings reference positions in the original input
-    - If any individual chunk returns `is_error=True`, log warning, treat that chunk as unchecked (use original text for its redacted portion), and continue with remaining chunks
-  - [ ] **Error handling** — catch `ClientAuthenticationError`, `ServiceRequestError`, `HttpResponseError`, and generic `Exception`; on any error, log warning with error type (not input text) and return result with `error` + `hint` fields set (caller blocks generation)
+    - If any individual chunk returns `is_error=True`, **fail-closed**: log warning (without input text), stop processing, and return result with `error` + `hint` fields set — do NOT continue with remaining chunks or allow generation to proceed
+  - [ ] **Error handling** — reuse the existing `_classify_azure_sdk_error()` from `web_app.py`. Refactor it into a shared utility (e.g., `error_utils.py` or move to `pipeline.py`) so both `web_app.py` and `pii_check.py` import the same classifier. This avoids duplicating Azure SDK error-to-message mapping. Catch `ClientAuthenticationError`, `ServiceRequestError`, `HttpResponseError`, and generic `Exception`; classify via shared utility; on any error, return result with `error` + `hint` fields set (caller blocks generation)
   - [ ] **Logging** — print warnings on errors (e.g., `"⚠️ PII check failed (ErrorType): message"`) without logging any input text or PII content
 
 ---
@@ -169,11 +170,12 @@ Owner: project author (not end users).
 ## Phase 5: Frontend — Generate Flow Integration
 
 - [ ] Modify `generateTSG()` in `static/js/main.js`:
+  - [ ] Disable the Generate button and show brief loading state (e.g., button text → "Checking...") during the PII check request to prevent double-clicks and signal activity during the ~100-300ms call
   - [ ] After existing "notes empty" check, `POST` to `/api/pii-check`
   - [ ] If `pii_detected === true`: populate `#piiModal` with findings, stash `redacted_text`, show modal, `return` early
   - [ ] If `pii_detected === false` and no `error`: proceed to `generateTSGWithStreaming()` as normal
   - [ ] If `error` is set (Language service unreachable, auth failed, etc.): show error message with hint using `showError()`, `return` early — do NOT proceed with generation
-  - [ ] If PII check request fails entirely (network error, non-200 status): show error "Could not reach PII check service", `return` early — do NOT proceed
+  - [ ] If PII check request fails entirely (network error, fetch exception) or returns 4xx/5xx: parse error/hint from response body if available, otherwise show "Could not reach PII check service", `return` early — do NOT proceed
 - [ ] Modify `submitAnswers()` in `static/js/main.js`:
   - [ ] Before submitting, `POST` to `/api/pii-check` with answers text
   - [ ] Same PII modal / block-on-error behavior as `generateTSG()`
@@ -203,14 +205,15 @@ Owner: project author (not end users).
       - [ ] Redacted text reassembled correctly across chunks
       - [ ] Chunks split at whitespace boundaries (no mid-word splits)
       - [ ] Input requiring >5 chunks → multiple batched API calls
-    - [ ] **Error handling tests**:
+    - [ ] **Error handling tests** (reuse existing Azure SDK error fixtures from `conftest.py`):
       - [ ] `ServiceRequestError` (network unreachable) → `error` + `hint` set, `pii_detected` false
       - [ ] `ClientAuthenticationError` → `error` + `hint` set
       - [ ] `HttpResponseError` with 403 (permission denied) → `error` + `hint` set
       - [ ] `HttpResponseError` with 429 (rate limit) → `error` + `hint` set
       - [ ] `HttpResponseError` with 500 (service error) → `error` + `hint` set
       - [ ] Generic `Exception` → `error` + `hint` set
-      - [ ] Document-level `is_error=True` in one chunk → `error` + `hint` set (blocks generation)
+      - [ ] Document-level `is_error=True` in one chunk → `error` + `hint` set (blocks generation, does NOT continue to remaining chunks)
+      - [ ] Multi-chunk partial success (first chunk OK, second chunk `is_error=True`) → blocks generation, findings from successful chunks are NOT returned
   - [ ] **Endpoint tests** (Flask test client):
     - [ ] `POST /api/pii-check` with clean text → `pii_detected: false`
     - [ ] `POST /api/pii-check` with PII text → `pii_detected: true` + findings
@@ -226,11 +229,28 @@ Owner: project author (not end users).
 
 ## Phase 7: Documentation & Build
 
-- [ ] Add `pii_check.py` to file reference table in `.github/copilot-instructions.md`
-- [ ] Add `pii_check.py` to file structure table in `docs/architecture.md`
-- [ ] Add RBAC / Language resource setup notes to `README.md` (for project maintainers, not end users)
-- [ ] Document the PII content filter on the Foundry model deployment as a complementary (optional) measure
-- [ ] **Build impact**: Adding `azure-ai-textanalytics` increases the PyInstaller exe size. No hidden imports or data bundling should be needed (pure Python Azure SDK). Verify with `make build` after implementation.
+### Documentation Updates
+
+- [ ] **`.github/copilot-instructions.md`**:
+  - [ ] Add `pii_check.py` to file reference table (purpose: "PII detection via Azure AI Language API")
+  - [ ] Add shared error utility file (if refactored) to file reference table
+  - [ ] Add row to "Warning System" table for PII-related errors (source: PII check, type: blocks generation, not a soft warning)
+  - [ ] Add entry to "Common Issues" section: "PII false positives" — explain that Azure names, service names etc. may trigger `Person`/`Organization` detection; fixed category list is intentional, adjust based on feedback
+- [ ] **`docs/architecture.md`**:
+  - [ ] Add `pii_check.py` to file structure table
+  - [ ] Add shared error utility file (if refactored) to file structure table
+  - [ ] Update pipeline diagram to show PII check as a pre-flight gate before Stage 1 (Research)
+  - [ ] Add "PII Pre-Flight Check" subsection to Design Decisions explaining: why fail-closed, why centralized resource, why no bypass
+- [ ] **`README.md`**:
+  - [ ] Add RBAC / Language resource setup notes (for project maintainers, not end users)
+  - [ ] Document the PII content filter on the Foundry model deployment as a complementary (optional) measure
+- [ ] **`docs/releasing.md`**:
+  - [ ] Note that `azure-ai-textanalytics` dependency increases exe build size
+
+### Build Verification
+
+- [ ] **Hidden imports**: `azure-ai-textanalytics` depends on `azure.core`, `isodate`, and other sub-packages that may require PyInstaller hidden imports (e.g., `azure.ai.textanalytics._version`). Run `make build` after implementation, test the resulting exe, and add any required `--hidden-import` flags to `build_exe.py`
+- [ ] **Exe smoke test**: Verify the built exe can successfully call the Language API PII endpoint (not just that it launches)
 
 ---
 
@@ -297,9 +317,9 @@ These are technical details to keep in mind during implementation:
 
 2. **`categories_filter`**: Pass `PII_CATEGORIES` to `recognize_pii_entities()` to avoid detecting categories we don't care about (reduces noise and false positives).
 
-3. **Endpoint naming**: The constant is `LANGUAGE_ENDPOINT` in `version.py` (hardcoded, always present). This is distinct from the `AZURE_LANGUAGE_ENDPOINT` environment variable convention used in SDK samples — intentional, since ours is not user-configurable. Unlike `PROJECT_ENDPOINT` (per-user, in `.env`), the Language endpoint is centralized and owned by the project author.
+3. **Endpoint naming**: `LANGUAGE_ENDPOINT` in `version.py` uses a hardcoded default with a silent `os.getenv()` override. The env var is intentionally undocumented — it exists only as an emergency escape hatch (e.g., resource re-creation or region move) and is not surfaced in the setup UI, validation, config modal, or any user-facing documentation. Unlike `PROJECT_ENDPOINT` (per-user, in `.env`), the Language endpoint is centralized and owned by the project author.
 
-4. **Existing error patterns**: Follow `_classify_azure_sdk_error()` in `web_app.py` and `classify_error()` in `pipeline.py` for error classification conventions. Import shared Azure exception types from `azure.core.exceptions`.
+4. **Reuse existing error classification**: Refactor `_classify_azure_sdk_error()` out of `web_app.py` into a shared utility so both `web_app.py` and `pii_check.py` import the same function. This keeps Azure SDK error-to-message mapping in one place. The shared utility should also use the existing hint constants (`HINT_AUTH`, `HINT_CONNECTION`, etc.) from `pipeline.py`.
 
 5. **CSS variables**: `--error` and `--error-bg` already exist in `styles.css` for both light and dark themes. No new CSS variables needed for the PII modal.
 

@@ -6,6 +6,9 @@ python-dotenv>=1.0.1
 openai>=1.0.0
 httpx>=0.25.0
 
+# Azure AI Language (PII detection)
+azure-ai-textanalytics>=5.3.0
+
 # Web UI
 flask>=3.0.0
 
