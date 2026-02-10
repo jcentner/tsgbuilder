@@ -18,7 +18,7 @@ TSG Builder uses a **three-stage pipeline** to separate concerns and improve rel
 │  ┌──────────────────────────────────────────────────────────────┐ │
 │  │  Stage 1: RESEARCH (has tools)                               │ │
 │  │  - Microsoft Learn MCP → official docs, APIs, limits         │ │
-│  │  - Bing Search → GitHub issues, community solutions          │ │
+│  │  - Web Search → GitHub issues, community solutions           │ │
 │  │  → Output: Structured research report with URLs              │ │
 │  └──────────────────────────────────────────────────────────────┘ │
 │                              │                                     │
@@ -59,7 +59,7 @@ The Research agent has access to external tools and is responsible for gathering
   - Known limitations and workarounds
   - Configuration guides
 
-- **Bing Search** for:
+- **Bing Search** (via Web Search Tool) for:
   - GitHub discussions and issues
   - Community workarounds
   - Stack Overflow solutions

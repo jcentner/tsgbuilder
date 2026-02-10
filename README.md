@@ -46,12 +46,11 @@ TSG Builder was born out of this need. The idea: **you provide a raw dump of inf
 
 3. **Complete setup** in the browser:
    - Enter your Azure AI Foundry project endpoint
-   - Enter your Bing Search connection name  
    - Click **Create Agents**
 
 4. **Start building TSGs!**
 
-> **Prerequisites**: [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) logged in (`az login`) + [Azure AI Foundry project](#azure-resources-required) with Bing Search connected
+> **Prerequisites**: [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) logged in (`az login`) + [Azure AI Foundry project](#azure-resources-required)
 
 ### Option 2: Run from Source
 
@@ -90,7 +89,6 @@ The setup wizard opens automatically to guide you through configuration.
 |----------|---------|------------|
 | **Azure AI Foundry Project** | Hosts the agent | [Create a project](https://learn.microsoft.com/azure/ai-foundry/how-to/create-projects) |
 | **Model Deployment** | LLM for the agent (recommended: `gpt-5.2`) | Deploy in your project |
-| **Bing Search Connection** | Web research capability | [Connect Bing Search](https://learn.microsoft.com/azure/ai-foundry/how-to/connections-add) |
 
 ### Local Requirements
 
@@ -148,13 +146,6 @@ The setup wizard (opens automatically on first run) guides you through configura
 3. Select your project
 4. Copy the endpoint from the Overview page
 
-#### BING_CONNECTION_NAME
-1. Go to [AI Foundry Portal](https://ai.azure.com)
-2. Open Management Center
-3. Go to Connected Resources
-4. Find your Bing Search connection
-5. Copy the full resource ID
-
 #### MODEL_DEPLOYMENT_NAME
 1. In AI Foundry Portal, go to Deployments
 2. Use the name of your deployed model (e.g., `gpt-5.2`)
@@ -169,10 +160,10 @@ TSG Builder uses a **three-stage pipeline**: Research → Write → Review.
 │  🔍         │    │   ✏️         │    │   🔎        │    │   ✅        │
 └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
   Uses tools        No tools           Validates          Final TSG
-  (Bing, MCP)       Just writes        & fact-checks
+  (Web, MCP)         Just writes        & fact-checks
 ```
 
-1. **Research** — Searches Microsoft Learn and Bing for documentation, GitHub issues, and community solutions
+1. **Research** — Searches Microsoft Learn and the web for documentation, GitHub issues, and community solutions
 2. **Write** — Generates the TSG using only your notes + research (no tool access = no hallucinated searches)
 3. **Review** — Validates structure and fact-checks against research; auto-fixes or retries if needed
 

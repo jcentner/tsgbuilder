@@ -35,7 +35,6 @@ def mock_env_vars(monkeypatch):
     """Set up mock environment variables."""
     monkeypatch.setenv("PROJECT_ENDPOINT", "https://test.azure.com/api/projects/test")
     monkeypatch.setenv("MODEL_DEPLOYMENT_NAME", "gpt-5.2")
-    monkeypatch.setenv("BING_CONNECTION_NAME", "/subscriptions/test/connections/bing")
 
 
 # =============================================================================
@@ -88,7 +87,6 @@ class TestStatusAPI:
         assert "has_env_file" in config
         assert "has_endpoint" in config
         assert "has_model" in config
-        assert "has_bing" in config
     
     @pytest.mark.unit
     def test_status_agents_fields(self, client):
@@ -125,7 +123,6 @@ class TestConfigAPI:
         
         assert "PROJECT_ENDPOINT" in data
         assert "MODEL_DEPLOYMENT_NAME" in data
-        assert "BING_CONNECTION_NAME" in data
         assert "AGENT_NAME" in data
 
 

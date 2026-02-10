@@ -31,9 +31,7 @@ from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import (
     PromptAgentDefinition,
     MCPTool,
-    BingGroundingAgentTool,
-    BingGroundingSearchToolParameters,
-    BingGroundingSearchConfiguration,
+    WebSearchPreviewTool,
 )
 
 from tsg_constants import (
@@ -74,10 +72,6 @@ LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
 DEFAULT_ENV_CONTENT = """# Azure AI Foundry Configuration
 # example: https://<YOUR_RESOURCE>.services.ai.azure.com/api/projects/<YOUR_PROJECT>
 PROJECT_ENDPOINT=
-
-# from management center -> project -> connected resources
-# example: /subscriptions/<SUB>/resourceGroups/<RG>/providers/Microsoft.CognitiveServices/accounts/<RESOURCE>/projects/<PROJECT>/connections/<CONNECTION>
-BING_CONNECTION_NAME=
 
 # recommend gpt-5.2 for v2 agents
 MODEL_DEPLOYMENT_NAME=gpt-5.2
@@ -311,7 +305,6 @@ def api_status():
             "has_env_file": False,
             "has_endpoint": False,
             "has_model": False,
-            "has_bing": False,
         },
         "agents": {
             "configured": False,
@@ -330,11 +323,9 @@ def api_status():
     # Check environment variables
     endpoint = os.getenv("PROJECT_ENDPOINT")
     model = os.getenv("MODEL_DEPLOYMENT_NAME")
-    bing = os.getenv("BING_CONNECTION_NAME")
     
     result["config"]["has_endpoint"] = bool(endpoint)
     result["config"]["has_model"] = bool(model)
-    result["config"]["has_bing"] = bool(bing)
     
     # Check agents
     try:
@@ -355,7 +346,6 @@ def api_status():
     config_complete = all([
         result["config"]["has_endpoint"],
         result["config"]["has_model"],
-        result["config"]["has_bing"],
     ])
     
     if config_complete and result["agents"]["configured"]:
@@ -395,7 +385,6 @@ def api_about():
         "azure_sdk_version": azure.ai.projects.__version__,
         "endpoint": os.getenv("PROJECT_ENDPOINT", ""),
         "model": os.getenv("MODEL_DEPLOYMENT_NAME", ""),
-        "bing_connection": os.getenv("BING_CONNECTION_NAME", ""),
         "agents": agent_info,
         "github_url": GITHUB_URL,
     })
@@ -419,7 +408,6 @@ def api_validate():
     required_vars = [
         ("PROJECT_ENDPOINT", "Azure AI Foundry project endpoint"),
         ("MODEL_DEPLOYMENT_NAME", "Model deployment name (e.g., gpt-5.2)"),
-        ("BING_CONNECTION_NAME", "Bing Search connection resource ID"),
     ]
     
     env_ok = True
@@ -531,45 +519,7 @@ def api_validate():
                 "critical": False,  # Warning, not blocking
             })
     
-    # 6. Check Bing connection exists (warning if can't verify)
-    bing_connection = os.getenv("BING_CONNECTION_NAME", "")
-    if project_client and bing_connection:
-        try:
-            # Extract connection name from ARM resource ID if needed
-            connection_name = bing_connection.split('/')[-1] if '/' in bing_connection else bing_connection
-            with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
-                connection = project.connections.get(connection_name)
-                checks.append({
-                    "name": "Bing Connection",
-                    "passed": True,
-                    "message": f"Found connection: {connection_name}",
-                    "critical": False,
-                })
-        except Exception as e:
-            error_str = str(e)
-            # Try to list available connections for helpful error message
-            available_names = []
-            try:
-                with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
-                    connections = list(project.connections.list())
-                    available_names = [c.name for c in connections]
-            except Exception:
-                pass
-            
-            if available_names:
-                message = f"Connection '{connection_name}' not found. Available: {', '.join(available_names[:5])}"
-            elif "404" in error_str or "NotFound" in error_str:
-                message = f"Connection '{connection_name}' not found in project"
-            else:
-                message = f"Could not verify connection: {str(e)[:80]}"
-            checks.append({
-                "name": "Bing Connection",
-                "passed": False,
-                "message": message,
-                "critical": False,  # Warning, not blocking
-            })
-    
-    # 7. Check agent IDs (not critical)
+    # 6. Check agent IDs (not critical)
     try:
         agent_ids = get_agent_ids()
         prefix = agent_ids.get("name_prefix", "TSG")
@@ -604,7 +554,6 @@ def api_config_get():
     config = {
         "PROJECT_ENDPOINT": os.getenv("PROJECT_ENDPOINT", ""),
         "MODEL_DEPLOYMENT_NAME": os.getenv("MODEL_DEPLOYMENT_NAME", ""),
-        "BING_CONNECTION_NAME": os.getenv("BING_CONNECTION_NAME", ""),
         "AGENT_NAME": os.getenv("AGENT_NAME", "TSG-Builder"),
     }
     return jsonify(config)
@@ -619,7 +568,7 @@ def api_config_set():
     env_path = _ensure_env_file()
     dotenv_path = str(env_path)
     
-    allowed_keys = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME", "BING_CONNECTION_NAME", "AGENT_NAME"]
+    allowed_keys = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME", "AGENT_NAME"]
     updated = []
     
     for key in allowed_keys:
@@ -685,7 +634,6 @@ def api_create_agent():
     # Validate required configuration
     endpoint = os.getenv("PROJECT_ENDPOINT")
     model = os.getenv("MODEL_DEPLOYMENT_NAME")
-    conn_id = os.getenv("BING_CONNECTION_NAME")
     agent_name = os.getenv("AGENT_NAME", "TSG-Builder")
     
     missing = []
@@ -693,8 +641,6 @@ def api_create_agent():
         missing.append("PROJECT_ENDPOINT")
     if not model:
         missing.append("MODEL_DEPLOYMENT_NAME")
-    if not conn_id:
-        missing.append("BING_CONNECTION_NAME")
     
     if missing:
         return jsonify({
@@ -702,22 +648,16 @@ def api_create_agent():
             "error": f"Missing required configuration: {', '.join(missing)}",
         }), 400
     
+    # Log deprecation warning if old BING_CONNECTION_NAME is still set
+    if os.getenv("BING_CONNECTION_NAME"):
+        print("⚠️  BING_CONNECTION_NAME is set but no longer used. Web search is now managed automatically via WebSearchPreviewTool.")
+    
     try:
         project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
         
-        # Build tools for research agent (Bing + MCP) - v2 patterns
-        # Note: count limits the number of search results (default 5, max 50)
-        # Limiting to 5 to reduce response time and token load
-        bing_tool = BingGroundingAgentTool(
-            bing_grounding=BingGroundingSearchToolParameters(
-                search_configurations=[
-                    BingGroundingSearchConfiguration(
-                        project_connection_id=conn_id,
-                        count=5,  # Limit search results to reduce latency
-                    )
-                ]
-            )
-        )
+        # Build tools for research agent (Web Search + MCP) - v2 patterns
+        # WebSearchPreviewTool uses Microsoft-managed Bing — no connection ID required
+        web_search_tool = WebSearchPreviewTool()
         
         mcp_tool = MCPTool(
             server_label="learn",
@@ -725,7 +665,7 @@ def api_create_agent():
             require_approval="never",
         )
         
-        research_tools = [mcp_tool, bing_tool]
+        research_tools = [mcp_tool, web_search_tool]
         
         created_agents = {}
         

@@ -862,14 +862,14 @@ def process_pipeline_v2_stream(
             if verbose:
                 verbose_log(f"[{stage_name}] output_item.added: type={item_type}, item={item}")
             
-            # Track tool start time and name (include bing_grounding_call which is the actual Bing tool type)
+            # Track tool start time and name (web_search_call is the new event type, bing_grounding_call is legacy)
             if timing_context is not None and item_type in ('mcp_call', 'web_search_call', 'bing_grounding_call', 'function_call'):
                 timing_context['tool_start'] = time.time()
                 # Store tool name for timeout error messages
                 if item_type == 'mcp_call':
                     timing_context['tool_name'] = getattr(item, 'name', None) or 'Microsoft Learn'
                 elif item_type in ('web_search_call', 'bing_grounding_call'):
-                    timing_context['tool_name'] = 'Bing Search'
+                    timing_context['tool_name'] = 'Web Search'
                 else:
                     timing_context['tool_name'] = getattr(item, 'name', 'tool')
             
@@ -884,16 +884,17 @@ def process_pipeline_v2_stream(
                     "status": "running"
                 })
             elif item_type in ("web_search_call", "bing_grounding_call"):
-                # bing_grounding_call is the actual event type from Azure AI Foundry Bing tool
+                # web_search_call is the event type from WebSearchPreviewTool
+                # bing_grounding_call is the legacy event type from BingGroundingAgentTool
                 # Try to get the search query
                 query_hint = ""
                 if hasattr(item, 'query'):
                     query_hint = f": {item.query[:50]}..." if len(getattr(item, 'query', '')) > 50 else f": {item.query}"
                 send_event("tool", {
-                    "type": "bing",
+                    "type": "web_search",
                     "icon": "🌐",
-                    "name": "Bing Search",
-                    "message": f"🌐 Bing Search{query_hint}",
+                    "name": "Web Search",
+                    "message": f"🌐 Web Search{query_hint}",
                     "status": "running"
                 })
             elif item_type == "function_call":
@@ -952,10 +953,10 @@ def process_pipeline_v2_stream(
                 })
             elif item_type in ("web_search_call", "bing_grounding_call"):
                 send_event("tool", {
-                    "type": "bing",
+                    "type": "web_search",
                     "icon": "✅",
-                    "name": "Bing Search",
-                    "message": f"✅ Bing Search complete{tool_elapsed}",
+                    "name": "Web Search",
+                    "message": f"✅ Web Search complete{tool_elapsed}",
                     "status": "completed"
                 })
                 send_event("status", {
@@ -1128,7 +1129,6 @@ class TSGPipeline:
         researcher_agent_name: str,
         writer_agent_name: str,
         reviewer_agent_name: str,
-        bing_connection_id: str | None = None,
         model_name: str | None = None,
         test_mode: bool = False,
         cancel_event: threading.Event | None = None,
@@ -1138,7 +1138,6 @@ class TSGPipeline:
         self.researcher_agent_name = researcher_agent_name
         self.writer_agent_name = writer_agent_name
         self.reviewer_agent_name = reviewer_agent_name
-        self.bing_connection_id = bing_connection_id
         self.model_name = model_name or os.getenv("MODEL_DEPLOYMENT_NAME", "gpt-5.2")
         self.test_mode = test_mode
         self._cancel_event = cancel_event
@@ -1760,6 +1759,8 @@ def run_pipeline(
         raise ValueError("Incomplete agent configuration (v2 format with names required). Re-run Setup wizard.")
     
     bing_connection_id = os.getenv("BING_CONNECTION_NAME")
+    if bing_connection_id:
+        print("\u26a0\ufe0f  BING_CONNECTION_NAME is set but no longer used. Web search is now managed automatically.")
     model_name = os.getenv("MODEL_DEPLOYMENT_NAME")
     
     pipeline = TSGPipeline(
@@ -1767,7 +1768,6 @@ def run_pipeline(
         researcher_agent_name=researcher_name,
         writer_agent_name=writer_name,
         reviewer_agent_name=reviewer_name,
-        bing_connection_id=bing_connection_id,
         model_name=model_name,
         test_mode=test_mode,
         cancel_event=cancel_event,
