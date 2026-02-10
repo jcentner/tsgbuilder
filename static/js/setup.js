@@ -56,7 +56,6 @@ async function loadConfig() {
         
         document.getElementById('configEndpoint').value = config.PROJECT_ENDPOINT || '';
         document.getElementById('configModel').value = config.MODEL_DEPLOYMENT_NAME || '';
-        document.getElementById('configBing').value = config.BING_CONNECTION_NAME || '';
         document.getElementById('configAgentName').value = config.AGENT_NAME || 'TSG-Builder';
     } catch (error) {
         console.error('Failed to load config:', error);
@@ -74,7 +73,6 @@ async function saveConfig() {
     const config = {
         PROJECT_ENDPOINT: document.getElementById('configEndpoint').value.trim(),
         MODEL_DEPLOYMENT_NAME: document.getElementById('configModel').value.trim(),
-        BING_CONNECTION_NAME: document.getElementById('configBing').value.trim(),
         AGENT_NAME: document.getElementById('configAgentName').value.trim() || 'TSG-Builder',
     };
     

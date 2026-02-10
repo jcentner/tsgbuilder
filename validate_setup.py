@@ -6,8 +6,7 @@ Checks:
 1. Required environment variables are set
 2. Azure credentials work (can authenticate)
 3. Azure AI Project is accessible
-4. Bing connection is valid (if specified)
-5. Agent reference file exists (if agent was created)
+4. Agent reference file exists (if agent was created)
 """
 
 import os
@@ -31,9 +30,9 @@ def print_warn(msg: str) -> None:
 
 def check_env_vars() -> tuple[bool, dict[str, str]]:
     """Check that required environment variables are set."""
-    print("\n[1/7] Checking environment variables...")
+    print("\n[1/6] Checking environment variables...")
     
-    required = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME", "BING_CONNECTION_NAME"]
+    required = ["PROJECT_ENDPOINT", "MODEL_DEPLOYMENT_NAME"]
     optional = ["AGENT_NAME"]
     
     env_vars = {}
@@ -66,7 +65,7 @@ def check_env_vars() -> tuple[bool, dict[str, str]]:
 
 def check_dotenv_file() -> bool:
     """Check if .env file exists."""
-    print("\n[0/7] Checking .env file...")
+    print("\n[0/6] Checking .env file...")
     
     dotenv_path = find_dotenv()
     if dotenv_path:
@@ -79,7 +78,7 @@ def check_dotenv_file() -> bool:
 
 def check_azure_auth() -> bool:
     """Check Azure authentication works."""
-    print("\n[2/7] Checking Azure authentication...")
+    print("\n[2/6] Checking Azure authentication...")
     
     try:
         from azure.identity import DefaultAzureCredential
@@ -97,7 +96,7 @@ def check_azure_auth() -> bool:
 
 def check_project_connection(endpoint: str) -> bool:
     """Check connection to Azure AI Project."""
-    print("\n[3/7] Checking Azure AI Project connection...")
+    print("\n[3/6] Checking Azure AI Project connection...")
     
     try:
         from azure.identity import DefaultAzureCredential
@@ -117,7 +116,7 @@ def check_project_connection(endpoint: str) -> bool:
 
 def check_model_deployment(endpoint: str, deployment_name: str) -> bool:
     """Check if the specified model deployment exists in the project."""
-    print("\n[4/7] Checking model deployment...")
+    print("\n[4/6] Checking model deployment...")
     
     try:
         from azure.identity import DefaultAzureCredential
@@ -150,47 +149,9 @@ def check_model_deployment(endpoint: str, deployment_name: str) -> bool:
         return False
 
 
-def check_bing_connection(endpoint: str, connection_id: str) -> bool:
-    """Check if the Bing connection exists in the project."""
-    print("\n[5/7] Checking Bing connection...")
-    
-    # Extract connection name from ARM resource ID if needed
-    connection_name = connection_id.split('/')[-1] if '/' in connection_id else connection_id
-    
-    try:
-        from azure.identity import DefaultAzureCredential
-        from azure.ai.projects import AIProjectClient
-        
-        with AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential()) as project:
-            connection = project.connections.get(connection_name)
-            print_ok(f"Found connection: {connection_name}")
-            return True
-    except Exception as e:
-        error_str = str(e)
-        # Try to list available connections for helpful error
-        available_names = []
-        try:
-            from azure.identity import DefaultAzureCredential
-            from azure.ai.projects import AIProjectClient
-            with AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential()) as project:
-                connections = list(project.connections.list())
-                available_names = [c.name for c in connections]
-        except Exception:
-            pass
-        
-        if available_names:
-            print_warn(f"Connection '{connection_name}' not found.")
-            print(f"    Available connections: {', '.join(available_names[:5])}")
-        elif "404" in error_str or "NotFound" in error_str:
-            print_warn(f"Connection '{connection_name}' not found in project")
-        else:
-            print_warn(f"Could not verify connection: {str(e)[:80]}")
-        return False
-
-
 def check_agent_ref() -> bool:
     """Check if agent IDs file exists."""
-    print("\n[6/7] Checking pipeline agents...")
+    print("\n[5/6] Checking pipeline agents...")
     
     agent_ids_file = Path(".agent_ids.json")
     
@@ -211,7 +172,7 @@ def check_agent_ref() -> bool:
 
 def check_dependencies() -> bool:
     """Check that required Python packages are installed with correct versions."""
-    print("\n[7/7] Checking Python dependencies...")
+    print("\n[6/6] Checking Python dependencies...")
     
     all_ok = True
     
@@ -289,7 +250,6 @@ def main():
             if project_connected:
                 endpoint = env_vars["PROJECT_ENDPOINT"]
                 model_name = env_vars.get("MODEL_DEPLOYMENT_NAME", "")
-                bing_conn = env_vars.get("BING_CONNECTION_NAME", "")
                 
                 if model_name:
                     model_ok = check_model_deployment(endpoint, model_name)
@@ -297,13 +257,6 @@ def main():
                         warnings.append("Model Deployment")
                     else:
                         results.append(("Model Deployment", True))
-                
-                if bing_conn:
-                    bing_ok = check_bing_connection(endpoint, bing_conn)
-                    if not bing_ok:
-                        warnings.append("Bing Connection")
-                    else:
-                        results.append(("Bing Connection", True))
     
     results.append(("Agent ID", check_agent_ref()))
     

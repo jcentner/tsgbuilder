@@ -65,7 +65,7 @@ For technical architecture details, see [docs/architecture.md](../docs/architect
 
 **Purpose**: Gather supporting documentation from public sources. The research report is **internal reference material** for the Writer — it will NOT appear in the final TSG.
 
-**Tools**: Bing Search, Microsoft Learn MCP
+**Tools**: Web Search, Microsoft Learn MCP
 
 #### Expected Behaviors
 

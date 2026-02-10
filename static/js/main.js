@@ -1028,7 +1028,6 @@ async function loadAboutInfo() {
                 <table style="width: 100%; font-size: 13px;">
                     <tr><td style="padding: 4px 0; color: var(--text-secondary); width: 100px;">Endpoint</td><td style="padding: 4px 0;">${copyableValue(data.endpoint, 'aboutEndpoint')}</td></tr>
                     <tr><td style="padding: 4px 0; color: var(--text-secondary);">Model</td><td style="padding: 4px 0;">${mask(data.model)}</td></tr>
-                    <tr><td style="padding: 4px 0; color: var(--text-secondary);">Bing Connection</td><td style="padding: 4px 0;">${copyableValue(data.bing_connection, 'aboutBing', 40)}</td></tr>
                 </table>
             </div>
         `;

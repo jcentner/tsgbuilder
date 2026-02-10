@@ -301,7 +301,7 @@ class TestClassifyError:
     
     @pytest.mark.unit
     def test_tool_error_detection(self, error_helper):
-        """Tool errors (MCP, Bing) should be detected."""
+        """Tool errors (MCP, Web Search) should be detected."""
         err = ValueError("Microsoft Learn MCP server error")
         classification = classify_error(err, PipelineStage.RESEARCH)
         

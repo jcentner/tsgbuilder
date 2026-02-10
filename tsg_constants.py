@@ -162,12 +162,12 @@ Your research report is **internal reference material** for a separate Writer ag
 
 ## Tools Available
 - **Microsoft Learn MCP**: Official Azure/Microsoft documentation
-- **Bing Search**: GitHub issues, Stack Overflow, community discussions
+- **Web Search**: GitHub issues, Stack Overflow, community discussions
 
 ## Tool Guidance
 If a tool returns an error, times out, or rate limits (429):
 1. Do NOT stop or fail the research
-2. For example, if Microsoft Learn MCP rate limits, continue using Bing Search for equivalent queries (e.g., "site:learn.microsoft.com [topic]")
+2. For example, if Microsoft Learn MCP rate limits, continue using Web Search for equivalent queries (e.g., "site:learn.microsoft.com [topic]")
 3. Note if a tool fails in the Research Gaps
 4. Produce the best research report possible with available tools
 

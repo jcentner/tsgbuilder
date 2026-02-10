@@ -205,7 +205,7 @@ The application has a solid foundation for error handling with centralized class
 **Location**: Line 200  
 **Changes**:
 - Changed `TOOL_CALL_TIMEOUT = 120` to `TOOL_CALL_TIMEOUT = 90`
-- Updated comment explaining rationale (Bing typically <30s, MCP <60s)
+- Updated comment explaining rationale (Web Search typically <30s, MCP <60s)
 
 ### 5.2 Add secondary stream stall detection ✅ (Already Implemented)
 **File**: `pipeline.py`  
@@ -320,7 +320,7 @@ Phase 5 ─────────▶ Phase 6 ──▶ Phase 7
 | HTTP 403 | Generic error | "Permission denied. Check role assignments." |
 | HTTP 503 | May show as timeout | "Azure service temporarily unavailable." |
 | Agent deleted | "Agent not found" | "Agent removed. Re-create in Setup." |
-| Bing connection invalid | Tool error | "Bing connection invalid. Check Setup." |
+| Web search unavailable | Tool error | "Web search unavailable. Check subscription settings." |
 | Model deployment removed | 404 or generic | "Model not found. Check configuration." |
 | Network loss | "peer closed" | "Network connection lost." |
 
