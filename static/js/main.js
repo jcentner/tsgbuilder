@@ -1025,6 +1025,12 @@ function openPiiModal(findings, redactedText, targetTextarea) {
     piiRedactedText = redactedText;
     piiTargetTextarea = targetTextarea;
 
+    // Update header with count
+    const headerEl = document.querySelector('#piiModal .pii-modal-header h2');
+    if (headerEl) {
+        headerEl.textContent = `🛡️ PII Detected (${findings.length} ${findings.length === 1 ? 'item' : 'items'})`;
+    }
+
     const container = document.getElementById('piiFindings');
     container.innerHTML = findings.map(f => {
         const label = f.category.replace(/_/g, ' ');

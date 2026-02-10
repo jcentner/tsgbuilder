@@ -90,12 +90,14 @@ Owner: project author (not end users).
 
 - [x] Create Azure Language resource (Free F0 or Standard S tier)
 - [x] Record the endpoint URL
-- [x] Assign `Cognitive Services Language Reader` role at resource scope — either:
-  - [x] Tenant-wide (`All Users` principal), **or**
+- [ ] Assign `Cognitive Services Language Reader` role at resource scope — either:
+  - [ ] Tenant-wide (`All Users` principal), **or**
   - [ ] Dynamic security group with membership rule (e.g., `user.department -eq "Azure Support"`)
 - [x] Enable Diagnostic Settings → send to Log Analytics workspace
   - [x] Category: `Audit` (captures caller identity per request)
 - [x] Verify access: `az login` as a target user, call the PII endpoint, confirm 200
+
+> NOTE: only remaining item is to grant tenant-wide/CSS-wide access
 
 ---
 
@@ -188,7 +190,7 @@ Owner: project author (not end users).
 
 ## Phase 6: Tests
 
-- [ ] Create `tests/test_pii_check.py`:
+- [x] Create `tests/test_pii_check.py`:
   - [ ] **Unit tests** (mock `TextAnalyticsClient`):
     - [x] Detects email addresses
     - [x] Detects phone numbers
