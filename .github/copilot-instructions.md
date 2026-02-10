@@ -201,6 +201,12 @@ Every TSG must:
 | Review Stage | `accuracy_issues` | "API version 2025-04-01-preview in notes differs from 2025-06-01 in official docs" |
 | Review Stage | `suggestions` | "Consider adding hub-based projects to 'When TSG not Apply'" |
 
+### What Blocks Generation
+
+| Source | Behavior | Example |
+|--------|----------|--------|
+| PII Check (`pii_check.py`) | **Blocks generation** — user must edit or redact before proceeding | Email, phone number, IP address, Azure credentials detected in input notes or follow-up answers |
+| PII Check error | **Blocks generation** — Language service unreachable, auth failure, or rate limit | "PII check failed: Azure authentication failed" with actionable hint |
 ### Warning Flow
 
 1. **Pipeline** returns `review_result` with `accuracy_issues` and `suggestions` (regardless of `approved` status)
@@ -220,14 +226,16 @@ Every TSG must:
 
 | File | Purpose |
 |------|---------|
-| `version.py` | **Single source of truth** for version, GitHub URL, and TSG signature |
+| `version.py` | **Single source of truth** for version, GitHub URL, TSG signature, and Language endpoint |
 | `pipeline.py` | Multi-stage pipeline orchestration, error classification |
 | `tsg_constants.py` | TSG template, stage prompts, validation functions |
+| `pii_check.py` | PII detection via Azure AI Language API (pre-flight gate) |
+| `error_utils.py` | Shared Azure SDK error classification utilities |
 | `web_app.py` | Flask server, SSE streaming, session management |
 | `build_exe.py` | PyInstaller build script (bundles templates/, static/) |
 | `templates/index.html` | Web UI HTML structure |
 | `static/css/styles.css` | Web UI styles (CSS custom properties, component styles) |
-| `static/js/main.js` | Core UI logic (streaming, TSG generation, images) |
+| `static/js/main.js` | Core UI logic (streaming, TSG generation, images, PII modal) |
 | `static/js/setup.js` | Setup modal (config, validation, agent creation) |
 | `.agent_ids.json` | Stored agent names/IDs (created by setup) |
 | `docs/architecture.md` | Technical architecture details |
@@ -281,6 +289,14 @@ This is **correct behavior** if the content exists in user notes. Research gaps 
 
 This is **correct behavior**. `approved: false` with issues means "TSG is structurally valid but has warnings." The pipeline accepts it and surfaces warnings to the user.
 
+### PII check flags a false positive (e.g., a person's name that is actually a service name)
+
+The PII detection uses a curated category list to minimize noise (e.g., `Organization` is intentionally excluded). The `Person` category may occasionally flag service names or technical terms. The user can click **"Go Back & Edit"** to adjust their notes, or click **"Redact & Continue"** to accept the API's redaction. If a category consistently produces false positives, consider removing it from `PII_CATEGORIES` in `pii_check.py`. The confidence threshold (`PII_CONFIDENCE_THRESHOLD = 0.8`) can also be adjusted.
+
+### PII check fails with "authentication error" or "access denied"
+
+The PII check uses `DefaultAzureCredential` against a centralized Language resource. The user needs `Cognitive Services Language Reader` role on the resource. Fix: run `az login` to refresh credentials, or verify RBAC assignment on the Language resource.
+
 ---
 
 ## Version Management
@@ -290,6 +306,7 @@ This is **correct behavior**. `approved: false` with issues means "TSG is struct
 - `APP_VERSION` — Semantic version string (e.g., `"1.0.0"`)
 - `GITHUB_URL` — Project repository URL
 - `TSG_SIGNATURE` — Signature appended to every generated TSG for usage tracking
+- `LANGUAGE_ENDPOINT` — Azure AI Language endpoint for PII detection (centralized, author-owned)
 
 When releasing a new version:
 1. Update `APP_VERSION` in `version.py` only

@@ -99,7 +99,7 @@ The setup wizard opens automatically to guide you through configuration.
 
 > ⏱️ **Timing**: A full run (Research → Write → Review) typically takes **2–5 minutes** depending on the complexity of your input and the amount of research needed.
 
-> ⚠️ **Note**: This tool uses a Foundry Agent to search the internet. Be mindful of customer data; it should never be in your input notes or input images.
+> ⚠️ **Note**: This tool uses a Foundry Agent to search the internet. A built-in **PII check** scans your input before generation and blocks any content containing emails, phone numbers, IP addresses, credentials, or other customer-identifiable information. You'll be prompted to edit or redact before proceeding.
 
 **Features:**
 - ⚙️ **Built-in setup wizard** — Configure, validate, and create agents from the browser
@@ -198,6 +198,16 @@ Output follows the [DFM-copilot-optimized TSG template](https://dev.azure.com/Su
 - The agent is instructed to include URLs from research in "Related Information"
 - Check the agent is correctly configured with both Bing and Learn MCP tools
 
+### "PII check failed: authentication error"
+- The PII check uses a centralized Azure Language resource with Entra ID auth
+- Run `az login` to refresh your credentials
+- Ensure your account has the `Cognitive Services Language Reader` role on the Language resource
+
+### PII check flags a false positive
+- The `Person` category may occasionally flag Azure service names or technical terms
+- Click **"Go Back & Edit"** to adjust your notes, or **"Redact & Continue"** to accept the automatic redaction
+- If a category consistently produces false positives, maintainers can adjust `PII_CATEGORIES` in `pii_check.py`
+
 ---
 
 ## Development
@@ -241,6 +251,9 @@ See [docs/architecture.md](docs/architecture.md) for detailed pipeline architect
 |------|---------|
 | `web_app.py` | Flask web UI server (includes agent creation) |
 | `pipeline.py` | Multi-stage pipeline orchestration (Research → Write → Review) |
+| `pii_check.py` | PII detection via Azure AI Language API (pre-flight gate) |
+| `error_utils.py` | Shared Azure SDK error classification utilities |
+| `version.py` | Single source of truth for version, GitHub URL, TSG signature, and Language endpoint |
 | `build_exe.py` | PyInstaller build script (bundles templates/, static/) |
 | `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
 | `validate_setup.py` | Validate environment configuration (CLI troubleshooting) |
@@ -250,7 +263,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed pipeline architect
 | `.agent_ids.json` | Pipeline agent IDs after creation |
 | `templates/index.html` | Web UI HTML structure |
 | `static/css/styles.css` | Web UI styles |
-| `static/js/main.js` | Core UI logic (streaming, TSG generation, images) |
+| `static/js/main.js` | Core UI logic (streaming, TSG generation, images, PII modal) |
 | `static/js/setup.js` | Setup modal functionality |
 | `tests/` | Pytest test suite with fixtures |
 
@@ -279,6 +292,33 @@ This triggers a workflow that:
 3. Creates a **draft release** with all files attached
 
 After the workflow completes, go to the [Releases page](../../releases) to review and publish.
+
+</details>
+
+### Maintainer Notes: PII Detection Infrastructure
+
+<details>
+<summary>Click to expand Language resource setup (project maintainers only)</summary>
+
+TSG Builder includes a pre-flight PII check powered by a **centralized Azure AI Language resource**. End users need no setup — they authenticate via the same `az login` / Entra ID they already use for Foundry.
+
+#### Azure Language Resource
+
+- **Resource**: `tsgbuilder-pii-language` (Free F0 or Standard S tier)
+- **Endpoint**: Hardcoded in `version.py` (`LANGUAGE_ENDPOINT`); silently overridable via `LANGUAGE_ENDPOINT` env var as an emergency escape hatch
+- **RBAC**: `Cognitive Services Language Reader` role assigned at resource scope
+- **Diagnostics**: Audit logs sent to Log Analytics for usage tracking (caller identity, volume, errors)
+
+#### If the Language resource needs to be recreated
+
+1. Create a new Azure AI Language resource
+2. Assign `Cognitive Services Language Reader` role (tenant-wide or via security group)
+3. Enable Diagnostic Settings → Audit category → Log Analytics
+4. Update the default endpoint in `version.py`
+
+#### Complementary: Foundry Model PII Content Filter
+
+As an additional (optional) layer, a PII content filter can be configured on the Foundry model deployment via the Azure AI Foundry portal. This filters PII from model *outputs* and is complementary to the input-side PII check in `pii_check.py`. This is a manual portal configuration, not a code change.
 
 </details>
 

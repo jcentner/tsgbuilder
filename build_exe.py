@@ -72,6 +72,7 @@ def build_executable():
         "--hidden-import", "azure.identity",
         "--hidden-import", "azure.ai.projects",
         "--hidden-import", "azure.ai.projects.models",
+        "--hidden-import", "azure.ai.textanalytics",
         "--hidden-import", "azure.core",
         "--hidden-import", "flask",
         "--hidden-import", "dotenv",
@@ -82,6 +83,7 @@ def build_executable():
         # Collect all Azure packages (they have many submodules)
         "--collect-all", "azure.identity",
         "--collect-all", "azure.ai.projects",
+        "--collect-all", "azure.ai.textanalytics",
         "--collect-all", "azure.core",
         "--collect-all", "msal",
         # Entry point

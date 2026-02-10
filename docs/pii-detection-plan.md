@@ -190,40 +190,40 @@ Owner: project author (not end users).
 
 - [ ] Create `tests/test_pii_check.py`:
   - [ ] **Unit tests** (mock `TextAnalyticsClient`):
-    - [ ] Detects email addresses
-    - [ ] Detects phone numbers
-    - [ ] Detects IP addresses
-    - [ ] Detects Azure storage keys / SAS tokens / connection strings
-    - [ ] Does not flag bare GUIDs
-    - [ ] Filters below confidence threshold
-    - [ ] Returns `redacted_text` from API response
-    - [ ] Passes `disable_service_logs=True` and `categories_filter` to API
-    - [ ] **Chunking tests**:
-      - [ ] Input under 5,120 chars → single API call, no chunking
-      - [ ] Input over 5,120 chars → split into chunks, results merged
-      - [ ] Offsets adjusted correctly for multi-chunk input
-      - [ ] Redacted text reassembled correctly across chunks
-      - [ ] Chunks split at whitespace boundaries (no mid-word splits)
-      - [ ] Input requiring >5 chunks → multiple batched API calls
-    - [ ] **Error handling tests** (reuse existing Azure SDK error fixtures from `conftest.py`):
-      - [ ] `ServiceRequestError` (network unreachable) → `error` + `hint` set, `pii_detected` false
-      - [ ] `ClientAuthenticationError` → `error` + `hint` set
-      - [ ] `HttpResponseError` with 403 (permission denied) → `error` + `hint` set
-      - [ ] `HttpResponseError` with 429 (rate limit) → `error` + `hint` set
-      - [ ] `HttpResponseError` with 500 (service error) → `error` + `hint` set
-      - [ ] Generic `Exception` → `error` + `hint` set
-      - [ ] Document-level `is_error=True` in one chunk → `error` + `hint` set (blocks generation, does NOT continue to remaining chunks)
-      - [ ] Multi-chunk partial success (first chunk OK, second chunk `is_error=True`) → blocks generation, findings from successful chunks are NOT returned
-  - [ ] **Endpoint tests** (Flask test client):
-    - [ ] `POST /api/pii-check` with clean text → `pii_detected: false`
-    - [ ] `POST /api/pii-check` with PII text → `pii_detected: true` + findings
-    - [ ] `POST /api/pii-check` with empty notes → 400
-    - [ ] `POST /api/pii-check` when Language API errors → 500 with `error` + `hint`
-    - [ ] `POST /api/generate/stream` with PII text → 400 with findings
-    - [ ] `POST /api/generate/stream` when PII check errors → 500, does NOT proceed
-    - [ ] `POST /api/answer/stream` with PII text → 400 with findings
-    - [ ] `POST /api/answer/stream` when PII check errors → 500, does NOT proceed
-- [ ] Verify existing tests still pass
+    - [x] Detects email addresses
+    - [x] Detects phone numbers
+    - [x] Detects IP addresses
+    - [x] Detects Azure storage keys / SAS tokens / connection strings
+    - [x] Does not flag bare GUIDs
+    - [x] Filters below confidence threshold
+    - [x] Returns `redacted_text` from API response
+    - [x] Passes `disable_service_logs=True` and `categories_filter` to API
+    - [x] **Chunking tests**:
+      - [x] Input under 5,120 chars → single API call, no chunking
+      - [x] Input over 5,120 chars → split into chunks, results merged
+      - [x] Offsets adjusted correctly for multi-chunk input
+      - [x] Redacted text reassembled correctly across chunks
+      - [x] Chunks split at whitespace boundaries (no mid-word splits)
+      - [x] Input requiring >5 chunks → multiple batched API calls
+    - [x] **Error handling tests** (reuse existing Azure SDK error fixtures from `conftest.py`):
+      - [x] `ServiceRequestError` (network unreachable) → `error` + `hint` set, `pii_detected` false
+      - [x] `ClientAuthenticationError` → `error` + `hint` set
+      - [x] `HttpResponseError` with 403 (permission denied) → `error` + `hint` set
+      - [x] `HttpResponseError` with 429 (rate limit) → `error` + `hint` set
+      - [x] `HttpResponseError` with 500 (service error) → `error` + `hint` set
+      - [x] Generic `Exception` → `error` + `hint` set
+      - [x] Document-level `is_error=True` in one chunk → `error` + `hint` set (blocks generation, does NOT continue to remaining chunks)
+      - [x] Multi-chunk partial success (first chunk OK, second chunk `is_error=True`) → blocks generation, findings from successful chunks are NOT returned
+  - [x] **Endpoint tests** (Flask test client):
+    - [x] `POST /api/pii-check` with clean text → `pii_detected: false`
+    - [x] `POST /api/pii-check` with PII text → `pii_detected: true` + findings
+    - [x] `POST /api/pii-check` with empty notes → 400
+    - [x] `POST /api/pii-check` when Language API errors → 500 with `error` + `hint`
+    - [x] `POST /api/generate/stream` with PII text → 400 with findings
+    - [x] `POST /api/generate/stream` when PII check errors → 500, does NOT proceed
+    - [x] `POST /api/answer/stream` with PII text → 400 with findings
+    - [x] `POST /api/answer/stream` when PII check errors → 500, does NOT proceed
+- [x] Verify existing tests still pass (108/108)
 
 ---
 
@@ -231,25 +231,25 @@ Owner: project author (not end users).
 
 ### Documentation Updates
 
-- [ ] **`.github/copilot-instructions.md`**:
-  - [ ] Add `pii_check.py` to file reference table (purpose: "PII detection via Azure AI Language API")
-  - [ ] Add shared error utility file (if refactored) to file reference table
-  - [ ] Add row to "Warning System" table for PII-related errors (source: PII check, type: blocks generation, not a soft warning)
-  - [ ] Add entry to "Common Issues" section: "PII false positives" — explain that Azure names, service names etc. may trigger `Person`/`Organization` detection; fixed category list is intentional, adjust based on feedback
-- [ ] **`docs/architecture.md`**:
-  - [ ] Add `pii_check.py` to file structure table
-  - [ ] Add shared error utility file (if refactored) to file structure table
-  - [ ] Update pipeline diagram to show PII check as a pre-flight gate before Stage 1 (Research)
-  - [ ] Add "PII Pre-Flight Check" subsection to Design Decisions explaining: why fail-closed, why centralized resource, why no bypass
-- [ ] **`README.md`**:
-  - [ ] Add RBAC / Language resource setup notes (for project maintainers, not end users)
-  - [ ] Document the PII content filter on the Foundry model deployment as a complementary (optional) measure
-- [ ] **`docs/releasing.md`**:
-  - [ ] Note that `azure-ai-textanalytics` dependency increases exe build size
+- [x] **`.github/copilot-instructions.md`**:
+  - [x] Add `pii_check.py` to file reference table (purpose: "PII detection via Azure AI Language API")
+  - [x] Add shared error utility file (if refactored) to file reference table
+  - [x] Add row to "Warning System" table for PII-related errors (source: PII check, type: blocks generation, not a soft warning)
+  - [x] Add entry to "Common Issues" section: "PII false positives" — explain that Azure names, service names etc. may trigger `Person`/`Organization` detection; fixed category list is intentional, adjust based on feedback
+- [x] **`docs/architecture.md`**:
+  - [x] Add `pii_check.py` to file structure table
+  - [x] Add shared error utility file (if refactored) to file structure table
+  - [x] Update pipeline diagram to show PII check as a pre-flight gate before Stage 1 (Research)
+  - [x] Add "PII Pre-Flight Check" subsection to Design Decisions explaining: why fail-closed, why centralized resource, why no bypass
+- [x] **`README.md`**:
+  - [x] Add RBAC / Language resource setup notes (for project maintainers, not end users)
+  - [x] Document the PII content filter on the Foundry model deployment as a complementary (optional) measure
+- [x] **`docs/releasing.md`**:
+  - [x] Note that `azure-ai-textanalytics` dependency increases exe build size
 
 ### Build Verification
 
-- [ ] **Hidden imports**: `azure-ai-textanalytics` depends on `azure.core`, `isodate`, and other sub-packages that may require PyInstaller hidden imports (e.g., `azure.ai.textanalytics._version`). Run `make build` after implementation, test the resulting exe, and add any required `--hidden-import` flags to `build_exe.py`
+- [x] **Hidden imports**: `azure-ai-textanalytics` depends on `azure.core`, `isodate`, and other sub-packages that may require PyInstaller hidden imports (e.g., `azure.ai.textanalytics._version`). Run `make build` after implementation, test the resulting exe, and add any required `--hidden-import` flags to `build_exe.py`
 - [ ] **Exe smoke test**: Verify the built exe can successfully call the Language API PII endpoint (not just that it launches)
 
 ---
