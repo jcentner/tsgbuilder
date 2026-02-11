@@ -2,13 +2,15 @@
 pii_check.py — PII detection via Azure AI Language API.
 
 Pre-flight check to prevent customer-identifiable information from being sent
-to external Foundry Agents and Bing search. Uses a centralized, author-owned
-Azure Language resource with Entra ID authentication.
+to external Foundry Agents and Bing search. Uses the built-in AI Services
+endpoint that comes with every Foundry resource (derived from PROJECT_ENDPOINT).
 
-Fail-closed: if the Language API is unreachable or errors, generation is blocked.
+Fail-closed: if the PII API is unreachable or errors, generation is blocked.
 """
 
 from __future__ import annotations
+
+import os
 
 from azure.ai.textanalytics import TextAnalyticsClient, PiiEntityCategory
 from azure.core.exceptions import (
@@ -19,7 +21,6 @@ from azure.core.exceptions import (
 from azure.identity import DefaultAzureCredential
 
 from error_utils import classify_azure_sdk_error
-from version import LANGUAGE_ENDPOINT
 
 
 # =============================================================================
@@ -53,24 +54,54 @@ PII_MAX_DOCS_PER_REQUEST: int = 5
 
 
 # =============================================================================
+# ENDPOINT HELPERS
+# =============================================================================
+
+
+def _extract_ai_services_endpoint(project_endpoint: str) -> str:
+    """Extract the AI Services base URL from a PROJECT_ENDPOINT.
+
+    PROJECT_ENDPOINT format:
+        https://<resource>.services.ai.azure.com/api/projects/<project>
+
+    AI Services endpoint for TextAnalyticsClient:
+        https://<resource>.services.ai.azure.com/
+
+    If the URL doesn't contain ``/api/projects/``, it is assumed to already
+    be a base URL and is returned with a trailing slash.
+    """
+    marker = "/api/projects/"
+    idx = project_endpoint.find(marker)
+    if idx == -1:
+        return project_endpoint.rstrip("/") + "/"
+    return project_endpoint[:idx].rstrip("/") + "/"
+
+
+# =============================================================================
 # CLIENT
 # =============================================================================
 
 _client: TextAnalyticsClient | None = None
+_client_endpoint: str | None = None
 
 
-def get_language_client() -> TextAnalyticsClient:
+def get_language_client(endpoint: str) -> TextAnalyticsClient:
     """Create or return a cached TextAnalyticsClient.
 
-    Uses DefaultAzureCredential (Entra ID) and the centralized Language
-    endpoint from version.py.
+    Uses DefaultAzureCredential (Entra ID) and the AI Services endpoint
+    derived from the user's Foundry resource.
+
+    Args:
+        endpoint: The AI Services base URL
+                  (e.g. ``https://<resource>.services.ai.azure.com/``).
     """
-    global _client
-    if _client is None:
+    global _client, _client_endpoint
+    if _client is None or _client_endpoint != endpoint:
         _client = TextAnalyticsClient(
-            endpoint=LANGUAGE_ENDPOINT,
+            endpoint=endpoint,
             credential=DefaultAzureCredential(),
         )
+        _client_endpoint = endpoint
     return _client
 
 
@@ -145,8 +176,12 @@ def _error_result(text: str, error_msg: str, hint_msg: str) -> dict:
 # =============================================================================
 
 
-def check_for_pii(text: str) -> dict:
+def check_for_pii(text: str, project_endpoint: str | None = None) -> dict:
     """Scan text for personally identifiable information.
+
+    Uses the AI Services PII API on the user's Foundry resource. The endpoint
+    is derived from ``project_endpoint`` (or falls back to the
+    ``PROJECT_ENDPOINT`` environment variable).
 
     Returns a dict with the following shape (always the same keys)::
 
@@ -163,9 +198,19 @@ def check_for_pii(text: str) -> dict:
     and ``findings`` is empty. The caller must check ``error`` and block
     generation if it is set.
     """
+    # ── 0. Resolve endpoint ──────────────────────────────────────────────
+    endpoint = project_endpoint or os.getenv("PROJECT_ENDPOINT")
+    if not endpoint:
+        return _error_result(
+            text,
+            "PII check failed: PROJECT_ENDPOINT is not configured.",
+            "Set PROJECT_ENDPOINT in the Setup wizard before generating.",
+        )
+    ai_services_endpoint = _extract_ai_services_endpoint(endpoint)
+
     # ── 1. Get client ────────────────────────────────────────────────────
     try:
-        client = get_language_client()
+        client = get_language_client(ai_services_endpoint)
     except Exception as exc:
         print(f"⚠️ PII check failed (client init): {exc}")
         user_msg, hint, _ = classify_azure_sdk_error(exc)
@@ -207,7 +252,7 @@ def check_for_pii(text: str) -> dict:
                     return _error_result(
                         text,
                         "PII check failed: could not scan all content",
-                        "The Language service could not process part of the input.",
+                        "The PII service could not process part of the input.",
                     )
 
                 # Collect redacted text

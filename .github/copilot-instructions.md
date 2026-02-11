@@ -226,7 +226,7 @@ Every TSG must:
 
 | File | Purpose |
 |------|---------|
-| `version.py` | **Single source of truth** for version, GitHub URL, TSG signature, and Language endpoint |
+| `version.py` | **Single source of truth** for version, GitHub URL, and TSG signature |
 | `pipeline.py` | Multi-stage pipeline orchestration, error classification |
 | `tsg_constants.py` | TSG template, stage prompts, validation functions |
 | `pii_check.py` | PII detection via Azure AI Language API (pre-flight gate) |
@@ -295,7 +295,7 @@ The PII detection uses a curated category list to minimize noise (e.g., `Organiz
 
 ### PII check fails with "authentication error" or "access denied"
 
-The PII check uses `DefaultAzureCredential` against a centralized Language resource. The user needs `Cognitive Services Language Reader` role on the resource. Fix: run `az login` to refresh credentials, or verify RBAC assignment on the Language resource.
+The PII check uses `DefaultAzureCredential` against the AI Services endpoint built into the user's Foundry resource (derived from `PROJECT_ENDPOINT`). Fix: run `az login` to refresh credentials, or verify the user has access to their Foundry project.
 
 ---
 
@@ -306,7 +306,6 @@ The PII check uses `DefaultAzureCredential` against a centralized Language resou
 - `APP_VERSION` — Semantic version string (e.g., `"1.0.0"`)
 - `GITHUB_URL` — Project repository URL
 - `TSG_SIGNATURE` — Signature appended to every generated TSG for usage tracking
-- `LANGUAGE_ENDPOINT` — Azure AI Language endpoint for PII detection (centralized, author-owned)
 
 When releasing a new version:
 1. Update `APP_VERSION` in `version.py` only

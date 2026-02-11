@@ -199,9 +199,9 @@ Output follows the [DFM-copilot-optimized TSG template](https://dev.azure.com/Su
 - Check the agent is correctly configured with both Bing and Learn MCP tools
 
 ### "PII check failed: authentication error"
-- The PII check uses a centralized Azure Language resource with Entra ID auth
+- The PII check uses the AI Services endpoint from your Foundry resource (derived from `PROJECT_ENDPOINT`)
 - Run `az login` to refresh your credentials
-- Ensure your account has the `Cognitive Services Language Reader` role on the Language resource
+- Ensure your account has access to your Foundry project
 
 ### PII check flags a false positive
 - The `Person` category may occasionally flag Azure service names or technical terms
@@ -253,7 +253,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed pipeline architect
 | `pipeline.py` | Multi-stage pipeline orchestration (Research → Write → Review) |
 | `pii_check.py` | PII detection via Azure AI Language API (pre-flight gate) |
 | `error_utils.py` | Shared Azure SDK error classification utilities |
-| `version.py` | Single source of truth for version, GitHub URL, TSG signature, and Language endpoint |
+| `version.py` | Single source of truth for version, GitHub URL, and TSG signature |
 | `build_exe.py` | PyInstaller build script (bundles templates/, static/) |
 | `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
 | `validate_setup.py` | Validate environment configuration (CLI troubleshooting) |
@@ -295,26 +295,19 @@ After the workflow completes, go to the [Releases page](../../releases) to revie
 
 </details>
 
-### Maintainer Notes: PII Detection Infrastructure
+### Maintainer Notes: PII Detection
 
 <details>
-<summary>Click to expand Language resource setup (project maintainers only)</summary>
+<summary>Click to expand PII detection details (project maintainers only)</summary>
 
-TSG Builder includes a pre-flight PII check powered by a **centralized Azure AI Language resource**. End users need no setup — they authenticate via the same `az login` / Entra ID they already use for Foundry.
+TSG Builder includes a pre-flight PII check powered by the **Azure AI Language PII API** via the AI Services endpoint built into each user's Foundry resource. End users need no additional setup — the PII endpoint is derived from the `PROJECT_ENDPOINT` they already configure.
 
-#### Azure Language Resource
+#### How It Works
 
-- **Resource**: `tsgbuilder-pii-language` (Free F0 or Standard S tier)
-- **Endpoint**: Hardcoded in `version.py` (`LANGUAGE_ENDPOINT`); silently overridable via `LANGUAGE_ENDPOINT` env var as an emergency escape hatch
-- **RBAC**: `Cognitive Services Language Reader` role assigned at resource scope
-- **Diagnostics**: Audit logs sent to Log Analytics for usage tracking (caller identity, volume, errors)
-
-#### If the Language resource needs to be recreated
-
-1. Create a new Azure AI Language resource
-2. Assign `Cognitive Services Language Reader` role (tenant-wide or via security group)
-3. Enable Diagnostic Settings → Audit category → Log Analytics
-4. Update the default endpoint in `version.py`
+- **Endpoint derivation**: `pii_check.py` extracts the AI Services base URL from `PROJECT_ENDPOINT` (strips `/api/projects/<project>`) and uses it with `TextAnalyticsClient`
+- **Auth**: `DefaultAzureCredential` (same Entra ID used for Foundry)
+- **RBAC**: Users who can access their Foundry project already have the necessary permissions for AI Services PII detection
+- **Fail-closed**: If the PII API is unreachable or errors, generation is blocked
 
 #### Complementary: Foundry Model PII Content Filter
 

@@ -821,7 +821,7 @@ def api_pii_check():
     """Check notes for personally identifiable information (PII).
     
     Returns 200 with PII results (even when PII is found — that's a data response,
-    not an error). Returns 500 when the Language service itself errors.
+    not an error). Returns 500 when the PII service itself errors.
     """
     data = request.get_json()
     notes = data.get("notes", "").strip() if data else ""
@@ -831,7 +831,7 @@ def api_pii_check():
     
     result = check_for_pii(notes)
     
-    # Language service error → 500
+    # PII service error → 500
     if result["error"]:
         return jsonify({
             "error": result["error"],

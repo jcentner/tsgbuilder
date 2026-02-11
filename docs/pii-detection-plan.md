@@ -1,6 +1,6 @@
 # PII Detection — Implementation Plan
 
-Adds a pre-flight PII check to prevent customer-identifiable information from being sent to external Foundry Agents and Bing search. Uses the **Azure AI Language PII API** via a centralized, author-owned Language resource.
+Adds a pre-flight PII check to prevent customer-identifiable information from being sent to external Foundry Agents and Bing search. Uses the **Azure AI Language PII API** via the built-in AI Services endpoint that comes with every Foundry resource (derived from `PROJECT_ENDPOINT`).
 
 > **Issue**: [logs/issue-pii-detection.md](../logs/issue-pii-detection.md)
 
@@ -42,17 +42,7 @@ Adds a pre-flight PII check to prevent customer-identifiable information from be
 
 ### Metrics & Tracking
 
-All metrics come from Azure Monitor + Diagnostic Logs on the centralized Language resource (the only shared component — the app runs locally as an exe).
-
-| Signal | Source |
-|--------|--------|
-| Total PII check calls (volume) | Azure Monitor Metrics → `Total Calls` |
-| Unique users (adoption) | Diagnostic Logs → distinct `CallerObjectId` |
-| Calls per user | Diagnostic Logs → group by `CallerObjectId` |
-| Usage trend | Diagnostic Logs → count by `bin(TimeGenerated, 1d)` |
-| Error rate | Metrics → `Client Errors` / `Server Errors` |
-| Latency | Metrics → `Response Latency` |
-| Cost | Cost Management → filter by Language resource |
+Metrics for PII check usage are out of scope for the initial implementation. They will be baked in separately as a future enhancement.
 
 ### Error Handling Strategy
 
@@ -60,12 +50,13 @@ The PII check is a **hard gate** — if it can't confirm the input is clean, gen
 
 | Scenario | Backend Behavior | Frontend Behavior |
 |----------|-----------------|-------------------|
-| Language resource unreachable (network) | Return `{"error": "PII check failed: cannot reach Language service", "hint": "Check your network connection and try again."}` | Show error message with hint, block generation |
+| AI Services endpoint unreachable (network) | Return `{"error": "PII check failed: cannot reach AI Services", "hint": "Check your network connection and try again."}` | Show error message with hint, block generation |
 | Authentication failure (`ClientAuthenticationError`) | Return `{"error": "PII check failed: authentication error", "hint": "Run 'az login' to refresh your credentials."}` | Show error message with hint, block generation |
-| Permission denied (403 on Language resource) | Return `{"error": "PII check failed: access denied", "hint": "Your account may not have Cognitive Services Language Reader role."}` | Show error message with hint, block generation |
-| Service error (5xx from Language API) | Return `{"error": "PII check failed: Language service error (5xx)", "hint": "The Azure Language service is experiencing issues. Try again in a few minutes."}` | Show error message with hint, block generation |
+| Permission denied (403) | Return `{"error": "PII check failed: access denied", "hint": "Your account may not have access to the Foundry resource."}` | Show error message with hint, block generation |
+| Service error (5xx from PII API) | Return `{"error": "PII check failed: service error (5xx)", "hint": "The Azure AI Services endpoint is experiencing issues. Try again in a few minutes."}` | Show error message with hint, block generation |
 | Rate limited (429) | Return `{"error": "PII check failed: rate limited", "hint": "Too many requests. Wait a moment and try again."}` | Show error message with hint, block generation |
-| Document-level error from API (`is_error=True`) | Return `{"error": "PII check failed: could not scan all content", "hint": "The Language service could not process part of the input."}` | Show error message with hint, block generation |
+| Document-level error from API (`is_error=True`) | Return `{"error": "PII check failed: could not scan all content", "hint": "The PII service could not process part of the input."}` | Show error message with hint, block generation |
+| `PROJECT_ENDPOINT` not configured | Return `{"error": "PII check failed: PROJECT_ENDPOINT is not configured.", "hint": "Set PROJECT_ENDPOINT in the Setup wizard before generating."}` | Show error message with hint, block generation |
 | Frontend `POST /api/pii-check` network failure | N/A | Show error: "Could not reach PII check service", block generation |
 | Frontend `POST /api/pii-check` returns non-200 | N/A | Show error from response body, block generation |
 
@@ -84,34 +75,17 @@ The PII check is a **hard gate** — if it can't confirm the input is clean, gen
 
 ---
 
-## Phase 1: Azure Setup (One-Time, Manual)
-
-Owner: project author (not end users).
-
-- [x] Create Azure Language resource (Free F0 or Standard S tier)
-- [x] Record the endpoint URL
-- [ ] Assign `Cognitive Services Language Reader` role at resource scope — either:
-  - [ ] Tenant-wide (`All Users` principal), **or**
-  - [ ] Dynamic security group with membership rule (e.g., `user.department -eq "Azure Support"`)
-- [x] Enable Diagnostic Settings → send to Log Analytics workspace
-  - [x] Category: `Audit` (captures caller identity per request)
-- [x] Verify access: `az login` as a target user, call the PII endpoint, confirm 200
-
-> NOTE: only remaining item is to grant tenant-wide/CSS-wide access
-
----
-
 ## Phase 2: Backend — `pii_check.py` + Constants
 
-- [x] Add `LANGUAGE_ENDPOINT` to `version.py` — hardcoded default with silent `os.getenv()` override: `LANGUAGE_ENDPOINT = os.getenv("LANGUAGE_ENDPOINT", "https://tsgbuilder-pii-language.cognitiveservices.azure.com/")`  (undocumented escape hatch, not surfaced in UI or docs)
 - [x] Add `azure-ai-textanalytics>=5.3.0` to `requirements.txt`
 - [x] Create `pii_check.py` with:
+  - [x] `_extract_ai_services_endpoint(project_endpoint)` — extracts AI Services base URL from `PROJECT_ENDPOINT` (strips `/api/projects/<project>` suffix)
   - [x] `PII_CATEGORIES` — list of `PiiEntityCategory` enum constants to detect (map from table above)
   - [x] `PII_CONFIDENCE_THRESHOLD = 0.8`
   - [x] `PII_CHUNK_SIZE = 5120` — max characters per document (synchronous API limit)
   - [x] `PII_MAX_DOCS_PER_REQUEST = 5` — max documents per synchronous API call
-  - [x] `get_language_client()` — creates `TextAnalyticsClient` with `DefaultAzureCredential` + `LANGUAGE_ENDPOINT` (endpoint is hardcoded constant, always available)
-  - [x] `check_for_pii(text: str) -> dict` — calls `recognize_pii_entities()` with `disable_service_logs=True` and `categories_filter=PII_CATEGORIES`, filters by confidence threshold, returns:
+  - [x] `get_language_client(endpoint)` — creates `TextAnalyticsClient` with `DefaultAzureCredential` + the AI Services base URL (cached, invalidated if endpoint changes)
+  - [x] `check_for_pii(text, project_endpoint=None)` — derives AI Services endpoint from `project_endpoint` (or `PROJECT_ENDPOINT` env var), calls `recognize_pii_entities()` with `disable_service_logs=True` and `categories_filter=PII_CATEGORIES`, filters by confidence threshold, returns:
     ```python
     {
         "pii_detected": bool,
@@ -140,7 +114,7 @@ Owner: project author (not end users).
   - [x] Calls `check_for_pii()`
   - [x] Returns `{"pii_detected", "findings", "redacted_text", "error", "hint"}`
   - [x] Returns 200 when check succeeds (PII detected is not an HTTP error — it's a data response)
-  - [x] Returns 500 with `{"error": "...", "hint": "..."}` when the Language service is unreachable or errors
+  - [x] Returns 500 with `{"error": "...", "hint": "..."}` when the PII service is unreachable or errors
 - [x] Add server-side PII gate at top of `POST /api/generate/stream`:
   - [x] Call `check_for_pii()` before starting the SSE stream
   - [x] If PII detected, return `400` with `{"error": "PII detected in notes", "findings": [...]}`
@@ -176,7 +150,7 @@ Owner: project author (not end users).
   - [x] After existing "notes empty" check, `POST` to `/api/pii-check`
   - [x] If `pii_detected === true`: populate `#piiModal` with findings, stash `redacted_text`, show modal, `return` early
   - [x] If `pii_detected === false` and no `error`: proceed to `generateTSGWithStreaming()` as normal
-  - [x] If `error` is set (Language service unreachable, auth failed, etc.): show error message with hint using `showError()`, `return` early — do NOT proceed with generation
+  - [x] If `error` is set (PII service unreachable, auth failed, etc.): show error message with hint using `showError()`, `return` early — do NOT proceed with generation
   - [x] If PII check request fails entirely (network error, fetch exception) or returns 4xx/5xx: parse error/hint from response body if available, otherwise show "Could not reach PII check service", `return` early — do NOT proceed
 - [x] Modify `submitAnswers()` in `static/js/main.js`:
   - [x] Before submitting, `POST` to `/api/pii-check` with answers text
@@ -220,7 +194,7 @@ Owner: project author (not end users).
     - [x] `POST /api/pii-check` with clean text → `pii_detected: false`
     - [x] `POST /api/pii-check` with PII text → `pii_detected: true` + findings
     - [x] `POST /api/pii-check` with empty notes → 400
-    - [x] `POST /api/pii-check` when Language API errors → 500 with `error` + `hint`
+    - [x] `POST /api/pii-check` when PII API errors → 500 with `error` + `hint`
     - [x] `POST /api/generate/stream` with PII text → 400 with findings
     - [x] `POST /api/generate/stream` when PII check errors → 500, does NOT proceed
     - [x] `POST /api/answer/stream` with PII text → 400 with findings
@@ -242,9 +216,9 @@ Owner: project author (not end users).
   - [x] Add `pii_check.py` to file structure table
   - [x] Add shared error utility file (if refactored) to file structure table
   - [x] Update pipeline diagram to show PII check as a pre-flight gate before Stage 1 (Research)
-  - [x] Add "PII Pre-Flight Check" subsection to Design Decisions explaining: why fail-closed, why centralized resource, why no bypass
+  - [x] Add "PII Pre-Flight Check" subsection to Design Decisions explaining: why fail-closed, why AI Services endpoint, why no bypass
 - [x] **`README.md`**:
-  - [x] Add RBAC / Language resource setup notes (for project maintainers, not end users)
+  - [x] Add PII check overview note
   - [x] Document the PII content filter on the Foundry model deployment as a complementary (optional) measure
 - [x] **`docs/releasing.md`**:
   - [x] Note that `azure-ai-textanalytics` dependency increases exe build size
@@ -252,7 +226,7 @@ Owner: project author (not end users).
 ### Build Verification
 
 - [x] **Hidden imports**: `azure-ai-textanalytics` depends on `azure.core`, `isodate`, and other sub-packages that may require PyInstaller hidden imports (e.g., `azure.ai.textanalytics._version`). Run `make build` after implementation, test the resulting exe, and add any required `--hidden-import` flags to `build_exe.py`
-- [ ] **Exe smoke test**: Verify the built exe can successfully call the Language API PII endpoint (not just that it launches)
+- [ ] **Exe smoke test**: Verify the built exe can successfully call the AI Services PII endpoint (not just that it launches)
 
 ---
 
@@ -302,12 +276,12 @@ If they can `az login` and use TSG Builder today, PII check works automatically.
 | Item | Why |
 |------|-----|
 | AI-based name/company detection beyond Language API | Language API already detects `Person` and `Organization` categories |
-| Per-user Language resource setup | Centralized resource eliminates this |
 | App-level telemetry (App Insights, etc.) | App runs locally as exe, no shared backend to pipe logs to |
 | PII content filter on Foundry deployment | Complementary output filter — manual portal config, not a code change |
 | Configurable PII categories in UI | Premature — start with fixed list, adjust based on false positive feedback |
-| User-facing on/off toggle for PII check | PII check is always active — it's a security requirement, not optional |
+| User-facing on/off toggle for PII check | PII check is always active — it’s a security requirement, not optional |
 | "Proceed anyway" button in PII modal | User must edit or redact; no bypass to prevent accidental PII leakage |
+| Centralized PII usage metrics | Deferred — will be baked in separately as a future enhancement |
 
 ---
 

@@ -557,14 +557,14 @@ async function runPiiCheck(text, targetTextarea, btn) {
         const result = await resp.json();
 
         if (!resp.ok) {
-            // 4xx/5xx — Language service error
+            // 4xx/5xx — PII service error
             const msg = result.error || 'PII check failed';
             const hint = result.hint ? `\n\n💡 ${result.hint}` : '';
             showError(msg + hint);
             return false;
         }
 
-        // 200 but the Language service itself errored (check_for_pii sets error field)
+        // 200 but the PII service itself errored (check_for_pii sets error field)
         if (result.error) {
             const hint = result.hint ? `\n\n💡 ${result.hint}` : '';
             showError(result.error + hint);

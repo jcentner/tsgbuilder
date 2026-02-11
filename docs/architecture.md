@@ -15,7 +15,7 @@ TSG Builder uses a **three-stage pipeline** to separate concerns and improve rel
          ▼
 ┌──────────────────────────────────────────────────────────────┐
 │  PRE-FLIGHT: PII CHECK                                      │
-│  - Azure AI Language PII API (centralized resource)         │
+│  - Azure AI Language PII API (via Foundry AI Services)      │
 │  - Scans notes for emails, phone numbers, credentials, etc. │
 │  - Fail-closed: blocks generation if PII found OR on error  │
 │  → Pass: proceed to pipeline │ Fail: user edits or redacts  │
@@ -143,7 +143,7 @@ When the TSG has missing information:
 | `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
 | `pii_check.py` | PII detection via Azure AI Language API (pre-flight gate) |
 | `error_utils.py` | Shared Azure SDK error classification utilities |
-| `version.py` | Single source of truth for version, GitHub URL, TSG signature, and Language endpoint |
+| `version.py` | Single source of truth for version, GitHub URL, and TSG signature |
 | `web_app.py` | Flask web UI + agent creation |
 | `build_exe.py` | PyInstaller build script (bundles templates/, static/) |
 | `templates/index.html` | Web UI HTML structure |
@@ -178,8 +178,8 @@ By forcing the writer to use only the research report, outputs are more consiste
 
 TSG Builder sends user-provided notes to external services (Foundry Agents, Bing search). A pre-flight PII check prevents customer-identifiable information from leaking:
 
-- **Fail-closed** — If the Language API is unreachable or errors, generation is blocked. Input cannot be sent to external services without PII clearance.
-- **Centralized resource** — A single author-owned Azure Language resource means zero user setup. All users authenticate via `DefaultAzureCredential` (same Entra ID they already use for Foundry).
+- **Fail-closed** — If the PII API is unreachable or errors, generation is blocked. Input cannot be sent to external services without PII clearance.
+- **Uses existing Foundry resource** — The PII check uses the AI Services endpoint built into the user's Foundry resource (derived from `PROJECT_ENDPOINT`). No additional setup or resources needed.
 - **No bypass** — There is no "proceed anyway" option. Users must edit their notes or accept the API's automatic redaction before generation can continue.
 - **Curated categories** — Only categories relevant to support scenarios are detected (emails, phone numbers, IP addresses, credentials, etc.). `Organization` is intentionally excluded to avoid false positives on Azure service names.
 - **Defense-in-depth** — The frontend checks before sending, and the backend re-checks at the `/api/generate/stream` and `/api/answer/stream` endpoints to prevent bypass.

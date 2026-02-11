@@ -8,6 +8,7 @@ Run with: pytest tests/test_pii_check.py -v
 """
 
 import json
+import os
 import pytest
 import sys
 from pathlib import Path
@@ -19,12 +20,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from pii_check import (
     check_for_pii,
     _split_into_chunks,
+    _extract_ai_services_endpoint,
     PII_CATEGORIES,
     PII_CONFIDENCE_THRESHOLD,
     PII_CHUNK_SIZE,
     PII_MAX_DOCS_PER_REQUEST,
 )
 from web_app import app
+
+
+# Test endpoint for all PII unit tests (mocked client, so endpoint is not actually called)
+TEST_PROJECT_ENDPOINT = "https://test-resource.services.ai.azure.com/api/projects/test-project"
 
 
 # =============================================================================
@@ -44,6 +50,7 @@ def reset_language_client():
     """Reset the cached Language client between tests."""
     import pii_check
     pii_check._client = None
+    pii_check._client_endpoint = None
 
 
 def _make_entity(category, text, confidence, offset, length):
@@ -153,7 +160,7 @@ class TestPiiDetection:
             )
         ]
 
-        result = check_for_pii("Contact john@contoso.com for help.")
+        result = check_for_pii("Contact john@contoso.com for help.", project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is True
         assert len(result["findings"]) == 1
@@ -174,7 +181,7 @@ class TestPiiDetection:
             )
         ]
 
-        result = check_for_pii("Call 555-123-4567 please.")
+        result = check_for_pii("Call 555-123-4567 please.", project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is True
         assert result["findings"][0]["category"] == "PhoneNumber"
@@ -192,7 +199,7 @@ class TestPiiDetection:
             )
         ]
 
-        result = check_for_pii("IP: 192.168.1.100 is blocked.")
+        result = check_for_pii("IP: 192.168.1.100 is blocked.", project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is True
         assert result["findings"][0]["category"] == "IPAddress"
@@ -213,7 +220,7 @@ class TestPiiDetection:
             )
         ]
 
-        result = check_for_pii(fake_key)
+        result = check_for_pii(fake_key, project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is True
         assert result["findings"][0]["category"] == "AzureStorageAccountKey"
@@ -229,7 +236,7 @@ class TestPiiDetection:
             _make_doc_result(entities=[], redacted_text=clean)
         ]
 
-        result = check_for_pii(clean)
+        result = check_for_pii(clean, project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is False
         assert result["findings"] == []
@@ -247,7 +254,7 @@ class TestPiiDetection:
             _make_doc_result(entities=[], redacted_text=text)
         ]
 
-        result = check_for_pii(text)
+        result = check_for_pii(text, project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is False
 
@@ -267,7 +274,7 @@ class TestPiiDetection:
             )
         ]
 
-        result = check_for_pii("Microsoft uses test@test.com for email.")
+        result = check_for_pii("Microsoft uses test@test.com for email.", project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is True
         assert len(result["findings"]) == 1
@@ -287,7 +294,7 @@ class TestPiiDetection:
             )
         ]
 
-        result = check_for_pii("Contact john@contoso.com for help.")
+        result = check_for_pii("Contact john@contoso.com for help.", project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["redacted_text"] == redacted
 
@@ -301,7 +308,7 @@ class TestPiiDetection:
             _make_doc_result(entities=[], redacted_text="test text")
         ]
 
-        check_for_pii("test text")
+        check_for_pii("test text", project_endpoint=TEST_PROJECT_ENDPOINT)
 
         call_kwargs = client.recognize_pii_entities.call_args
         assert call_kwargs.kwargs["disable_service_logs"] is True
@@ -327,7 +334,7 @@ class TestPiiChunking:
             _make_doc_result(entities=[], redacted_text=text)
         ]
 
-        check_for_pii(text)
+        check_for_pii(text, project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert client.recognize_pii_entities.call_count == 1
         # Should send single-element list
@@ -358,7 +365,7 @@ class TestPiiChunking:
             ),
         ]
 
-        result = check_for_pii(text)
+        result = check_for_pii(text, project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is True
         assert len(result["findings"]) == 2
@@ -388,7 +395,7 @@ class TestPiiChunking:
                 ),
             ]
 
-            result = check_for_pii(text)
+            result = check_for_pii(text, project_endpoint=TEST_PROJECT_ENDPOINT)
 
         # First chunk entity: offset stays 10
         assert result["findings"][0]["offset"] == 10
@@ -415,7 +422,7 @@ class TestPiiChunking:
                 _make_doc_result(entities=[], redacted_text=redacted2),
             ]
 
-            result = check_for_pii(text)
+            result = check_for_pii(text, project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["redacted_text"] == redacted1 + redacted2
 
@@ -457,7 +464,7 @@ class TestPiiChunking:
                 ]
             client.recognize_pii_entities.side_effect = side_effect
 
-            result = check_for_pii(text)
+            result = check_for_pii(text, project_endpoint=TEST_PROJECT_ENDPOINT)
 
         # Should have made 2 API calls (batch of 5 + batch of 2)
         assert client.recognize_pii_entities.call_count == 2
@@ -483,7 +490,7 @@ class TestPiiErrorHandling:
         mock_get_client.return_value = client
         client.recognize_pii_entities.side_effect = connection_error
 
-        result = check_for_pii("test text")
+        result = check_for_pii("test text", project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is False
         assert result["findings"] == []
@@ -499,7 +506,7 @@ class TestPiiErrorHandling:
         mock_get_client.return_value = client
         client.recognize_pii_entities.side_effect = auth_error
 
-        result = check_for_pii("test text")
+        result = check_for_pii("test text", project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is False
         assert result["error"] is not None
@@ -515,7 +522,7 @@ class TestPiiErrorHandling:
         mock_get_client.return_value = client
         client.recognize_pii_entities.side_effect = mock_http_error(403, "Forbidden")
 
-        result = check_for_pii("test text")
+        result = check_for_pii("test text", project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is False
         assert result["error"] is not None
@@ -529,7 +536,7 @@ class TestPiiErrorHandling:
         mock_get_client.return_value = client
         client.recognize_pii_entities.side_effect = mock_http_error(429, "Too Many Requests")
 
-        result = check_for_pii("test text")
+        result = check_for_pii("test text", project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is False
         assert result["error"] is not None
@@ -543,7 +550,7 @@ class TestPiiErrorHandling:
         mock_get_client.return_value = client
         client.recognize_pii_entities.side_effect = mock_http_error(500, "Internal Server Error")
 
-        result = check_for_pii("test text")
+        result = check_for_pii("test text", project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is False
         assert result["error"] is not None
@@ -557,7 +564,7 @@ class TestPiiErrorHandling:
         mock_get_client.return_value = client
         client.recognize_pii_entities.side_effect = RuntimeError("Something broke")
 
-        result = check_for_pii("test text")
+        result = check_for_pii("test text", project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is False
         assert result["error"] is not None
@@ -572,7 +579,7 @@ class TestPiiErrorHandling:
         mock_get_client.return_value = client
         client.recognize_pii_entities.return_value = [_make_doc_error()]
 
-        result = check_for_pii("test text")
+        result = check_for_pii("test text", project_endpoint=TEST_PROJECT_ENDPOINT)
 
         assert result["pii_detected"] is False
         assert result["error"] is not None
@@ -599,7 +606,7 @@ class TestPiiErrorHandling:
                 _make_doc_error("Processing failed for chunk 2"),
             ]
 
-            result = check_for_pii(text)
+            result = check_for_pii(text, project_endpoint=TEST_PROJECT_ENDPOINT)
 
         # Should block — no partial results
         assert result["pii_detected"] is False
@@ -614,10 +621,71 @@ class TestPiiErrorHandling:
         from azure.core.exceptions import ClientAuthenticationError
         mock_get_client.side_effect = ClientAuthenticationError("No credentials")
 
+        result = check_for_pii("test text", project_endpoint=TEST_PROJECT_ENDPOINT)
+
+        assert result["pii_detected"] is False
+        assert result["error"] is not None
+        assert result["hint"] is not None
+
+
+# =============================================================================
+# TESTS: _extract_ai_services_endpoint helper
+# =============================================================================
+
+class TestExtractAiServicesEndpoint:
+    """Tests for extracting the AI Services base URL from PROJECT_ENDPOINT."""
+
+    @pytest.mark.unit
+    def test_standard_project_endpoint(self):
+        """Standard PROJECT_ENDPOINT should extract base URL."""
+        endpoint = "https://myresource.services.ai.azure.com/api/projects/myproject"
+        assert _extract_ai_services_endpoint(endpoint) == "https://myresource.services.ai.azure.com/"
+
+    @pytest.mark.unit
+    def test_project_endpoint_with_trailing_slash(self):
+        """PROJECT_ENDPOINT with trailing slash should still work."""
+        endpoint = "https://myresource.services.ai.azure.com/api/projects/myproject/"
+        assert _extract_ai_services_endpoint(endpoint) == "https://myresource.services.ai.azure.com/"
+
+    @pytest.mark.unit
+    def test_base_url_without_projects_path(self):
+        """URL without /api/projects/ should be treated as a base URL."""
+        endpoint = "https://myresource.services.ai.azure.com"
+        assert _extract_ai_services_endpoint(endpoint) == "https://myresource.services.ai.azure.com/"
+
+    @pytest.mark.unit
+    def test_base_url_with_trailing_slash(self):
+        """Base URL with trailing slash should be normalized."""
+        endpoint = "https://myresource.services.ai.azure.com/"
+        assert _extract_ai_services_endpoint(endpoint) == "https://myresource.services.ai.azure.com/"
+
+    @pytest.mark.unit
+    def test_complex_resource_name(self):
+        """Resource names with hyphens and numbers should work."""
+        endpoint = "https://jacob-3341-resource.services.ai.azure.com/api/projects/my-proj-123"
+        assert _extract_ai_services_endpoint(endpoint) == "https://jacob-3341-resource.services.ai.azure.com/"
+
+
+# =============================================================================
+# TESTS: check_for_pii — Missing endpoint
+# =============================================================================
+
+class TestPiiMissingEndpoint:
+    """Tests for PII detection when PROJECT_ENDPOINT is not configured."""
+
+    @pytest.mark.unit
+    @patch.dict("os.environ", {}, clear=False)
+    def test_missing_endpoint_returns_error(self):
+        """Missing PROJECT_ENDPOINT (no arg, no env) should return error."""
+        import os
+        # Ensure PROJECT_ENDPOINT is not in env
+        os.environ.pop("PROJECT_ENDPOINT", None)
+
         result = check_for_pii("test text")
 
         assert result["pii_detected"] is False
         assert result["error"] is not None
+        assert "PROJECT_ENDPOINT" in result["error"]
         assert result["hint"] is not None
 
 
