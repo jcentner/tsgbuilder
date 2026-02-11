@@ -741,7 +741,7 @@ async function clearSession() {
 function displayTSG(tsg) {
     const output = document.getElementById('tsgOutput');
     if (isMarkdownPreview) {
-        output.innerHTML = marked.parse(tsg);
+        output.innerHTML = DOMPurify.sanitize(marked.parse(tsg));
     } else {
         output.textContent = tsg;
     }

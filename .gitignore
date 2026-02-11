@@ -14,11 +14,14 @@ __pycache__/
 
 # Output files
 output.md
-test_output*
 *.bak
 
-# Verbose logs
+# Test/pipeline output files (may contain user input and raw API responses)
+**/test_output*.json
+
+# Verbose logs and error logs (may contain API response details)
 logs/
+errors.log
 
 # IDE
 .vscode/

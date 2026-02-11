@@ -683,9 +683,11 @@ def api_create_agent():
     
     except Exception as e:
         # Generic fallback for unexpected errors
+        # Log the full error server-side but don't expose internals to client
+        print(f"Agent creation unexpected error: {e}")
         return jsonify({
             "success": False,
-            "error": f"Unexpected error: {str(e)}",
+            "error": "An unexpected error occurred during agent setup.",
             "error_type": "UnexpectedError",
             "hint": "Check the server logs for more details.",
         }), 500
