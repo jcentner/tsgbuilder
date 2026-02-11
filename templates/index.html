@@ -244,11 +244,11 @@ Address any missing information and review notes above. You can also suggest cor
     </div>
 
     <!-- PII Detection Modal -->
-    <div id="piiModal" class="modal-overlay hidden">
+    <div id="piiModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="piiModalTitle">
         <div class="modal" style="max-width: 600px;">
             <div class="modal-header pii-modal-header">
-                <h2>🛡️ PII Detected</h2>
-                <button class="modal-close" onclick="closePiiModal()">&times;</button>
+                <h2 id="piiModalTitle">🛡️ PII Detected</h2>
+                <button class="modal-close" onclick="closePiiModal()" aria-label="Close PII modal">&times;</button>
             </div>
             <div class="modal-body">
                 <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">

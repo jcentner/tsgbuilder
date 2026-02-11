@@ -8,23 +8,20 @@ Run with: pytest tests/test_pii_check.py -v
 """
 
 import json
-import os
 import pytest
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 
 # Add parent directory to path so we can import from the main package
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import pii_check
 from pii_check import (
     check_for_pii,
     _split_into_chunks,
     _extract_ai_services_endpoint,
     PII_CATEGORIES,
-    PII_CONFIDENCE_THRESHOLD,
-    PII_CHUNK_SIZE,
-    PII_MAX_DOCS_PER_REQUEST,
 )
 from web_app import app
 
@@ -48,7 +45,6 @@ def client():
 @pytest.fixture(autouse=True)
 def reset_language_client():
     """Reset the cached Language client between tests."""
-    import pii_check
     pii_check._client = None
     pii_check._client_endpoint = None
 
@@ -437,13 +433,21 @@ class TestPiiChunking:
         text = "abcdefghij " * 10  # 110 chars
         chunks = _split_into_chunks(text, max_size=25)
 
-        for chunk in chunks:
+        # Round-trip: joining chunks must reconstruct the original text
+        assert "".join(chunks) == text
+
+        for i, chunk in enumerate(chunks):
             # No chunk should start with a partial word continuation
             # (unless it's the very first chunk)
-            if chunk != chunks[0]:
-                # Should start with a non-space character (start of word)
-                # after the split point was at whitespace
-                assert not chunk[0].isspace() or chunk.startswith(" ")
+            if i > 0:
+                # Chunk must start at a word boundary: either the previous
+                # chunk ended with whitespace, or this chunk starts at one.
+                prev_ended_ws = chunks[i - 1][-1].isspace()
+                curr_starts_ws = chunk[0].isspace()
+                assert prev_ended_ws or curr_starts_ws, (
+                    f"Chunk {i} split mid-word: prev ends with "
+                    f"{chunks[i - 1][-5:]!r}, chunk starts with {chunk[:5]!r}"
+                )
 
     @pytest.mark.unit
     @patch("pii_check.get_language_client")

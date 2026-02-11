@@ -223,6 +223,11 @@ def check_for_pii(text: str, project_endpoint: str | None = None) -> dict:
     # ── 2. Chunk the input ───────────────────────────────────────────────
     chunks = _split_into_chunks(text)
 
+    # Precompute cumulative offsets for each chunk (prefix-sum)
+    chunk_offsets = [0] * len(chunks)
+    for idx in range(1, len(chunks)):
+        chunk_offsets[idx] = chunk_offsets[idx - 1] + len(chunks[idx - 1])
+
     # ── 3. Call the API in batches ───────────────────────────────────────
     all_findings: list[dict] = []
     redacted_parts: list[str] = []
@@ -260,7 +265,7 @@ def check_for_pii(text: str, project_endpoint: str | None = None) -> dict:
 
                 # Collect findings, adjusting offsets for chunk position
                 chunk_index = batch_start + i
-                chunk_offset = sum(len(chunks[j]) for j in range(chunk_index))
+                chunk_offset = chunk_offsets[chunk_index]
 
                 for entity in doc.entities:
                     if entity.confidence_score >= PII_CONFIDENCE_THRESHOLD:
