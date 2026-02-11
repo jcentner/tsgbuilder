@@ -99,7 +99,7 @@ The setup wizard opens automatically to guide you through configuration.
 
 > ⏱️ **Timing**: A full run (Research → Write → Review) typically takes **2–5 minutes** depending on the complexity of your input and the amount of research needed.
 
-> ⚠️ **Note**: This tool uses a Foundry Agent to search the internet. Be mindful of customer data; it should never be in your input notes or input images.
+> ⚠️ **Note**: This tool uses a Foundry Agent to search the internet. A built-in **PII check** scans your input before generation and blocks any content containing emails, phone numbers, IP addresses, credentials, or other customer-identifiable information. You'll be prompted to edit or redact before proceeding.
 
 **Features:**
 - ⚙️ **Built-in setup wizard** — Configure, validate, and create agents from the browser
@@ -198,6 +198,16 @@ Output follows the [DFM-copilot-optimized TSG template](https://dev.azure.com/Su
 - The agent is instructed to include URLs from research in "Related Information"
 - Check the agent is correctly configured with both Bing and Learn MCP tools
 
+### "PII check failed: authentication error"
+- The PII check uses the AI Services endpoint from your Foundry resource (derived from `PROJECT_ENDPOINT`)
+- Run `az login` to refresh your credentials
+- Ensure your account has access to your Foundry project
+
+### PII check flags a false positive
+- The `Person` category may occasionally flag Azure service names or technical terms
+- Click **"Go Back & Edit"** to adjust your notes, or **"Redact & Continue"** to accept the automatic redaction
+- If a category consistently produces false positives, maintainers can adjust `PII_CATEGORIES` in `pii_check.py`
+
 ---
 
 ## Development
@@ -241,6 +251,9 @@ See [docs/architecture.md](docs/architecture.md) for detailed pipeline architect
 |------|---------|
 | `web_app.py` | Flask web UI server (includes agent creation) |
 | `pipeline.py` | Multi-stage pipeline orchestration (Research → Write → Review) |
+| `pii_check.py` | PII detection via Azure AI Language API (pre-flight gate) |
+| `error_utils.py` | Shared Azure SDK error classification utilities |
+| `version.py` | Single source of truth for version, GitHub URL, and TSG signature |
 | `build_exe.py` | PyInstaller build script (bundles templates/, static/) |
 | `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
 | `validate_setup.py` | Validate environment configuration (CLI troubleshooting) |
@@ -250,7 +263,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed pipeline architect
 | `.agent_ids.json` | Pipeline agent IDs after creation |
 | `templates/index.html` | Web UI HTML structure |
 | `static/css/styles.css` | Web UI styles |
-| `static/js/main.js` | Core UI logic (streaming, TSG generation, images) |
+| `static/js/main.js` | Core UI logic (streaming, TSG generation, images, PII modal) |
 | `static/js/setup.js` | Setup modal functionality |
 | `tests/` | Pytest test suite with fixtures |
 
@@ -279,6 +292,26 @@ This triggers a workflow that:
 3. Creates a **draft release** with all files attached
 
 After the workflow completes, go to the [Releases page](../../releases) to review and publish.
+
+</details>
+
+### Maintainer Notes: PII Detection
+
+<details>
+<summary>Click to expand PII detection details (project maintainers only)</summary>
+
+TSG Builder includes a pre-flight PII check powered by the **Azure AI Language PII API** via the AI Services endpoint built into each user's Foundry resource. End users need no additional setup — the PII endpoint is derived from the `PROJECT_ENDPOINT` they already configure.
+
+#### How It Works
+
+- **Endpoint derivation**: `pii_check.py` extracts the AI Services base URL from `PROJECT_ENDPOINT` (strips `/api/projects/<project>`) and uses it with `TextAnalyticsClient`
+- **Auth**: `DefaultAzureCredential` (same Entra ID used for Foundry)
+- **RBAC**: Users who can access their Foundry project already have the necessary permissions for AI Services PII detection
+- **Fail-closed**: If the PII API is unreachable or errors, generation is blocked
+
+#### Complementary: Foundry Model PII Content Filter
+
+As an additional (optional) layer, a PII content filter can be configured on the Foundry model deployment via the Azure AI Foundry portal. This filters PII from model *outputs* and is complementary to the input-side PII check in `pii_check.py`. This is a manual portal configuration, not a code change.
 
 </details>
 

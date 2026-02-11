@@ -13,6 +13,15 @@ TSG Builder uses a **three-stage pipeline** to separate concerns and improve rel
 └────────┬────────┘     
          │
          ▼
+┌──────────────────────────────────────────────────────────────┐
+│  PRE-FLIGHT: PII CHECK                                      │
+│  - Azure AI Language PII API (via Foundry AI Services)      │
+│  - Scans notes for emails, phone numbers, credentials, etc. │
+│  - Fail-closed: blocks generation if PII found OR on error  │
+│  → Pass: proceed to pipeline │ Fail: user edits or redacts  │
+└────────────────────────────┬─────────────────────────────────┘
+         │
+         ▼
 ┌────────────────────────────────────────────────────────────────────┐
 │                    TSG PIPELINE                                    │
 │  ┌──────────────────────────────────────────────────────────────┐ │
@@ -132,15 +141,20 @@ When the TSG has missing information:
 |------|---------|
 | `pipeline.py` | Multi-stage pipeline orchestration, error classification |
 | `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
+| `pii_check.py` | PII detection via Azure AI Language API (pre-flight gate) |
+| `error_utils.py` | Shared Azure SDK error classification utilities |
+| `version.py` | Single source of truth for version, GitHub URL, and TSG signature |
 | `web_app.py` | Flask web UI + agent creation |
 | `build_exe.py` | PyInstaller build script (bundles templates/, static/) |
 | `templates/index.html` | Web UI HTML structure |
 | `static/css/styles.css` | Web UI styles |
-| `static/js/main.js` | Core application logic (streaming, TSG display, images) |
-| `static/js/setup.js` | Setup modal functionality || `.agent_ids.json` | Stores agent IDs after creation |
+| `static/js/main.js` | Core application logic (streaming, TSG display, images, PII modal) |
+| `static/js/setup.js` | Setup modal functionality |
+| `.agent_ids.json` | Stores agent IDs after creation |
 | `tests/` | Pytest test suite |
 | `tests/conftest.py` | Shared fixtures and test utilities |
 | `docs/error-handling-plan.md` | Error handling implementation plan |
+| `docs/pii-detection-plan.md` | PII detection implementation plan |
 
 ## Design Decisions
 
@@ -159,3 +173,13 @@ Early experiments showed that giving the writer tool access led to:
 - Inconsistent quality
 
 By forcing the writer to use only the research report, outputs are more consistent and traceable.
+
+### Why a PII Pre-Flight Check?
+
+TSG Builder sends user-provided notes to external services (Foundry Agents, Bing search). A pre-flight PII check prevents customer-identifiable information from leaking:
+
+- **Fail-closed** — If the PII API is unreachable or errors, generation is blocked. Input cannot be sent to external services without PII clearance.
+- **Uses existing Foundry resource** — The PII check uses the AI Services endpoint built into the user's Foundry resource (derived from `PROJECT_ENDPOINT`). No additional setup or resources needed.
+- **No bypass** — There is no "proceed anyway" option. Users must edit their notes or accept the API's automatic redaction before generation can continue.
+- **Curated categories** — Only categories relevant to support scenarios are detected (emails, phone numbers, IP addresses, credentials, etc.). `Organization` is intentionally excluded to avoid false positives on Azure service names.
+- **Defense-in-depth** — The frontend checks before sending, and the backend re-checks at the `/api/generate/stream` and `/api/answer/stream` endpoints to prevent bypass.

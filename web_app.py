@@ -52,16 +52,9 @@ from pipeline import (
     classify_error,
     PipelineStage,
     PipelineError,
-    # Hint constants for consistent messaging
-    HINT_AUTH,
-    HINT_PERMISSION,
-    HINT_NOT_FOUND,
-    HINT_RATE_LIMIT,
-    HINT_TIMEOUT,
-    HINT_CONNECTION,
-    HINT_SERVICE_ERROR,
-    HTTP_STATUS_MESSAGES,
 )
+from error_utils import classify_azure_sdk_error
+from pii_check import check_for_pii
 from version import APP_VERSION, GITHUB_URL
 
 # Microsoft Learn MCP URL for agent creation
@@ -158,23 +151,10 @@ def _get_user_friendly_error(error: Exception) -> tuple[str, str | None]:
         return message, hint
     
     # 2. Handle Azure SDK exceptions (may come from non-pipeline code)
-    if isinstance(error, ClientAuthenticationError):
-        return ("Azure authentication failed.", HINT_AUTH)
-    
-    if isinstance(error, ServiceRequestError):
-        return ("Cannot connect to Azure service.", HINT_CONNECTION)
-    
-    if isinstance(error, ResourceNotFoundError):
-        return ("Azure resource not found.", HINT_NOT_FOUND)
-    
-    if isinstance(error, HttpResponseError):
-        status_code = getattr(error, 'status_code', 500) or 500
-        # Use HTTP_STATUS_MESSAGES for consistent messaging
-        if status_code in HTTP_STATUS_MESSAGES:
-            msg, _, hint = HTTP_STATUS_MESSAGES[status_code]
-            return (f"{msg} ({status_code}).", hint)
-        elif status_code >= 500:
-            return (f"Azure service error ({status_code}).", HINT_SERVICE_ERROR)
+    if isinstance(error, (ClientAuthenticationError, ServiceRequestError,
+                          ResourceNotFoundError, HttpResponseError)):
+        user_msg, hint, _ = classify_azure_sdk_error(error)
+        return (user_msg, hint)
     
     # 3. Fall back to string-based stage detection for other exceptions
     error_str = str(error).lower()
@@ -588,44 +568,7 @@ def api_config_set():
     })
 
 
-def _classify_azure_sdk_error(error: Exception) -> tuple[str, str | None, int]:
-    """Classify Azure SDK exceptions into user-friendly messages with hints.
-    
-    Uses shared constants from pipeline.py for consistent messaging across
-    the codebase. Returns (user_message, hint, http_status_code).
-    """
-    # ClientAuthenticationError - credentials/auth issues
-    if isinstance(error, ClientAuthenticationError):
-        return ("Azure authentication failed.", HINT_AUTH, 401)
-    
-    # ServiceRequestError - network/connectivity issues
-    if isinstance(error, ServiceRequestError):
-        return ("Could not connect to Azure service.", HINT_CONNECTION, 0)
-    
-    # ResourceNotFoundError - resource doesn't exist
-    if isinstance(error, ResourceNotFoundError):
-        return ("Azure resource not found.", HINT_NOT_FOUND, 404)
-    
-    # HttpResponseError - general HTTP errors with status codes
-    if isinstance(error, HttpResponseError):
-        status_code = getattr(error, 'status_code', 500) or 500
-        
-        # Use shared HTTP_STATUS_MESSAGES for consistent messaging
-        if status_code in HTTP_STATUS_MESSAGES:
-            msg, _, hint = HTTP_STATUS_MESSAGES[status_code]
-            return (f"{msg} ({status_code}).", hint, status_code)
-        elif status_code >= 500:
-            reason = getattr(error, 'reason', '') or ''
-            return (f"Azure service error ({status_code} {reason}).", HINT_SERVICE_ERROR, status_code)
-        else:
-            # Other 4xx errors - use error message
-            error_msg = str(error)
-            if hasattr(error, 'message') and error.message:
-                error_msg = error.message
-            return (f"Request failed ({status_code}): {error_msg[:200]}", None, status_code)
-    
-    # Generic fallback for unknown exceptions
-    return (f"Unexpected error: {str(error)[:200]}", None, 500)
+# _classify_azure_sdk_error moved to error_utils.py
 
 
 @app.route("/api/create-agent", methods=["POST"])
@@ -726,7 +669,7 @@ def api_create_agent():
     
     except (ClientAuthenticationError, ServiceRequestError, ResourceNotFoundError, HttpResponseError) as e:
         # Classify Azure SDK errors with user-friendly messages and hints
-        user_message, hint, status_code = _classify_azure_sdk_error(e)
+        user_message, hint, status_code = classify_azure_sdk_error(e)
         response = {
             "success": False,
             "error": user_message,
@@ -740,9 +683,11 @@ def api_create_agent():
     
     except Exception as e:
         # Generic fallback for unexpected errors
+        # Log the full error server-side but don't expose internals to client
+        print(f"Agent creation unexpected error: {e}")
         return jsonify({
             "success": False,
-            "error": f"Unexpected error: {str(e)}",
+            "error": "An unexpected error occurred during agent setup.",
             "error_type": "UnexpectedError",
             "hint": "Check the server logs for more details.",
         }), 500
@@ -873,6 +818,32 @@ def generate_pipeline_sse_events(
             yield f"data: {json.dumps({'type': 'error', 'data': {'message': result.error or 'Pipeline failed to produce TSG', 'stages_completed': [s.value for s in result.stages_completed]}})}\n\n"
 
 
+@app.route("/api/pii-check", methods=["POST"])
+def api_pii_check():
+    """Check notes for personally identifiable information (PII).
+    
+    Returns 200 with PII results (even when PII is found — that's a data response,
+    not an error). Returns 500 when the PII service itself errors.
+    """
+    data = request.get_json()
+    notes = data.get("notes", "").strip() if data else ""
+    
+    if not notes:
+        return jsonify({"error": "No notes provided"}), 400
+    
+    result = check_for_pii(notes)
+    
+    # PII service error → 500
+    if result["error"]:
+        return jsonify({
+            "error": result["error"],
+            "hint": result["hint"],
+        }), 500
+    
+    # Success (PII found or not) → 200
+    return jsonify(result)
+
+
 @app.route("/api/generate/stream", methods=["POST"])
 def api_generate_stream():
     """Start TSG generation with SSE streaming for real-time updates.
@@ -889,6 +860,13 @@ def api_generate_stream():
     
     if not notes:
         return jsonify({"error": "No notes provided"}), 400
+    
+    # Defense-in-depth PII gate (frontend already checks, this prevents bypass)
+    pii_result = check_for_pii(notes)
+    if pii_result["error"]:
+        return jsonify({"error": pii_result["error"], "hint": pii_result["hint"]}), 500
+    if pii_result["pii_detected"]:
+        return jsonify({"error": "PII detected in notes", "findings": pii_result["findings"]}), 400
     
     # Validate images if provided
     if images:
@@ -929,6 +907,13 @@ def api_answer_stream():
     
     if not answers:
         return jsonify({"error": "No answers provided"}), 400
+    
+    # Defense-in-depth PII gate on follow-up answers
+    pii_result = check_for_pii(answers)
+    if pii_result["error"]:
+        return jsonify({"error": pii_result["error"], "hint": pii_result["hint"]}), 500
+    if pii_result["pii_detected"]:
+        return jsonify({"error": "PII detected in answers", "findings": pii_result["findings"]}), 400
     
     notes = sessions[thread_id].get("notes", "")
     

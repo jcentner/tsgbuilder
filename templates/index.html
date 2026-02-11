@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TSG Builder</title>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="/static/js/marked.min.js"></script><!-- v15.0.7, bundled locally -->
+    <script src="/static/js/purify.min.js"></script><!-- DOMPurify v3.2.4, bundled locally -->
     <script>
         // Apply saved theme immediately to prevent flash of wrong theme
         (function() {
@@ -237,6 +238,30 @@ Address any missing information and review notes above. You can also suggest cor
                 </div>
                 <div class="btn-group">
                     <button class="btn btn-secondary" onclick="closeSetup()">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PII Detection Modal -->
+    <div id="piiModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="piiModalTitle">
+        <div class="modal" style="max-width: 600px;">
+            <div class="modal-header pii-modal-header">
+                <h2 id="piiModalTitle">🛡️ PII Detected</h2>
+                <button class="modal-close" onclick="closePiiModal()" aria-label="Close PII modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+                    The following personally identifiable information (PII) was found in your input. This content cannot be sent to external AI services.
+                </p>
+                <div class="pii-findings-list" id="piiFindings">
+                    <!-- Findings populated by JS -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="btn-group">
+                    <button class="btn btn-secondary" onclick="closePiiModal(true)">✏️ Go Back &amp; Edit</button>
+                    <button class="btn btn-primary" onclick="redactAndContinue()">🔒 Redact &amp; Continue</button>
                 </div>
             </div>
         </div>

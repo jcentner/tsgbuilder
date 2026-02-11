@@ -165,6 +165,10 @@ No warnings — Linux doesn't require code signing.
 
 ## Troubleshooting
 
+### `azure-ai-textanalytics` increases exe build size
+
+The PII detection dependency (`azure-ai-textanalytics>=5.3.0`) and its transitive dependencies (`azure-core`, `isodate`, etc.) increase the executable size. This is expected — the PII check is a security requirement. If PyInstaller misses sub-packages at runtime, add `--hidden-import` or `--collect-all` flags in `build_exe.py`.
+
 ### Build fails on Windows with Unicode error
 
 Fixed in build_exe.py — all output uses ASCII-safe `[OK]`, `[FAILED]`, etc.
