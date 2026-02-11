@@ -28,6 +28,7 @@ logs/
 # TODO file
 .TODO
 todo.md
+issues/
 
 # PyInstaller
 build/
