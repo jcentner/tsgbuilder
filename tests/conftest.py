@@ -17,8 +17,6 @@ import pytest
 # Add parent directory to path so we can import from the main package
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from web_app import app
-
 # Import commonly used items
 from azure.core.exceptions import (
     ClientAuthenticationError,
@@ -139,6 +137,7 @@ def stream_idle_error():
 @pytest.fixture
 def client():
     """Create a test client for the Flask app."""
+    from web_app import app
     app.config['TESTING'] = True
     with app.test_client() as client:
         yield client

@@ -463,12 +463,12 @@ def api_validate():
             project_client = None  # Can't proceed with deployment/connection checks
     
     # 5. Check model deployment exists and is gpt-5.2 (warning if can't verify)
-    model_name = os.getenv("MODEL_DEPLOYMENT_NAME", "")
-    if project_client and model_name:
+    deployment_name = os.getenv("MODEL_DEPLOYMENT_NAME", "")
+    if project_client and deployment_name:
         try:
             # Re-open project client for deployment check
             with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
-                deployment = project.deployments.get(name=model_name)
+                deployment = project.deployments.get(name=deployment_name)
                 # Check if the underlying model is gpt-5.2
                 underlying_model = getattr(deployment, "model_name", None) or ""
                 if underlying_model and "gpt-5.2" not in underlying_model.lower():
@@ -497,9 +497,9 @@ def api_validate():
                 pass
             
             if available_names:
-                message = f"Deployment '{model_name}' not found. Available: {', '.join(available_names[:5])}"
+                message = f"Deployment '{deployment_name}' not found. Available: {', '.join(available_names[:5])}"
             elif "404" in error_str or "NotFound" in error_str:
-                message = f"Deployment '{model_name}' not found in project"
+                message = f"Deployment '{deployment_name}' not found in project"
             else:
                 message = f"Could not verify deployment: {str(e)[:80]}"
             checks.append({
