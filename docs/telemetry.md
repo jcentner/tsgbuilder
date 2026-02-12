@@ -54,7 +54,7 @@ Emitted when pipeline agents are successfully created through the setup wizard.
 | `version` | property | App version |
 | `model_deployment` | property | Name of the model deployment configured (e.g. `"gpt-5.2"`) |
 
-**Trigger**: Successful agent creation (`web_app.py` → `api_create_agents()` success path).
+**Trigger**: Successful agent creation (`web_app.py` → `api_create_agent()` success path).
 
 ---
 

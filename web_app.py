@@ -84,7 +84,7 @@ def _get_run_mode() -> str:
     return "executable" if getattr(sys, "frozen", False) else "source"
 
 
-def _extract_missing_sections(questions_content: str) -> list[str]:
+def _extract_missing_sections(questions_content: str | None) -> list[str]:
     """Extract section names from MISSING placeholders in questions content."""
     import re
     if not questions_content or questions_content.strip() == "NO_MISSING":
@@ -1116,12 +1116,20 @@ def api_telemetry_copied():
     Lightweight endpoint — always returns 204 regardless of telemetry state.
     """
     data = request.get_json(silent=True) or {}
+
+    # Clamp/validate client-supplied values to prevent high-cardinality dimensions
+    try:
+        follow_up_round = max(0, min(int(data.get("follow_up_round", 0)), 20))
+    except (TypeError, ValueError):
+        follow_up_round = 0
+    action = data.get("action", "copy") if data.get("action") in ("copy", "download") else "copy"
+
     telemetry.track_event(
         "tsg_copied",
         properties={
             "version": APP_VERSION,
-            "follow_up_round": str(data.get("follow_up_round", 0)),
-            "action": data.get("action", "copy"),
+            "follow_up_round": str(follow_up_round),
+            "action": action,
         },
     )
     return "", 204
@@ -1154,10 +1162,12 @@ def main():
     """Run the Flask development server."""
     # Initialize telemetry subsystem
     telemetry.init_telemetry()
-    if telemetry.is_telemetry_enabled():
+    if telemetry.is_active():
         print("📊 Telemetry: enabled")
+    elif telemetry.is_telemetry_enabled():
+        print("📊 Telemetry: disabled (no connection string)")
     else:
-        print("📊 Telemetry: disabled")
+        print("📊 Telemetry: disabled (opted out)")
     
     # Emit app_started event
     import platform as _platform

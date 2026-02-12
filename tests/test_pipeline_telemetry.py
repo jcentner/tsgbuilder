@@ -9,11 +9,8 @@ Tests cover:
 
 import queue
 import sys
-import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -242,5 +239,6 @@ class TestInputMetadata:
     def test_image_count_no_images(self):
         """image_count is 0 when no images."""
         result = PipelineResult(success=False)
-        result.image_count = len([]) if [] else 0
+        images = []
+        result.image_count = len(images)
         assert result.image_count == 0

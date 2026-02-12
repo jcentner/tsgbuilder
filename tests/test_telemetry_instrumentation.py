@@ -21,7 +21,7 @@ Tests cover:
 import json
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -206,7 +206,7 @@ class TestTsgGeneratedEvent:
         monkeypatch.setattr("telemetry.track_event", mock_track)
 
         with patch("web_app.run_pipeline", return_value=mock_result):
-            events = list(generate_pipeline_sse_events("test notes"))
+            list(generate_pipeline_sse_events("test notes"))  # drain generator for side effects
 
         # Find tsg_generated call
         tsg_calls = [c for c in mock_track.call_args_list if c[0][0] == "tsg_generated"]

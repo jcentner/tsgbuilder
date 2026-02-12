@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ from dotenv import set_key
 _initialized = False
 _logger: logging.Logger | None = None
 _install_id: str | None = None
+_install_id_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -103,28 +105,33 @@ def _get_or_create_install_id() -> str | None:
     if not is_telemetry_enabled():
         return None
 
-    # Return cached value if already resolved
+    # Return cached value if already resolved (fast path, no lock needed)
     if _install_id is not None:
         return _install_id
 
-    # Check environment first (already loaded by web_app via load_dotenv)
-    existing = os.environ.get("TSG_INSTALL_ID", "").strip()
-    if existing:
-        _install_id = existing
+    with _install_id_lock:
+        # Double-check after acquiring lock
+        if _install_id is not None:
+            return _install_id
+
+        # Check environment first (already loaded by web_app via load_dotenv)
+        existing = os.environ.get("TSG_INSTALL_ID", "").strip()
+        if existing:
+            _install_id = existing
+            return _install_id
+
+        # Generate a new one and persist
+        new_id = str(uuid.uuid4())
+        _install_id = new_id  # Set before I/O to avoid duplicate generation
+        try:
+            env_path = _get_env_path()
+            if env_path.exists():
+                set_key(str(env_path), "TSG_INSTALL_ID", new_id)
+            os.environ["TSG_INSTALL_ID"] = new_id
+        except Exception:
+            pass  # Non-critical — use the ID in-memory even if persist fails
+
         return _install_id
-
-    # Generate a new one and persist
-    new_id = str(uuid.uuid4())
-    try:
-        env_path = _get_env_path()
-        if env_path.exists():
-            set_key(str(env_path), "TSG_INSTALL_ID", new_id)
-        os.environ["TSG_INSTALL_ID"] = new_id
-    except Exception:
-        pass  # Non-critical — use the ID in-memory even if persist fails
-
-    _install_id = new_id
-    return _install_id
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +185,15 @@ def init_telemetry() -> None:
     except Exception:
         # Telemetry setup failure must never crash the app
         _initialized = True
+
+
+def is_active() -> bool:
+    """Check whether telemetry is enabled AND configured.
+
+    Returns ``True`` only when the opt-out flag is not set *and* a
+    connection string was resolved (i.e. ``_logger`` was created).
+    """
+    return is_telemetry_enabled() and _logger is not None
 
 
 # ---------------------------------------------------------------------------
