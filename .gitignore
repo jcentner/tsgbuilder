@@ -1,6 +1,9 @@
 # Environment and secrets
 .env
 
+# Build-time telemetry config (injected by CI, never committed)
+_build_config.py
+
 # Virtual environment
 .venv/
 

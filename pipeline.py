@@ -654,6 +654,22 @@ class PipelineResult:
     retry_count: int = 0
     # Test mode: raw outputs from each stage
     stage_outputs: dict = field(default_factory=dict)
+    # Telemetry: wall-clock durations (seconds)
+    duration_seconds: float = 0.0
+    research_duration_s: float = 0.0
+    write_duration_s: float = 0.0
+    review_duration_s: float = 0.0
+    # Telemetry: per-stage token usage
+    research_input_tokens: int = 0
+    research_output_tokens: int = 0
+    write_input_tokens: int = 0
+    write_output_tokens: int = 0
+    review_input_tokens: int = 0
+    review_output_tokens: int = 0
+    total_tokens: int = 0
+    # Telemetry: input metadata
+    image_count: int = 0
+    notes_line_count: int = 0
 
 
 def _send_classified_error(
@@ -992,6 +1008,21 @@ def process_pipeline_v2_stream(
             if event.response.output_text:
                 response_text_parts.clear()
                 response_text_parts.append(event.response.output_text)
+        
+        # Accumulate token usage from response.usage (may be None)
+        # Agents with tool calls can produce multiple response.completed events
+        # per stage, so we sum across all of them.
+        if timing_context is not None and hasattr(event, 'response'):
+            usage = getattr(event.response, 'usage', None)
+            if usage is not None:
+                timing_context['input_tokens'] = (
+                    timing_context.get('input_tokens', 0)
+                    + (getattr(usage, 'input_tokens', 0) or 0)
+                )
+                timing_context['output_tokens'] = (
+                    timing_context.get('output_tokens', 0)
+                    + (getattr(usage, 'output_tokens', 0) or 0)
+                )
     
     elif event_type == "response.failed":
         # Parse structured error information from response.error
@@ -1174,7 +1205,7 @@ class TSGPipeline:
         stage: PipelineStage,
         user_message: str,
         conversation_id: str | None = None,
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, dict]:
         """
         Run a single pipeline stage using v2 responses API.
         
@@ -1186,7 +1217,7 @@ class TSGPipeline:
             user_message: User prompt for this stage
             conversation_id: Optional existing conversation ID
         
-        Returns: (response_text, conversation_id)
+        Returns: (response_text, conversation_id, timing_context)
         """
         response_text_parts: list[str] = []
         timing_context: dict = {}  # Track timing for tool calls and model processing
@@ -1279,7 +1310,7 @@ class TSGPipeline:
             if verbose:
                 verbose_log(f"[{stage.value}] ✅ Stream complete: {event_count} events")
             
-            return "".join(response_text_parts), conversation_id or ""
+            return "".join(response_text_parts), conversation_id or "", timing_context
             
         except Exception as e:
             # Classify the error to extract structured info for better messaging
@@ -1300,7 +1331,7 @@ class TSGPipeline:
         stage: PipelineStage,
         prompt: str,
         conversation_id: str | None = None,
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, dict]:
         """
         Run a stage with automatic retry on transient failures.
         
@@ -1314,7 +1345,7 @@ class TSGPipeline:
             prompt: User prompt for this stage
             conversation_id: Optional existing conversation ID
         
-        Returns: (response_text, conversation_id)
+        Returns: (response_text, conversation_id, timing_context)
         
         Raises:
             CancelledError: If the run was cancelled
@@ -1407,6 +1438,9 @@ class TSGPipeline:
             PipelineResult with TSG content and metadata
         """
         result = PipelineResult(success=False, thread_id=conversation_id or "")
+        result.notes_line_count = len(notes.splitlines()) if notes else 0
+        result.image_count = len(images) if images else 0
+        pipeline_start = time.time()
         project = self._get_project_client()
         
         # Debug: log when pipeline run starts
@@ -1458,10 +1492,11 @@ class TSGPipeline:
                     research_report = ""
                     if not user_answers:
                         # Only do research on initial generation, not follow-ups
+                        research_stage_start = time.time()
                         research_prompt = build_research_prompt(notes)
                         
                         # Use unified retry logic
-                        research_response, research_conv_id = self._run_stage_with_retry(
+                        research_response, research_conv_id, research_tc = self._run_stage_with_retry(
                             project,
                             openai_client,
                             self.researcher_agent_name,
@@ -1474,6 +1509,9 @@ class TSGPipeline:
                             research_report = research_response
                         
                         result.research_report = research_report
+                        result.research_duration_s = time.time() - research_stage_start
+                        result.research_input_tokens = research_tc.get('input_tokens', 0)
+                        result.research_output_tokens = research_tc.get('output_tokens', 0)
                         result.stages_completed.append(PipelineStage.RESEARCH)
                         
                         # Test mode: capture raw research output
@@ -1502,6 +1540,7 @@ class TSGPipeline:
                     
                     # --- Stage 2: Write ---
                     self._check_cancelled()  # Check before write stage
+                    write_stage_start = time.time()
                     self._send_stage_event(PipelineStage.WRITE, "stage_start", {
                         "message": "✏️ Write: Drafting TSG from notes and research...",
                         "icon": "✏️",
@@ -1515,7 +1554,7 @@ class TSGPipeline:
                     )
                     
                     # Use unified retry logic
-                    write_response, write_conv_id = self._run_stage_with_retry(
+                    write_response, write_conv_id, write_tc = self._run_stage_with_retry(
                         project,
                         openai_client,
                         self.writer_agent_name,
@@ -1523,6 +1562,9 @@ class TSGPipeline:
                         writer_prompt,
                     )
                     result.thread_id = write_conv_id  # Store conversation ID
+                    result.write_duration_s = time.time() - write_stage_start
+                    result.write_input_tokens = write_tc.get('input_tokens', 0)
+                    result.write_output_tokens = write_tc.get('output_tokens', 0)
                     result.stages_completed.append(PipelineStage.WRITE)
                     
                     # Test mode: capture raw writer output
@@ -1539,6 +1581,7 @@ class TSGPipeline:
                     
                     # --- Stage 3: Review (with retry loop) ---
                     self._check_cancelled()  # Check before review stage
+                    review_stage_start = time.time()
                     self._send_stage_event(PipelineStage.REVIEW, "stage_start", {
                         "message": "🔎 Review: Validating structure and accuracy...",
                         "icon": "🔎",
@@ -1563,13 +1606,15 @@ class TSGPipeline:
                             )
                             
                             # Use retry logic for transient failures
-                            review_response, _ = self._run_stage_with_retry(
+                            review_response, _, review_tc = self._run_stage_with_retry(
                                 project,
                                 openai_client,
                                 self.reviewer_agent_name,
                                 PipelineStage.REVIEW,
                                 review_prompt,
                             )
+                            result.review_input_tokens += review_tc.get('input_tokens', 0)
+                            result.review_output_tokens += review_tc.get('output_tokens', 0)
                             
                             review_result = extract_review_block(review_response)
                             result.review_result = review_result
@@ -1638,7 +1683,7 @@ Please fix these issues and regenerate the TSG with correct format.
 </prior_tsg>
 """
                                 # Use retry logic for transient failures
-                                draft_tsg, _ = self._run_stage_with_retry(
+                                draft_tsg, _, fix_tc = self._run_stage_with_retry(
                                     project,
                                     openai_client,
                                     self.writer_agent_name,
@@ -1646,10 +1691,14 @@ Please fix these issues and regenerate the TSG with correct format.
                                     fix_prompt,
                                     write_conv_id,
                                 )
+                                # Accumulate fix-round tokens into write totals
+                                result.write_input_tokens += fix_tc.get('input_tokens', 0)
+                                result.write_output_tokens += fix_tc.get('output_tokens', 0)
                             else:
                                 final_tsg = draft_tsg
                                 break
                     
+                    result.review_duration_s = time.time() - review_stage_start
                     result.stages_completed.append(PipelineStage.REVIEW)
                     
                     # Test mode: capture review output
@@ -1698,6 +1747,13 @@ Please fix these issues and regenerate the TSG with correct format.
                 "fatal": True,  # All retries exhausted
             })
         
+        # Finalize telemetry fields
+        result.duration_seconds = time.time() - pipeline_start
+        result.total_tokens = (
+            result.research_input_tokens + result.research_output_tokens
+            + result.write_input_tokens + result.write_output_tokens
+            + result.review_input_tokens + result.review_output_tokens
+        )
         return result
 
 
