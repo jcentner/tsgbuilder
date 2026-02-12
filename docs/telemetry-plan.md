@@ -1,7 +1,7 @@
 # Telemetry Implementation Plan
 
 **Issue:** [issue-usage-telemetry.md](../issues/issue-usage-telemetry.md)  
-**Status:** Not started  
+**Status:** Phase 1a + 1b complete, Phase 2 next  
 **PR scope:** All phases ship in a single PR, implemented phase-by-phase.
 
 ---
@@ -10,15 +10,15 @@
 
 Create the core `telemetry.py` module and supporting infrastructure. No existing files modified beyond `.gitignore` and `requirements.txt`.
 
-- [ ] Create `telemetry.py` with:
+- [x] Create `telemetry.py` with:
   - `init_telemetry()` — initialize `azure-monitor-opentelemetry-exporter`, check opt-out
   - `track_event(name, properties, measurements)` — fire-and-forget event emission, all calls wrapped in silent `try/except`
   - `is_telemetry_enabled()` — check `TSG_TELEMETRY` env var (`0`/`false` = disabled)
   - `_get_connection_string()` — cascade: `_build_config` → `APPINSIGHTS_CONNECTION_STRING` env var → `None` (disabled)
   - `_get_or_create_install_id()` — generate `uuid4`, persist to `.env` via `set_key()`, skip when telemetry opted out
-- [ ] Add `_build_config.py` to `.gitignore`
-- [ ] Add `azure-monitor-opentelemetry-exporter` to `requirements.txt`
-- [ ] Write unit tests:
+- [x] Add `_build_config.py` to `.gitignore`
+- [x] Add `azure-monitor-opentelemetry-exporter` to `requirements.txt`
+- [x] Write unit tests (34 tests in `tests/test_telemetry.py`):
   - `track_event` calls exporter with correct args (mocked)
   - Opt-out via `TSG_TELEMETRY=0` suppresses all emission
   - `install_id` generated on first call, reused on subsequent calls
@@ -30,7 +30,7 @@ Create the core `telemetry.py` module and supporting infrastructure. No existing
 
 Enrich `PipelineResult` with duration and token fields. Capture them during pipeline execution. No telemetry emission yet — just making the data available.
 
-- [ ] Add fields to `PipelineResult` in `pipeline.py`:
+- [x] Add fields to `PipelineResult` in `pipeline.py`:
   - `duration_seconds` (total wall-clock)
   - `research_duration_s`, `write_duration_s`, `review_duration_s`
   - `research_input_tokens`, `research_output_tokens`
@@ -38,18 +38,20 @@ Enrich `PipelineResult` with duration and token fields. Capture them during pipe
   - `review_input_tokens`, `review_output_tokens`
   - `total_tokens`
   - `image_count`, `notes_line_count`
-- [ ] Extract token usage from `response.completed` events in `process_pipeline_v2_stream()`:
+- [x] Extract token usage from `response.completed` events in `process_pipeline_v2_stream()`:
   - Read `event.response.usage` (null-check required)
   - **Accumulate** across multiple `response.completed` events per stage (multi-turn agent interactions)
   - Store in `timing_context` dict
-- [ ] Capture per-stage wall-clock durations in `_run_stage()` / `run()`:
+- [x] Capture per-stage wall-clock durations in `_run_stage()` / `run()`:
   - Record `time.time()` before/after each stage call
-  - Propagate to `PipelineResult`
-- [ ] Surface `image_count` and `notes_line_count` (available from notes input) in `PipelineResult`
-- [ ] Write unit tests:
+  - `_run_stage()` returns 3-tuple `(text, conversation_id, timing_context)` to propagate token data
+  - Propagate to `PipelineResult`; fix-round tokens accumulated into write/review totals
+- [x] Surface `image_count` and `notes_line_count` (available from notes input) in `PipelineResult`
+- [x] Write unit tests (16 tests in `tests/test_pipeline_telemetry.py`):
   - `PipelineResult` includes new fields with sensible defaults
   - Token accumulation sums across multiple `response.completed` events
-  - Duration fields are populated after a pipeline run (mocked)
+  - Null/missing usage handled gracefully
+  - Input metadata (notes lines, images) correctly derived
 
 ## Phase 2 — Instrumentation
 
