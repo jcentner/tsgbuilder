@@ -153,12 +153,11 @@ class TestModelDeploymentValidation:
         mock_credential = MagicMock()
         mock_credential.get_token.return_value = MagicMock(token="fake")
 
-        # Mock project client as a context manager
+        # Mock project client as a context manager that returns itself
         mock_project = MagicMock()
+        mock_project.__enter__.return_value = mock_project
         mock_project.deployments.get.return_value = deployment
         mock_project.agents.list.return_value = []
-        mock_project.__enter__ = lambda self: mock_project
-        mock_project.__exit__ = lambda self, *a: None
 
         with patch("web_app.DefaultAzureCredential", return_value=mock_credential), \
              patch("web_app.AIProjectClient", return_value=mock_project), \
