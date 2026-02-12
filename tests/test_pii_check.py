@@ -9,12 +9,7 @@ Run with: pytest tests/test_pii_check.py -v
 
 import json
 import pytest
-import sys
-from pathlib import Path
 from unittest.mock import patch, MagicMock
-
-# Add parent directory to path so we can import from the main package
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pii_check
 from pii_check import (
@@ -23,7 +18,6 @@ from pii_check import (
     _extract_ai_services_endpoint,
     PII_CATEGORIES,
 )
-from web_app import app
 
 
 # Test endpoint for all PII unit tests (mocked client, so endpoint is not actually called)
@@ -33,14 +27,6 @@ TEST_PROJECT_ENDPOINT = "https://test-resource.services.ai.azure.com/api/project
 # =============================================================================
 # FIXTURES
 # =============================================================================
-
-@pytest.fixture
-def client():
-    """Create a test client for the Flask app."""
-    app.config["TESTING"] = True
-    with app.test_client() as c:
-        yield c
-
 
 @pytest.fixture(autouse=True)
 def reset_language_client():

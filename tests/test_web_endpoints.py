@@ -8,33 +8,9 @@ Run with: pytest tests/test_web_endpoints.py -v
 
 import json
 import pytest
-import sys
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-# Add parent directory to path so we can import from the main package
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from web_app import app, extract_blocks
-
-
-# =============================================================================
-# FIXTURES
-# =============================================================================
-
-@pytest.fixture
-def client():
-    """Create a test client for the Flask app."""
-    app.config['TESTING'] = True
-    with app.test_client() as client:
-        yield client
-
-
-@pytest.fixture
-def mock_env_vars(monkeypatch):
-    """Set up mock environment variables."""
-    monkeypatch.setenv("PROJECT_ENDPOINT", "https://test.azure.com/api/projects/test")
-    monkeypatch.setenv("MODEL_DEPLOYMENT_NAME", "gpt-5.2")
 
 
 # =============================================================================
@@ -383,6 +359,75 @@ NO_MISSING
         tsg, questions = extract_blocks(content)
         assert tsg == "Padded content"
         assert questions == "NO_MISSING"
+
+    @pytest.mark.unit
+    def test_extract_tsg_only(self):
+        """Should extract TSG block and return empty questions when QUESTIONS markers missing."""
+        content = """
+<!-- TSG_BEGIN -->
+TSG content only
+<!-- TSG_END -->
+"""
+        tsg, questions = extract_blocks(content)
+        assert "TSG content only" in tsg
+        assert questions == ""
+
+    @pytest.mark.unit
+    def test_extract_questions_only(self):
+        """Should extract questions block and return empty TSG when TSG markers missing."""
+        content = """
+<!-- QUESTIONS_BEGIN -->
+NO_MISSING
+<!-- QUESTIONS_END -->
+"""
+        tsg, questions = extract_blocks(content)
+        assert tsg == ""
+        assert questions == "NO_MISSING"
+
+
+# =============================================================================
+# TESTS: About API
+# =============================================================================
+
+class TestAboutAPI:
+    """Tests for /api/about endpoint."""
+
+    @pytest.mark.unit
+    def test_about_returns_json(self, client):
+        """GET /api/about should return JSON."""
+        response = client.get("/api/about")
+        assert response.status_code == 200
+        assert response.content_type == "application/json"
+
+    @pytest.mark.unit
+    def test_about_has_required_fields(self, client):
+        """About response should have all expected fields."""
+        response = client.get("/api/about")
+        data = json.loads(response.data)
+
+        assert "app_name" in data
+        assert "version" in data
+        assert "python_version" in data
+        assert "azure_sdk_version" in data
+        assert "endpoint" in data
+        assert "model" in data
+        assert "agents" in data
+        assert "github_url" in data
+
+    @pytest.mark.unit
+    def test_about_app_name(self, client):
+        """About should return 'TSG Builder' as app name."""
+        response = client.get("/api/about")
+        data = json.loads(response.data)
+        assert data["app_name"] == "TSG Builder"
+
+    @pytest.mark.unit
+    def test_about_returns_model_from_env(self, client, monkeypatch):
+        """About should return the MODEL_DEPLOYMENT_NAME from environment."""
+        monkeypatch.setenv("MODEL_DEPLOYMENT_NAME", "my-gpt52-deploy")
+        response = client.get("/api/about")
+        data = json.loads(response.data)
+        assert data["model"] == "my-gpt52-deploy"
 
 
 # =============================================================================

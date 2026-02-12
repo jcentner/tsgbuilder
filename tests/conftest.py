@@ -17,6 +17,8 @@ import pytest
 # Add parent directory to path so we can import from the main package
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from web_app import app
+
 # Import commonly used items
 from azure.core.exceptions import (
     ClientAuthenticationError,
@@ -131,21 +133,15 @@ def stream_idle_error():
 
 
 # =============================================================================
-# FIXTURES: Mock Objects
+# FIXTURES: Flask Test Client
 # =============================================================================
 
 @pytest.fixture
-def mock_event_queue():
-    """Create a mock queue for capturing pipeline events."""
-    from queue import Queue
-    return Queue()
-
-
-@pytest.fixture
-def mock_cancel_event():
-    """Create a mock threading event for cancellation."""
-    from threading import Event
-    return Event()
+def client():
+    """Create a test client for the Flask app."""
+    app.config['TESTING'] = True
+    with app.test_client() as client:
+        yield client
 
 
 # =============================================================================
