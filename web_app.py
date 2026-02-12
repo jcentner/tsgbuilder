@@ -1111,7 +1111,7 @@ def api_delete_session(thread_id):
 
 @app.route("/api/telemetry/copied", methods=["POST"])
 def api_telemetry_copied():
-    """Record that the user copied the TSG to clipboard.
+    """Record that the user copied or downloaded the TSG.
     
     Lightweight endpoint — always returns 204 regardless of telemetry state.
     """
@@ -1121,6 +1121,7 @@ def api_telemetry_copied():
         properties={
             "version": APP_VERSION,
             "follow_up_round": str(data.get("follow_up_round", 0)),
+            "action": data.get("action", "copy"),
         },
     )
     return "", 204

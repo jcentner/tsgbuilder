@@ -11,7 +11,7 @@ Privacy guarantees:
 - Never emits notes, TSG text, error messages with user content, or PII
 - Opt out by setting TSG_TELEMETRY=0 in .env or environment
 
-See docs/telemetry-plan.md and issues/issue-usage-telemetry.md for details.
+See docs/telemetry.md for the full event reference.
 """
 
 from __future__ import annotations

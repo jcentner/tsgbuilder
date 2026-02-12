@@ -477,24 +477,25 @@ class TestTsgCopiedEvent:
 
     @pytest.mark.unit
     def test_copied_emits_event(self, client, monkeypatch):
-        """POST /api/telemetry/copied emits tsg_copied event."""
+        """POST /api/telemetry/copied emits tsg_copied event with action."""
         mock_track = MagicMock()
         monkeypatch.setattr("telemetry.track_event", mock_track)
 
         client.post(
             "/api/telemetry/copied",
-            json={"follow_up_round": 3},
+            json={"follow_up_round": 3, "action": "copy"},
         )
 
         copied_calls = [c for c in mock_track.call_args_list if c[0][0] == "tsg_copied"]
         assert len(copied_calls) == 1
         props = copied_calls[0][1]["properties"]
         assert props["follow_up_round"] == "3"
+        assert props["action"] == "copy"
         assert props["version"]
 
     @pytest.mark.unit
     def test_copied_no_body(self, client, monkeypatch):
-        """POST /api/telemetry/copied works with no body."""
+        """POST /api/telemetry/copied works with no body (defaults action to copy)."""
         mock_track = MagicMock()
         monkeypatch.setattr("telemetry.track_event", mock_track)
 
@@ -505,6 +506,24 @@ class TestTsgCopiedEvent:
         assert len(copied_calls) == 1
         props = copied_calls[0][1]["properties"]
         assert props["follow_up_round"] == "0"
+        assert props["action"] == "copy"
+
+    @pytest.mark.unit
+    def test_download_emits_event(self, client, monkeypatch):
+        """POST /api/telemetry/copied with action=download emits correctly."""
+        mock_track = MagicMock()
+        monkeypatch.setattr("telemetry.track_event", mock_track)
+
+        client.post(
+            "/api/telemetry/copied",
+            json={"follow_up_round": 1, "action": "download"},
+        )
+
+        copied_calls = [c for c in mock_track.call_args_list if c[0][0] == "tsg_copied"]
+        assert len(copied_calls) == 1
+        props = copied_calls[0][1]["properties"]
+        assert props["action"] == "download"
+        assert props["follow_up_round"] == "1"
 
 
 # =============================================================================

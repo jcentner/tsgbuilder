@@ -980,7 +980,7 @@ async function copyTSG() {
         fetch('/api/telemetry/copied', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ follow_up_round: followUpRound })
+            body: JSON.stringify({ follow_up_round: followUpRound, action: 'copy' })
         }).catch(() => {});
     } catch (error) {
         showError('Failed to copy to clipboard');
@@ -1024,6 +1024,13 @@ function downloadTSG() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     
+    // Fire-and-forget telemetry
+    fetch('/api/telemetry/copied', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ follow_up_round: followUpRound, action: 'download' })
+    }).catch(() => {});
+
     // Show success message with filename
     showSuccess(`TSG downloaded as "${filename}"`);
     setTimeout(() => hideMessages(), 4000);
