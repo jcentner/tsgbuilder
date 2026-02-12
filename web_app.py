@@ -792,6 +792,7 @@ def generate_pipeline_sse_events(
                 thread_id=thread_id,
                 prior_tsg=session_data.get("current_tsg"),
                 prior_research=session_data.get("research_report"),  # Reuse research for follow-ups
+                prior_review=session_data.get("review_result"),  # Pass prior review for iteration context
                 user_answers=answers,
                 test_mode=TEST_MODE,
                 cancel_event=cancel_event,
@@ -886,6 +887,7 @@ def generate_pipeline_sse_events(
                     "current_tsg": result.tsg_content,
                     "questions": result.questions_content if has_questions else None,
                     "research_report": result.research_report,
+                    "review_result": result.review_result,  # For iteration context in next round
                     "follow_up_round": follow_up_round,
                 }
                 sessions[result.thread_id] = session_data
