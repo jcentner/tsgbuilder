@@ -158,6 +158,15 @@ When the TSG has missing information:
 
 ## Design Decisions
 
+### Why gpt-5.2 Only?
+
+TSG Builder requires a **gpt-5.2** deployment. This is not configurable for two reasons:
+
+1. **New Foundry SDK** — The v2 agent responses API and `PromptAgentDefinition` pattern used by the pipeline are designed for and tested against gpt-5.2 on Azure AI Foundry.
+2. **Prompt engineering** — The stage prompts (research, write, review) are tuned for gpt-5.2's capabilities, including its structured output reliability and instruction following. Other models may produce malformed TSGs, miss required sections, or fail structured JSON output in the review stage.
+
+The setup UI still asks for a deployment _name_ (since users name their deployments), but makes clear it must be a gpt-5.2 deployment. Validation warns if the underlying model is not gpt-5.2.
+
 ### Why Three Separate Agents?
 
 1. **Separation of concerns** — Each agent has a focused role with appropriate capabilities

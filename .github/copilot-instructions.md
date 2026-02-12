@@ -55,6 +55,10 @@ Do NOT use MISSING placeholders for:
 
 The three-stage pipeline (Research → Write → Review) should **always return a TSG** unless there's a technical failure. Quality concerns surface as warnings, not blockers.
 
+## Supported Model
+
+**Only gpt-5.2 deployments are supported.** The pipeline prompts, structured output expectations, and Foundry SDK usage are all designed for gpt-5.2. The setup UI asks for a deployment name but clarifies it must be a gpt-5.2 deployment. Validation warns (but does not block) if the underlying model is not gpt-5.2.
+
 ---
 
 ## Pipeline Stage Behaviors

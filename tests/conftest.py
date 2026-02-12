@@ -131,21 +131,16 @@ def stream_idle_error():
 
 
 # =============================================================================
-# FIXTURES: Mock Objects
+# FIXTURES: Flask Test Client
 # =============================================================================
 
 @pytest.fixture
-def mock_event_queue():
-    """Create a mock queue for capturing pipeline events."""
-    from queue import Queue
-    return Queue()
-
-
-@pytest.fixture
-def mock_cancel_event():
-    """Create a mock threading event for cancellation."""
-    from threading import Event
-    return Event()
+def client():
+    """Create a test client for the Flask app."""
+    from web_app import app
+    app.config['TESTING'] = True
+    with app.test_client() as client:
+        yield client
 
 
 # =============================================================================
