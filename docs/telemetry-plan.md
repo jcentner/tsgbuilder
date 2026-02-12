@@ -98,12 +98,12 @@ Wire up the connection string injection for release binaries and add user-facing
   - Add `_build_config` as a hidden import so it's bundled in the binary
 - [x] Update `.github/workflows/build.yml`:
   - Pass `APPINSIGHTS_CONNECTION_STRING: ${{ secrets.APPINSIGHTS_CONNECTION_STRING }}` env var to the build step
-- [ ] Create Application Insights resource in Azure, store connection string as GitHub Actions repo secret
+- [x] Create Application Insights resource in Azure, store connection string as GitHub Actions repo secret
 - [x] Add telemetry disclosure and opt-out instructions to `README.md`:
   - What is collected (counts, enums, durations, version — never content or PII)
   - How to opt out (`TSG_TELEMETRY=0` in `.env`)
   - `install_id` explanation
-- [ ] Tag a release and verify events appear in App Insights Live Metrics
+- [x] Tag a release and verify events appear in App Insights Transaction Search / Logs (KQL)
 
 ---
 
@@ -112,3 +112,4 @@ Wire up the connection string injection for release binaries and add user-facing
 - **Sampling rate**: Configure 100% sampling on the App Insights resource initially (low expected volume). Drop to 50% if adoption grows significantly. This is an Azure Portal resource setting, not a code change.
 - **Dependency**: Using `azure-monitor-opentelemetry-exporter` for automatic batching, retry, and standard App Insights integration. Acceptable size increase for the benefits.
 - **All phases in one PR**: Phases are implementation order, not separate PRs. Each phase builds on the last and is tested before moving on.
+- **Live Metrics not available**: The lightweight `AzureMonitorLogExporter` used here batch-exports log records but does not establish the Live Metrics WebSocket channel. That channel requires the full `azure-monitor-opentelemetry` distro, which would add significant binary size. Use **Transaction Search** and **Logs (KQL)** in the Azure Portal instead. Events typically appear within 2–5 minutes of emission.
