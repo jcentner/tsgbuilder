@@ -66,7 +66,7 @@ DEFAULT_ENV_CONTENT = """# Azure AI Foundry Configuration
 # example: https://<YOUR_RESOURCE>.services.ai.azure.com/api/projects/<YOUR_PROJECT>
 PROJECT_ENDPOINT=
 
-# recommend gpt-5.2 for v2 agents
+# Only gpt-5.2 deployments are supported
 MODEL_DEPLOYMENT_NAME=gpt-5.2
 
 AGENT_NAME=TSG-Builder
@@ -387,7 +387,7 @@ def api_validate():
     # 2. Check environment variables
     required_vars = [
         ("PROJECT_ENDPOINT", "Azure AI Foundry project endpoint"),
-        ("MODEL_DEPLOYMENT_NAME", "Model deployment name (e.g., gpt-5.2)"),
+        ("MODEL_DEPLOYMENT_NAME", "gpt-5.2 deployment name (only gpt-5.2 is supported)"),
     ]
     
     env_ok = True
@@ -462,19 +462,29 @@ def api_validate():
             })
             project_client = None  # Can't proceed with deployment/connection checks
     
-    # 5. Check model deployment exists (warning if can't verify)
+    # 5. Check model deployment exists and is gpt-5.2 (warning if can't verify)
     model_name = os.getenv("MODEL_DEPLOYMENT_NAME", "")
     if project_client and model_name:
         try:
             # Re-open project client for deployment check
             with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
                 deployment = project.deployments.get(name=model_name)
-                checks.append({
-                    "name": "Model Deployment",
-                    "passed": True,
-                    "message": f"Found deployment: {deployment.name}",
-                    "critical": False,
-                })
+                # Check if the underlying model is gpt-5.2
+                underlying_model = getattr(deployment, "model_name", None) or ""
+                if underlying_model and "gpt-5.2" not in underlying_model.lower():
+                    checks.append({
+                        "name": "Model Deployment",
+                        "passed": False,
+                        "message": f"Deployment '{deployment.name}' uses {underlying_model}. Only gpt-5.2 is supported.",
+                        "critical": False,  # Warning, not blocking
+                    })
+                else:
+                    checks.append({
+                        "name": "Model Deployment",
+                        "passed": True,
+                        "message": f"Found deployment: {deployment.name}" + (f" ({underlying_model})" if underlying_model else ""),
+                        "critical": False,
+                    })
         except Exception as e:
             error_str = str(e)
             # Try to list available deployments for helpful error message
