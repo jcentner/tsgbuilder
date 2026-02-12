@@ -159,6 +159,99 @@ class TestValidateAPI:
         assert "ready_for_agent" in data
 
 
+class TestModelDeploymentValidation:
+    """Tests for model deployment gpt-5.2 validation in /api/validate."""
+
+    def _make_mock_deployment(self, name, model_name=None):
+        """Create a mock deployment object with the expected attributes."""
+        dep = MagicMock()
+        dep.name = name
+        dep.model_name = model_name
+        return dep
+
+    def _run_validate_with_deployment(self, client, monkeypatch, deployment):
+        """Run /api/validate with mocked Azure services returning the given deployment."""
+        monkeypatch.setenv("PROJECT_ENDPOINT", "https://test.azure.com/api/projects/test")
+        monkeypatch.setenv("MODEL_DEPLOYMENT_NAME", deployment.name)
+
+        mock_credential = MagicMock()
+        mock_credential.get_token.return_value = MagicMock(token="fake")
+
+        # Mock project client as a context manager
+        mock_project = MagicMock()
+        mock_project.deployments.get.return_value = deployment
+        mock_project.agents.list.return_value = []
+        mock_project.__enter__ = lambda self: mock_project
+        mock_project.__exit__ = lambda self, *a: None
+
+        with patch("web_app.DefaultAzureCredential", return_value=mock_credential), \
+             patch("web_app.AIProjectClient", return_value=mock_project), \
+             patch("web_app.get_agent_ids", side_effect=ValueError("no agents")):
+            response = client.get("/api/validate")
+
+        return json.loads(response.data)
+
+    def _find_model_check(self, data):
+        """Find the Model Deployment check in the validation response."""
+        return next((c for c in data["checks"] if c["name"] == "Model Deployment"), None)
+
+    @pytest.mark.unit
+    def test_gpt52_deployment_passes(self, client, monkeypatch):
+        """A gpt-5.2 deployment should pass the model check."""
+        dep = self._make_mock_deployment("my-deployment", model_name="gpt-5.2")
+        data = self._run_validate_with_deployment(client, monkeypatch, dep)
+        check = self._find_model_check(data)
+
+        assert check is not None, "Model Deployment check not found in response"
+        assert check["passed"] is True
+        assert "my-deployment" in check["message"]
+        assert "gpt-5.2" in check["message"]
+
+    @pytest.mark.unit
+    def test_non_gpt52_deployment_warns(self, client, monkeypatch):
+        """A non-gpt-5.2 deployment should produce a warning (passed=False, critical=False)."""
+        dep = self._make_mock_deployment("my-gpt41", model_name="gpt-4.1")
+        data = self._run_validate_with_deployment(client, monkeypatch, dep)
+        check = self._find_model_check(data)
+
+        assert check is not None, "Model Deployment check not found in response"
+        assert check["passed"] is False
+        assert check["critical"] is False, "Model mismatch should warn, not block"
+        assert "gpt-4.1" in check["message"]
+        assert "Only gpt-5.2" in check["message"]
+
+    @pytest.mark.unit
+    def test_deployment_without_model_name_passes(self, client, monkeypatch):
+        """A deployment where model_name is None (can't determine model) should pass."""
+        dep = self._make_mock_deployment("my-deployment", model_name=None)
+        data = self._run_validate_with_deployment(client, monkeypatch, dep)
+        check = self._find_model_check(data)
+
+        assert check is not None, "Model Deployment check not found in response"
+        assert check["passed"] is True
+        assert "my-deployment" in check["message"]
+
+    @pytest.mark.unit
+    def test_gpt52_variant_passes(self, client, monkeypatch):
+        """A model name containing 'gpt-5.2' (e.g. with version suffix) should pass."""
+        dep = self._make_mock_deployment("prod-deploy", model_name="gpt-5.2-20260101")
+        data = self._run_validate_with_deployment(client, monkeypatch, dep)
+        check = self._find_model_check(data)
+
+        assert check is not None
+        assert check["passed"] is True
+
+    @pytest.mark.unit
+    def test_model_check_is_not_critical(self, client, monkeypatch):
+        """Model deployment check should never be critical (warning only)."""
+        dep = self._make_mock_deployment("wrong-model", model_name="gpt-4o")
+        data = self._run_validate_with_deployment(client, monkeypatch, dep)
+        check = self._find_model_check(data)
+
+        assert check is not None
+        assert check["critical"] is False
+
+
 # =============================================================================
 # TESTS: Debug Endpoint Protection
 # =============================================================================
