@@ -1391,6 +1391,7 @@ class TSGPipeline:
         prior_tsg: str | None = None,
         user_answers: str | None = None,
         prior_research: str | None = None,
+        prior_review: dict | None = None,
     ) -> PipelineResult:
         """
         Run the complete TSG generation pipeline.
@@ -1402,6 +1403,7 @@ class TSGPipeline:
             prior_tsg: Optional prior TSG for iteration
             user_answers: Optional answers to follow-up questions
             prior_research: Optional prior research report for follow-up iterations
+            prior_review: Optional prior review result dict for iteration context
             
         Returns:
             PipelineResult with TSG content and metadata
@@ -1512,6 +1514,7 @@ class TSGPipeline:
                         research=research_report,
                         prior_tsg=prior_tsg,
                         user_answers=user_answers,
+                        prior_review=prior_review,
                     )
                     
                     # Use unified retry logic
@@ -1539,17 +1542,50 @@ class TSGPipeline:
                     
                     # --- Stage 3: Review (with retry loop) ---
                     self._check_cancelled()  # Check before review stage
-                    self._send_stage_event(PipelineStage.REVIEW, "stage_start", {
-                        "message": "🔎 Review: Validating structure and accuracy...",
-                        "icon": "🔎",
-                    })
                     
+                    # Optimization: skip full review for pure MISSING-fill iterations.
+                    # If the prior review was clean (no accuracy_issues or suggestions) and
+                    # this is a follow-up, the user only answered MISSING questions — the
+                    # TSG body is structurally identical with placeholders filled. Re-running
+                    # Review would be wasteful and risks generating new noise.
+                    skip_review = False
                     draft_tsg = write_response
                     final_tsg = None
                     review_result = None
                     review_response = None  # Track for test mode
                     
+                    if user_answers and prior_review:
+                        has_review_feedback = bool(
+                            prior_review.get("accuracy_issues") or
+                            prior_review.get("suggestions")
+                        )
+                        if not has_review_feedback and prior_review.get("approved", False):
+                            skip_review = True
+                    
+                    if skip_review:
+                        # Reuse prior review result (clean pass) — just validate structure
+                        self._send_stage_event(PipelineStage.REVIEW, "stage_start", {
+                            "message": "⏭️ Review: Prior review was clean, validating structure only...",
+                            "icon": "⏭️",
+                        })
+                        validation = validate_tsg_output(draft_tsg)
+                        if validation["valid"]:
+                            final_tsg = draft_tsg
+                            review_result = prior_review  # Carry forward the clean review
+                            result.review_result = review_result
+                        else:
+                            # Structure broke during MISSING fill — fall through to full review
+                            skip_review = False
+                    
+                    if not skip_review:
+                        self._send_stage_event(PipelineStage.REVIEW, "stage_start", {
+                            "message": "🔎 Review: Validating structure and accuracy...",
+                            "icon": "🔎",
+                        })
+                    
                     for retry in range(self.REVIEW_STRUCTURE_MAX_RETRIES + 1):
+                        if skip_review:
+                            break  # Already handled above
                         self._check_cancelled()  # Check before each review retry
                         result.retry_count = retry
                         
@@ -1560,6 +1596,8 @@ class TSGPipeline:
                                 draft_tsg=draft_tsg,
                                 research=research_report,
                                 notes=notes,
+                                prior_review=prior_review,
+                                user_answers=user_answers,
                             )
                             
                             # Use retry logic for transient failures
@@ -1709,6 +1747,7 @@ def run_pipeline(
     prior_tsg: str | None = None,
     user_answers: str | None = None,
     prior_research: str | None = None,
+    prior_review: dict | None = None,
     test_mode: bool = False,
     cancel_event: threading.Event | None = None,
 ) -> PipelineResult:
@@ -1783,6 +1822,7 @@ def run_pipeline(
         prior_tsg=prior_tsg,
         user_answers=user_answers,
         prior_research=prior_research,
+        prior_review=prior_review,
     )
     
     # Write test output file if in test mode

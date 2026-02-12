@@ -502,8 +502,17 @@ def build_research_prompt(notes: str) -> str:
     return RESEARCH_USER_PROMPT_TEMPLATE.format(notes=notes)
 
 
-def build_writer_prompt(notes: str, research: str, prior_tsg: str | None = None, user_answers: str | None = None) -> str:
-    """Build the prompt for the writer stage."""
+def build_writer_prompt(notes: str, research: str, prior_tsg: str | None = None, user_answers: str | None = None, prior_review: dict | None = None) -> str:
+    """Build the prompt for the writer stage.
+    
+    Args:
+        notes: Raw troubleshooting notes
+        research: Research report from Stage 1
+        prior_tsg: Optional prior TSG for iteration
+        user_answers: Optional answers to follow-up questions
+        prior_review: Optional prior review result dict for iteration context
+    """
+    import json as _json
     prompt = WRITER_USER_PROMPT_TEMPLATE.format(
         template=TSG_TEMPLATE,
         notes=notes,
@@ -511,18 +520,64 @@ def build_writer_prompt(notes: str, research: str, prior_tsg: str | None = None,
     )
     if prior_tsg:
         prompt += f"\n\n<prior_tsg>\n{prior_tsg}\n</prior_tsg>\n"
+    has_review_feedback = False
+    if prior_review:
+        # Include review feedback so the Writer knows what was flagged
+        review_summary = {
+            k: prior_review[k]
+            for k in ("accuracy_issues", "suggestions", "completeness_issues")
+            if prior_review.get(k)
+        }
+        if review_summary:
+            has_review_feedback = True
+            prompt += f"\n\n<prior_review_feedback>\n{_json.dumps(review_summary, indent=2)}\n</prior_review_feedback>\n"
     if user_answers:
-        prompt += f"\n\n<answers>\n{user_answers}\n</answers>\nReplace {{MISSING::...}} placeholders with these answers.\n"
+        prompt += f"\n\n<answers>\n{user_answers}\n</answers>\n"
+        if has_review_feedback:
+            prompt += (
+                "The user's answers address two things:\n"
+                "1. Answers to {{MISSING::...}} follow-up questions — replace the placeholders with these answers.\n"
+                "2. Responses to the reviewer's suggestions (shown in <prior_review_feedback>) — "
+                "apply suggestions the user accepted, and leave unchanged anything the user dismissed or ignored.\n"
+            )
+        else:
+            prompt += "Replace {{MISSING::...}} placeholders with these answers.\n"
     return prompt
 
 
-def build_review_prompt(draft_tsg: str, research: str, notes: str) -> str:
-    """Build the prompt for the review stage."""
-    return REVIEW_USER_PROMPT_TEMPLATE.format(
+def build_review_prompt(draft_tsg: str, research: str, notes: str, prior_review: dict | None = None, user_answers: str | None = None) -> str:
+    """Build the prompt for the review stage.
+    
+    Args:
+        draft_tsg: The TSG draft to review
+        research: Research report from Stage 1
+        notes: Original user notes
+        prior_review: Optional prior review result dict (to suppress repeat suggestions)
+        user_answers: Optional user answers (to understand what was accepted/dismissed)
+    """
+    import json as _json
+    prompt = REVIEW_USER_PROMPT_TEMPLATE.format(
         draft_tsg=draft_tsg,
         research=research,
         notes=notes,
     )
+    if prior_review and user_answers:
+        review_summary = {
+            k: prior_review[k]
+            for k in ("accuracy_issues", "suggestions", "completeness_issues")
+            if prior_review.get(k)
+        }
+        if review_summary:
+            prompt += (
+                f"\n\n<prior_review>\n{_json.dumps(review_summary, indent=2)}\n</prior_review>\n"
+                f"\n<user_response_to_review>\n{user_answers}\n</user_response_to_review>\n"
+                "You raised the items in <prior_review> on a previous draft. "
+                "The user has seen them and responded in <user_response_to_review>. "
+                "Do NOT re-raise suggestions the user explicitly dismissed or declined. "
+                "Only flag NEW issues you haven't previously raised, or issues that "
+                "were accepted but not correctly applied in the revised draft.\n"
+            )
+    return prompt
 
 
 def extract_research_block(response: str) -> str | None:
