@@ -1,7 +1,7 @@
 # Telemetry Implementation Plan
 
 **Issue:** [issue-usage-telemetry.md](../issues/issue-usage-telemetry.md)  
-**Status:** Phase 1a + 1b complete, Phase 2 next  
+**Status:** Phase 1a + 1b + 2 + 3 complete (code changes merged; Azure resource + release tag are manual)  
 **PR scope:** All phases ship in a single PR, implemented phase-by-phase.
 
 ---
@@ -59,47 +59,47 @@ Emit telemetry events from application code using the module from Phase 1a and t
 
 ### Server-side events
 
-- [ ] `app_started` — in `web_app.py` `main()`:
+- [x] `app_started` — in `web_app.py` `main()`:
   - Properties: `version`, `platform` (linux/macos/windows/wsl2), `python_version`, `run_mode` (source/executable), `install_id`
   - Call `init_telemetry()` here
   - Log opt-out status: "📊 Telemetry: enabled" / "📊 Telemetry: disabled"
-- [ ] `tsg_generated` — in `web_app.py` `_stream_pipeline()` success path:
+- [x] `tsg_generated` — in `web_app.py` `generate_pipeline_sse_events()` success path:
   - Properties: `version`, `had_missing`, `missing_sections` (csv), `follow_up_round` (0 for initial), `model`, `install_id`
   - Measurements: `duration_seconds`, `research_duration_s`, `write_duration_s`, `review_duration_s`, `missing_count`, `notes_line_count`, `image_count`, per-stage token counts, `total_tokens`
-- [ ] `pipeline_error` — in `web_app.py` `_stream_pipeline()` error path:
-  - Properties: `version`, `stage`, `error_class` (from `classify_azure_error()`), `install_id`
+- [x] `pipeline_error` — in `web_app.py` `generate_pipeline_sse_events()` error path:
+  - Properties: `version`, `stage`, `error_class` (from `classify_error()`), `install_id`
   - Measurements: `retry_count`
-- [ ] `pii_blocked` — in `web_app.py` PII gates (`api_generate_stream()` and `api_answer_stream()`):
+- [x] `pii_blocked` — in `web_app.py` PII gates (`api_generate_stream()` and `api_answer_stream()`):
   - Properties: `version`, `action` (edit/redact), `input_type` (notes/followup), `install_id`
   - Measurements: `entity_count`
-- [ ] `setup_completed` — in `web_app.py` `api_create_agents()` success path:
+- [x] `setup_completed` — in `web_app.py` `api_create_agents()` success path:
   - Properties: `version`, `model_deployment`, `install_id`
-- [ ] `tsg_generated` with `follow_up_round > 0` — in `web_app.py` `api_answer_stream()`
+- [x] `tsg_generated` with `follow_up_round > 0` — in `web_app.py` `api_answer_stream()`
 
 ### Client-side event
 
-- [ ] Add `POST /api/telemetry/copied` endpoint in `web_app.py` (lightweight, returns 204)
-- [ ] `tsg_copied` — fire-and-forget `fetch()` in `copyTSG()` in `static/js/main.js`:
+- [x] Add `POST /api/telemetry/copied` endpoint in `web_app.py` (lightweight, returns 204)
+- [x] `tsg_copied` — fire-and-forget `fetch()` in `copyTSG()` in `static/js/main.js`:
   - Properties: `version`, `follow_up_round`, `install_id`
 
 ### Tests
 
-- [ ] Integration-style tests verifying each instrumentation point calls `track_event` with expected event name and property keys (mocked exporter)
-- [ ] Verify `pii_blocked` emitted on PII gate trigger
-- [ ] Verify `pipeline_error` emitted with correct `error_class` mapping
-- [ ] Verify `tsg_copied` endpoint returns 204 and emits event
+- [x] Integration-style tests verifying each instrumentation point calls `track_event` with expected event name and property keys (mocked exporter)
+- [x] Verify `pii_blocked` emitted on PII gate trigger
+- [x] Verify `pipeline_error` emitted with correct `error_class` mapping
+- [x] Verify `tsg_copied` endpoint returns 204 and emits event
 
 ## Phase 3 — Build & Release Integration
 
 Wire up the connection string injection for release binaries and add user-facing documentation.
 
-- [ ] Update `build_exe.py`:
+- [x] Update `build_exe.py`:
   - Generate `_build_config.py` from `APPINSIGHTS_CONNECTION_STRING` env var before PyInstaller runs
   - Add `_build_config` as a hidden import so it's bundled in the binary
-- [ ] Update `.github/workflows/build.yml`:
+- [x] Update `.github/workflows/build.yml`:
   - Pass `APPINSIGHTS_CONNECTION_STRING: ${{ secrets.APPINSIGHTS_CONNECTION_STRING }}` env var to the build step
 - [ ] Create Application Insights resource in Azure, store connection string as GitHub Actions repo secret
-- [ ] Add telemetry disclosure and opt-out instructions to `README.md`:
+- [x] Add telemetry disclosure and opt-out instructions to `README.md`:
   - What is collected (counts, enums, durations, version — never content or PII)
   - How to opt out (`TSG_TELEMETRY=0` in `.env`)
   - `install_id` explanation

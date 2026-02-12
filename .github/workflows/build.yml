@@ -46,6 +46,8 @@ jobs:
 
       - name: Build executable
         run: python build_exe.py
+        env:
+          APPINSIGHTS_CONNECTION_STRING: ${{ secrets.APPINSIGHTS_CONNECTION_STRING }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

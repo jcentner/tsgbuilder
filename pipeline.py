@@ -670,6 +670,8 @@ class PipelineResult:
     # Telemetry: input metadata
     image_count: int = 0
     notes_line_count: int = 0
+    # Telemetry: error classification (set on failure)
+    metadata: dict = field(default_factory=dict)
 
 
 def _send_classified_error(
@@ -1742,6 +1744,20 @@ Please fix these issues and regenerate the TSG with correct format.
                 
         except Exception as e:
             result.error = str(e)
+            # Store error classification for telemetry
+            if isinstance(e, PipelineError):
+                result.metadata['error_stage'] = e.stage.value
+                classification = classify_error(e.original_error, e.stage)
+                if classification.is_rate_limit:
+                    result.metadata['error_class'] = 'rate_limit'
+                elif classification.is_timeout:
+                    result.metadata['error_class'] = 'timeout'
+                elif classification.is_auth_error:
+                    result.metadata['error_class'] = 'auth'
+                elif classification.is_tool_error:
+                    result.metadata['error_class'] = 'tool_error'
+                else:
+                    result.metadata['error_class'] = 'other'
             self._send_stage_event(PipelineStage.FAILED, "error", {
                 "message": str(e),
                 "fatal": True,  # All retries exhausted

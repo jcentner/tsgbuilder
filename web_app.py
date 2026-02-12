@@ -56,9 +56,40 @@ from pipeline import (
 from error_utils import classify_azure_sdk_error
 from pii_check import check_for_pii
 from version import APP_VERSION, GITHUB_URL
+import telemetry
 
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
+
+
+def _get_platform() -> str:
+    """Detect the runtime platform for telemetry."""
+    if sys.platform == "darwin":
+        return "macos"
+    elif sys.platform == "win32":
+        return "windows"
+    elif sys.platform == "linux":
+        try:
+            with open("/proc/version", "r", encoding="utf-8") as f:
+                if "microsoft" in f.read().lower():
+                    return "wsl2"
+        except (FileNotFoundError, PermissionError):
+            pass
+        return "linux"
+    return sys.platform
+
+
+def _get_run_mode() -> str:
+    """Detect whether running from source or as a compiled executable."""
+    return "executable" if getattr(sys, "frozen", False) else "source"
+
+
+def _extract_missing_sections(questions_content: str) -> list[str]:
+    """Extract section names from MISSING placeholders in questions content."""
+    import re
+    if not questions_content or questions_content.strip() == "NO_MISSING":
+        return []
+    return re.findall(r'\{\{MISSING::([^:}]+)::', questions_content)
 
 # Default .env content (created automatically on first run)
 # These provide sensible defaults; users still need to fill in their Azure-specific values
@@ -665,6 +696,15 @@ def api_create_agent():
             name_prefix=agent_name,
         )
         
+        # Telemetry: setup_completed
+        telemetry.track_event(
+            "setup_completed",
+            properties={
+                "version": APP_VERSION,
+                "model_deployment": model or "",
+            },
+        )
+        
         return jsonify({
             "success": True,
             "agents": {
@@ -724,6 +764,11 @@ def generate_pipeline_sse_events(
         images: Optional list of image dicts with 'data' (base64) and 'type' (mime type)
         run_id: Unique identifier for this run (for cancellation support)
     """
+    # Determine follow-up round (0 = initial generation)
+    follow_up_round = 0
+    if thread_id and thread_id in sessions:
+        follow_up_round = sessions[thread_id].get("follow_up_round", 0) + 1
+    
     # Generate run_id if not provided
     if not run_id:
         run_id = str(uuid.uuid4())
@@ -759,6 +804,7 @@ def generate_pipeline_sse_events(
             # Generate user-friendly error message with optional hint
             user_message, hint = _get_user_friendly_error(e)
             result_holder["error"] = user_message
+            result_holder["raw_error"] = e  # Preserve for telemetry
             # Send user-friendly message to UI (fatal = all retries exhausted)
             error_data = {"message": user_message, "fatal": True}
             if hint:
@@ -798,6 +844,34 @@ def generate_pipeline_sse_events(
     if result_holder["cancelled"]:
         yield f"data: {json.dumps({'type': 'cancelled', 'data': {'message': 'Run cancelled'}})}\n\n"
     elif result_holder["error"]:
+        # Telemetry: pipeline_error (exception during pipeline run)
+        raw_error = result_holder.get("raw_error")
+        error_stage = "unknown"
+        error_class = "unknown"
+        if isinstance(raw_error, PipelineError):
+            error_stage = raw_error.stage.value
+            classification = classify_error(raw_error.original_error, raw_error.stage)
+            if classification.is_rate_limit:
+                error_class = "rate_limit"
+            elif classification.is_timeout:
+                error_class = "timeout"
+            elif classification.is_auth_error:
+                error_class = "auth"
+            elif classification.is_tool_error:
+                error_class = "tool_error"
+            else:
+                error_class = "other"
+        telemetry.track_event(
+            "pipeline_error",
+            properties={
+                "version": APP_VERSION,
+                "stage": error_stage,
+                "error_class": error_class,
+            },
+            measurements={
+                "retry_count": 0,
+            },
+        )
         yield f"data: {json.dumps({'type': 'error', 'data': {'message': result_holder['error']}})}\n\n"
     elif result_holder["result"]:
         result = result_holder["result"]
@@ -812,6 +886,7 @@ def generate_pipeline_sse_events(
                     "current_tsg": result.tsg_content,
                     "questions": result.questions_content if has_questions else None,
                     "research_report": result.research_report,
+                    "follow_up_round": follow_up_round,
                 }
                 sessions[result.thread_id] = session_data
             
@@ -823,8 +898,51 @@ def generate_pipeline_sse_events(
                     result.review_result.get("suggestions", [])
                 )
             
-            yield f"data: {json.dumps({'type': 'result', 'data': {'thread_id': result.thread_id, 'tsg': result.tsg_content, 'questions': result.questions_content if has_questions else None, 'complete': not has_questions, 'stages_completed': [s.value for s in result.stages_completed], 'retries': result.retry_count, 'warnings': review_warnings}})}\n\n"
+            yield f"data: {json.dumps({'type': 'result', 'data': {'thread_id': result.thread_id, 'tsg': result.tsg_content, 'questions': result.questions_content if has_questions else None, 'complete': not has_questions, 'stages_completed': [s.value for s in result.stages_completed], 'retries': result.retry_count, 'warnings': review_warnings, 'follow_up_round': follow_up_round}})}\n\n"
+            
+            # Telemetry: tsg_generated
+            missing_sections = _extract_missing_sections(result.questions_content)
+            telemetry.track_event(
+                "tsg_generated",
+                properties={
+                    "version": APP_VERSION,
+                    "had_missing": str(has_questions),
+                    "missing_sections": ",".join(missing_sections) if missing_sections else "",
+                    "follow_up_round": str(follow_up_round),
+                    "model": os.getenv("MODEL_DEPLOYMENT_NAME", ""),
+                },
+                measurements={
+                    "duration_seconds": result.duration_seconds,
+                    "research_duration_s": result.research_duration_s,
+                    "write_duration_s": result.write_duration_s,
+                    "review_duration_s": result.review_duration_s,
+                    "missing_count": len(missing_sections),
+                    "notes_line_count": result.notes_line_count,
+                    "image_count": result.image_count,
+                    "research_input_tokens": result.research_input_tokens,
+                    "research_output_tokens": result.research_output_tokens,
+                    "write_input_tokens": result.write_input_tokens,
+                    "write_output_tokens": result.write_output_tokens,
+                    "review_input_tokens": result.review_input_tokens,
+                    "review_output_tokens": result.review_output_tokens,
+                    "total_tokens": result.total_tokens,
+                },
+            )
         else:
+            # Telemetry: pipeline_error (result returned but failed)
+            error_stage = result.metadata.get("error_stage", "unknown")
+            error_class = result.metadata.get("error_class", "unknown")
+            telemetry.track_event(
+                "pipeline_error",
+                properties={
+                    "version": APP_VERSION,
+                    "stage": error_stage,
+                    "error_class": error_class,
+                },
+                measurements={
+                    "retry_count": result.retry_count,
+                },
+            )
             yield f"data: {json.dumps({'type': 'error', 'data': {'message': result.error or 'Pipeline failed to produce TSG', 'stages_completed': [s.value for s in result.stages_completed]}})}\n\n"
 
 
@@ -876,6 +994,17 @@ def api_generate_stream():
     if pii_result["error"]:
         return jsonify({"error": pii_result["error"], "hint": pii_result["hint"]}), 500
     if pii_result["pii_detected"]:
+        telemetry.track_event(
+            "pii_blocked",
+            properties={
+                "version": APP_VERSION,
+                "action": "blocked",
+                "input_type": "notes",
+            },
+            measurements={
+                "entity_count": len(pii_result.get("findings", [])),
+            },
+        )
         return jsonify({"error": "PII detected in notes", "findings": pii_result["findings"]}), 400
     
     # Validate images if provided
@@ -923,6 +1052,17 @@ def api_answer_stream():
     if pii_result["error"]:
         return jsonify({"error": pii_result["error"], "hint": pii_result["hint"]}), 500
     if pii_result["pii_detected"]:
+        telemetry.track_event(
+            "pii_blocked",
+            properties={
+                "version": APP_VERSION,
+                "action": "blocked",
+                "input_type": "followup",
+            },
+            measurements={
+                "entity_count": len(pii_result.get("findings", [])),
+            },
+        )
         return jsonify({"error": "PII detected in answers", "findings": pii_result["findings"]}), 400
     
     notes = sessions[thread_id].get("notes", "")
@@ -969,6 +1109,23 @@ def api_delete_session(thread_id):
     return jsonify({"success": True})
 
 
+@app.route("/api/telemetry/copied", methods=["POST"])
+def api_telemetry_copied():
+    """Record that the user copied the TSG to clipboard.
+    
+    Lightweight endpoint — always returns 204 regardless of telemetry state.
+    """
+    data = request.get_json(silent=True) or {}
+    telemetry.track_event(
+        "tsg_copied",
+        properties={
+            "version": APP_VERSION,
+            "follow_up_round": str(data.get("follow_up_round", 0)),
+        },
+    )
+    return "", 204
+
+
 @app.route("/api/debug/threads")
 def api_debug_threads():
     """Debug endpoint: show active threads and runs (only available in debug mode)."""
@@ -994,6 +1151,25 @@ def api_debug_threads():
 
 def main():
     """Run the Flask development server."""
+    # Initialize telemetry subsystem
+    telemetry.init_telemetry()
+    if telemetry.is_telemetry_enabled():
+        print("📊 Telemetry: enabled")
+    else:
+        print("📊 Telemetry: disabled")
+    
+    # Emit app_started event
+    import platform as _platform
+    telemetry.track_event(
+        "app_started",
+        properties={
+            "version": APP_VERSION,
+            "platform": _get_platform(),
+            "python_version": _platform.python_version(),
+            "run_mode": _get_run_mode(),
+        },
+    )
+    
     # Check configuration before starting
     endpoint = os.getenv("PROJECT_ENDPOINT")
     if not endpoint:

@@ -20,6 +20,7 @@ TSG Builder was born out of this need. The idea: **you provide a raw dump of inf
 - [Configuration](#configuration)
 - [How It Works](#how-it-works)
 - [Troubleshooting](#troubleshooting)
+- [Telemetry](#telemetry)
 - [Development](#development)
 - [License](#license)
 
@@ -207,6 +208,47 @@ Output follows the [DFM-copilot-optimized TSG template](https://dev.azure.com/Su
 - The `Person` category may occasionally flag Azure service names or technical terms
 - Click **"Go Back & Edit"** to adjust your notes, or **"Redact & Continue"** to accept the automatic redaction
 - If a category consistently produces false positives, maintainers can adjust `PII_CATEGORIES` in `pii_check.py`
+
+---
+
+## Telemetry
+
+TSG Builder collects **anonymous usage telemetry** to help improve the tool. Telemetry is enabled by default in release binaries and can be fully disabled.
+
+### What Is Collected
+
+- **Counts and enums** — event names (e.g. "TSG generated", "setup completed"), stage names, error classifications
+- **Durations** — pipeline and per-stage wall-clock times
+- **Token counts** — per-stage input/output token usage (aggregate numbers, never content)
+- **Version and platform** — app version, OS platform, Python version, run mode (source/executable)
+- **Install ID** — a random UUID generated on first run, stored in `.env` as `TSG_INSTALL_ID`. Not derived from any machine, user, or network identifier
+
+### What Is Never Collected
+
+- Notes, TSG content, or any user-authored text
+- Error messages containing user content
+- PII of any kind
+- File paths, Azure resource names, endpoints, or credentials
+- IP addresses or network identifiers
+
+### How to Opt Out
+
+Set `TSG_TELEMETRY=0` in your `.env` file (same directory as the executable or project root):
+
+```
+TSG_TELEMETRY=0
+```
+
+Or set the environment variable before running:
+
+```bash
+TSG_TELEMETRY=0 ./tsg-builder-linux
+```
+
+When opted out:
+- No events are emitted
+- No `install_id` is generated or persisted
+- The app behaves identically otherwise
 
 ---
 
