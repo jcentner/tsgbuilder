@@ -1557,19 +1557,20 @@ class TSGPipeline:
                     if user_answers and prior_review:
                         has_review_feedback = bool(
                             prior_review.get("accuracy_issues") or
-                            prior_review.get("suggestions")
+                            prior_review.get("suggestions") or
+                            prior_review.get("completeness_issues")
                         )
                         if not has_review_feedback and prior_review.get("approved", False):
                             skip_review = True
                     
                     if skip_review:
                         # Reuse prior review result (clean pass) — just validate structure
-                        self._send_stage_event(PipelineStage.REVIEW, "stage_start", {
-                            "message": "⏭️ Review: Prior review was clean, validating structure only...",
-                            "icon": "⏭️",
-                        })
                         validation = validate_tsg_output(draft_tsg)
                         if validation["valid"]:
+                            self._send_stage_event(PipelineStage.REVIEW, "stage_start", {
+                                "message": "⏭️ Review: Prior review was clean, validating structure only...",
+                                "icon": "⏭️",
+                            })
                             final_tsg = draft_tsg
                             review_result = prior_review  # Carry forward the clean review
                             result.review_result = review_result
