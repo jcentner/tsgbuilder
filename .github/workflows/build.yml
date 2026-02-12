@@ -21,13 +21,13 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            artifact: tsg-builder-linux
+            exe_name: tsg-builder-linux
           - os: macos-latest
             platform: macos
-            artifact: tsg-builder-macos
+            exe_name: tsg-builder-macos
           - os: windows-latest
             platform: windows
-            artifact: tsg-builder-windows.exe
+            exe_name: tsg-builder-windows.exe
 
     runs-on: ${{ matrix.os }}
     
@@ -52,8 +52,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: dist/${{ matrix.artifact }}
+          name: tsg-builder-${{ matrix.platform }}
+          path: dist/${{ matrix.exe_name }}
           if-no-files-found: error
 
   release:
