@@ -24,6 +24,9 @@ const MAX_IMAGES = 10;
 // Run cancellation support
 let currentRunId = null;
 
+// Telemetry: tracks follow-up iteration round (0 = initial generation)
+let followUpRound = 0;
+
 /* ==========================================================================
    Initialization
    ========================================================================== */
@@ -617,6 +620,8 @@ async function generateTSG() {
         
         const data = await generateTSGWithStreaming('/api/generate/stream', requestBody);
         
+        // Reset follow-up round on new generation
+        followUpRound = 0;
         displayTSG(data.tsg);
 
         // Check if we need feedback (MISSING items or review notes)
@@ -661,6 +666,8 @@ async function submitAnswers() {
             answers
         });
 
+        // Increment follow-up round on each answer submission
+        followUpRound++;
         displayTSG(data.tsg);
 
         // Check if we need more feedback (MISSING items or review notes)
@@ -716,6 +723,7 @@ async function clearSession() {
     // Reset local state
     currentThreadId = null;
     currentTSG = '';
+    followUpRound = 0;
     
     // Reset UI - clear input notes, output, and questions
     document.getElementById('notesInput').value = '';
@@ -953,6 +961,7 @@ function clearInput() {
     hideMessages();
     currentThreadId = null;
     currentTSG = '';
+    followUpRound = 0;
     // Also clear uploaded images
     clearImages();
 }
@@ -966,6 +975,13 @@ async function copyTSG() {
         const originalText = btn.innerHTML;
         btn.innerHTML = '✓ Copied!';
         setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+        
+        // Fire-and-forget telemetry
+        fetch('/api/telemetry/copied', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ follow_up_round: followUpRound, action: 'copy' })
+        }).catch(() => {});
     } catch (error) {
         showError('Failed to copy to clipboard');
     }
@@ -1008,6 +1024,13 @@ function downloadTSG() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     
+    // Fire-and-forget telemetry
+    fetch('/api/telemetry/copied', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ follow_up_round: followUpRound, action: 'download' })
+    }).catch(() => {});
+
     // Show success message with filename
     showSuccess(`TSG downloaded as "${filename}"`);
     setTimeout(() => hideMessages(), 4000);
