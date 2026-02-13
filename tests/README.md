@@ -36,11 +36,17 @@ make test-cov      # Run with coverage report
 
 ```
 tests/
-├── __init__.py              # Package marker
-├── conftest.py              # Shared fixtures and utilities
-├── README.md                # This file
-├── test_error_handling.py   # Error handling tests (Phase 4)
-└── test_pipeline.py         # Pipeline tests (future)
+├── __init__.py                        # Package marker
+├── conftest.py                        # Shared fixtures and utilities
+├── README.md                          # This file
+├── test_error_handling.py             # Error handling and classification tests
+├── test_iteration_feedback.py         # Iteration/follow-up flow tests
+├── test_pii_check.py                  # PII detection tests
+├── test_pipeline_telemetry.py         # Pipeline telemetry plumbing tests
+├── test_telemetry.py                  # Core telemetry module tests
+├── test_telemetry_instrumentation.py  # Instrumentation point integration tests
+├── test_tsg_validation.py             # TSG structure validation tests
+└── test_web_endpoints.py              # Flask endpoint tests
 ```
 
 ## Writing Tests
@@ -81,8 +87,7 @@ def test_something(mock_http_error, pipeline_error_factory, error_helper):
 | `response_failed_error_factory` | Factory to create ResponseFailedError |
 | `tool_timeout_error` | Pre-built ToolTimeoutError |
 | `stream_idle_error` | Pre-built StreamIdleTimeoutError |
-| `mock_event_queue` | Queue for capturing pipeline events |
-| `mock_cancel_event` | Threading event for cancellation |
+| `client` | Flask test client for endpoint testing |
 | `error_helper` | ErrorTestHelper with assertion methods |
 
 ### Test Markers

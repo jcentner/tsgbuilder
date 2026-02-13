@@ -227,15 +227,22 @@ Every TSG must:
 | `tsg_constants.py` | TSG template, stage prompts, validation functions |
 | `pii_check.py` | PII detection via Azure AI Language API (pre-flight gate) |
 | `error_utils.py` | Shared Azure SDK error classification utilities |
+| `telemetry.py` | Anonymous usage telemetry (see [docs/telemetry.md](../docs/telemetry.md)) |
 | `web_app.py` | Flask server, SSE streaming, session management |
 | `build_exe.py` | PyInstaller build script (bundles templates/, static/) |
+| `validate_setup.py` | Validate environment configuration (CLI troubleshooting) |
+| `delete_agents.py` | Delete agents from Azure (used by `make clean DELETE_AGENTS=1`) |
+| `Makefile` | Common operations (setup, ui, test, build, clean) |
 | `templates/index.html` | Web UI HTML structure |
 | `static/css/styles.css` | Web UI styles (CSS custom properties, component styles) |
 | `static/js/main.js` | Core UI logic (streaming, TSG generation, images, PII modal) |
 | `static/js/setup.js` | Setup modal (config, validation, agent creation) |
 | `.agent_ids.json` | Stored agent names/IDs (created by setup) |
 | `docs/architecture.md` | Technical architecture details |
-| `examples/` | Test inputs, expected outputs, test run captures |
+| `docs/telemetry.md` | Telemetry event reference |
+| `docs/releasing.md` | Release process and build infrastructure |
+| `examples/` | Test inputs and expected outputs |
+| `logs/` | Test run captures (test_output_*.json) |
 | `tests/` | Pytest test suite |
 | `tests/conftest.py` | Shared fixtures and test utilities |
 
@@ -264,7 +271,7 @@ Run the pipeline in test mode to capture raw stage outputs:
 ```python
 from pipeline import run_pipeline
 result = run_pipeline(notes="...", test_mode=True)
-# Writes to examples/test_output_YYYYMMDD_HHMMSS.json
+# Writes to logs/test_output_YYYYMMDD_HHMMSS.json
 ```
 
 Test output includes:
