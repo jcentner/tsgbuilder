@@ -20,6 +20,7 @@ Tests cover:
 
 import json
 import sys
+import threading
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -127,16 +128,31 @@ class TestAppStartedEvent:
         mock_init = MagicMock()
         mock_track = MagicMock()
         mock_enabled = MagicMock(return_value=True)
+        mock_active = MagicMock(return_value=True)
 
         monkeypatch.setattr("telemetry.init_telemetry", mock_init)
         monkeypatch.setattr("telemetry.track_event", mock_track)
         monkeypatch.setattr("telemetry.is_telemetry_enabled", mock_enabled)
+        monkeypatch.setattr("telemetry.is_active", mock_active)
         # Prevent Flask from actually starting
         monkeypatch.setattr(web_app.app, "run", MagicMock())
         # Prevent browser from opening
         monkeypatch.setattr("threading.Timer", MagicMock())
 
+        # Capture the background thread so we can wait for it
+        threads_started = []
+        original_thread = threading.Thread
+        def _capture_thread(*args, **kwargs):
+            t = original_thread(*args, **kwargs)
+            threads_started.append(t)
+            return t
+        monkeypatch.setattr("threading.Thread", _capture_thread)
+
         web_app.main()
+
+        # Wait for the background telemetry thread to complete
+        for t in threads_started:
+            t.join(timeout=5)
 
         mock_init.assert_called_once()
         # Find the app_started call

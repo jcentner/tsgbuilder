@@ -143,8 +143,10 @@ TEST_MODE = os.getenv("TSG_TEST_MODE", "").strip() in ("1", "true", "True", "yes
 if TEST_MODE:
     print("🧪 Test mode enabled - stage outputs will be captured to test_output_*.json")
 
-# Configure Flask with proper paths for PyInstaller executable mode
-# When frozen, PyInstaller extracts bundled files to sys._MEIPASS temp directory
+# Configure Flask with proper paths for PyInstaller executable mode.
+# In --onedir + --contents-directory mode, sys._MEIPASS points to the
+# _internal/ subdirectory where PyInstaller places bundled data files
+# (templates, static). sys.executable is in the parent (top-level) folder.
 if getattr(sys, 'frozen', False):
     _bundle_dir = Path(sys._MEIPASS)  # type: ignore[attr-defined]
     app = Flask(

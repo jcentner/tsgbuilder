@@ -86,7 +86,8 @@ def build_executable():
     args = [
         sys.executable, "-m", "PyInstaller",
         "--name", exe_name,
-        "--onefile",  # Single executable file
+        "--onedir",                           # Folder-based (no per-launch extraction)
+        "--contents-directory", "_internal",  # Hide bundled deps in _internal/
         "--console",  # Console app (needed for Flask server output)
         # Add data files (templates and static assets for Flask)
         "--add-data", f"templates{os.pathsep}templates",
@@ -123,22 +124,24 @@ def build_executable():
         print("\n[FAILED] Build failed!")
         sys.exit(1)
     
-    # Determine output path
+    # Determine output path (--onedir: exe is inside a folder)
     if platform_name == "windows":
-        exe_path = Path("dist") / f"{exe_name}.exe"
+        exe_path = Path("dist") / exe_name / f"{exe_name}.exe"
     else:
-        exe_path = Path("dist") / exe_name
+        exe_path = Path("dist") / exe_name / exe_name
     
     if exe_path.exists():
         size_mb = exe_path.stat().st_size / (1024 * 1024)
+        folder_path = exe_path.parent
         print(f"\n[OK] Build successful!")
         print(f"    Executable: {exe_path}")
+        print(f"    Folder: {folder_path}")
         print(f"    Size: {size_mb:.1f} MB")
         print(f"\n[INFO] To run:")
         if platform_name == "windows":
-            print(f"    .\\dist\\{exe_name}.exe")
+            print(f"    .\\dist\\{exe_name}\\{exe_name}.exe")
         else:
-            print(f"    ./dist/{exe_name}")
+            print(f"    ./dist/{exe_name}/{exe_name}")
         print(f"\n[INFO] On first run, a .env file will be created automatically.")
         print(f"    The setup wizard will open in your browser to configure Azure settings.")
     else:
