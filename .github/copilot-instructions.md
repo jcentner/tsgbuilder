@@ -86,15 +86,7 @@ For technical architecture details, see [docs/architecture.md](../docs/architect
 Research report with `<!-- RESEARCH_BEGIN/END -->` markers containing:
 - Topic Summary
 - URLs from User Notes (verified)
-- Official Documentation
-- Community/GitHub Findings
-- Key Technical Facts
-- Cause Analysis
-- Customer-Safe Root Cause
-- Solutions/Workarounds Found
-- When This Doesn't Apply
-- Suggested Customer Questions
-- Suggested Tags/Keywords
+- Sources & Findings (official docs, community/GitHub, ARM refs — grouped by source with key insights)
 - Research Gaps (informational only)
 
 ### Stage 2: Write

@@ -246,20 +246,14 @@ Output your findings concisely and between these markers. Do NOT repeat URLs as 
 ## URLs from User Notes
 - **[Title](URL)**: Relevance to this issue
 
-## Official Documentation
-- **[Title](URL)**: Key insight
-
-## Community/GitHub Findings
-- **[Source](URL)**: Workarounds or insights found
-  - Extract **concrete details**: code samples, API versions, specific parameters, step sequences
-  - Note any **caveats or updates** (e.g., "this approach no longer works as of [date]")
-  - If a code sample exists, include the key parts (URLs, payloads, API versions) — don't just summarize that it exists
-
-## Key Technical Facts
-[Verified facts relevant to cause and resolution; why this issue occurs.]
-
-## Solutions/Workarounds Found
-[Specific solutions found]
+## Sources & Findings
+For each source (official doc, ARM reference, GitHub discussion, etc.), list it once with URL and key insights.
+Group by source, not by topic. Include code samples inline under the source where they were found.
+- **[Title](URL)**
+  - Key insight or fact
+  - Code sample / API version / constraint (if any)
+- **[Title](URL)**
+  - ...
 
 ## Research Gaps
 [One terse line per gap. State what's missing, not why a tool failed.]
