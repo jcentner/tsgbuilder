@@ -1,6 +1,6 @@
 # Startup Performance Improvement Plan
 
-> **Status**: Planning  
+> **Status**: Implemented  
 > **Created**: 2026-02-13  
 > **Problem**: On Windows, the compiled executable takes ~60 seconds from double-click to a usable web server. Most of that time shows nothing at all, then Powershell opens and things move quickly. 
 
