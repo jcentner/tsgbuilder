@@ -7,10 +7,15 @@ Provides an easy-to-use web interface for generating TSGs from notes.
 
 from __future__ import annotations
 
+import sys
+
+# --- Immediate startup feedback for compiled executable ---
+if getattr(sys, 'frozen', False):
+    print("TSG Builder is starting...", flush=True)
+
 import json
 import os
 import subprocess
-import sys
 import threading
 import queue
 import uuid
@@ -57,6 +62,9 @@ from error_utils import classify_azure_sdk_error
 from pii_check import check_for_pii
 from version import APP_VERSION, GITHUB_URL
 import telemetry
+
+if getattr(sys, 'frozen', False):
+    print("Starting web server...", flush=True)
 
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
@@ -1162,27 +1170,36 @@ def api_debug_threads():
 
 def main():
     """Run the Flask development server."""
-    # Initialize telemetry subsystem
-    telemetry.init_telemetry()
-    if telemetry.is_active():
-        print("📊 Telemetry: enabled")
-    elif telemetry.is_telemetry_enabled():
-        print("📊 Telemetry: disabled (no connection string)")
-    else:
+    # Initialize telemetry subsystem (background for speed, or instant if opted out)
+    if not telemetry.is_telemetry_enabled():
         print("📊 Telemetry: disabled (opted out)")
-    
-    # Emit app_started event
-    import platform as _platform
-    telemetry.track_event(
-        "app_started",
-        properties={
-            "version": APP_VERSION,
-            "platform": _get_platform(),
-            "python_version": _platform.python_version(),
-            "run_mode": _get_run_mode(),
-        },
-    )
-    
+    else:
+        print("📊 Telemetry: initializing...")
+
+        def _init_telemetry_background():
+            telemetry.init_telemetry()
+
+            # Report final status (matches the 3 outcomes from the old sync flow)
+            if telemetry.is_active():
+                print("📊 Telemetry: enabled", flush=True)
+            else:
+                print("📊 Telemetry: disabled (no connection string)", flush=True)
+
+            import platform as _platform
+            telemetry.track_event(
+                "app_started",
+                properties={
+                    "version": APP_VERSION,
+                    "platform": _get_platform(),
+                    "python_version": _platform.python_version(),
+                    "run_mode": _get_run_mode(),
+                },
+            )
+
+        threading.Thread(
+            target=_init_telemetry_background, daemon=True
+        ).start()
+
     # Check configuration before starting
     endpoint = os.getenv("PROJECT_ENDPOINT")
     if not endpoint:
