@@ -25,18 +25,11 @@ from typing import Any, Generator
 
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from dotenv import load_dotenv, find_dotenv, set_key
-from azure.identity import DefaultAzureCredential
 from azure.core.exceptions import (
     HttpResponseError,
     ClientAuthenticationError,
     ServiceRequestError,
     ResourceNotFoundError,
-)
-from azure.ai.projects import AIProjectClient
-from azure.ai.projects.models import (
-    PromptAgentDefinition,
-    MCPTool,
-    WebSearchPreviewTool,
 )
 
 from tsg_constants import (
@@ -242,8 +235,10 @@ def _is_valid_thread_id(thread_id: str) -> bool:
     return thread_id.replace("-", "").replace("_", "").isalnum()
 
 
-def get_project_client() -> AIProjectClient:
+def get_project_client() -> "AIProjectClient":
     """Create and return an AIProjectClient."""
+    from azure.identity import DefaultAzureCredential
+    from azure.ai.projects import AIProjectClient
     endpoint = os.getenv("PROJECT_ENDPOINT")
     if not endpoint:
         raise ValueError("PROJECT_ENDPOINT environment variable is required")
@@ -453,6 +448,7 @@ def api_validate():
     # 3. Check Azure authentication (only if env vars are set)
     if env_ok:
         try:
+            from azure.identity import DefaultAzureCredential
             credential = DefaultAzureCredential()
             token = credential.get_token("https://cognitiveservices.azure.com/.default")
             checks.append({
@@ -475,6 +471,8 @@ def api_validate():
     if env_ok:
         endpoint = os.getenv("PROJECT_ENDPOINT")
         try:
+            from azure.identity import DefaultAzureCredential
+            from azure.ai.projects import AIProjectClient
             project_client = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
             with project_client:
                 # Actually make an API call to verify the token works for this resource
@@ -506,6 +504,8 @@ def api_validate():
     if project_client and deployment_name:
         try:
             # Re-open project client for deployment check
+            from azure.identity import DefaultAzureCredential
+            from azure.ai.projects import AIProjectClient
             with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
                 deployment = project.deployments.get(name=deployment_name)
                 # Check if the underlying model is gpt-5.2
@@ -529,6 +529,8 @@ def api_validate():
             # Try to list available deployments for helpful error message
             available_names = []
             try:
+                from azure.identity import DefaultAzureCredential
+                from azure.ai.projects import AIProjectClient
                 with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
                     deployments = list(project.deployments.list())
                     available_names = [d.name for d in deployments]
@@ -645,6 +647,9 @@ def api_create_agent():
         print("⚠️  BING_CONNECTION_NAME is set but no longer used. Web search is now managed automatically via WebSearchPreviewTool.")
     
     try:
+        from azure.identity import DefaultAzureCredential
+        from azure.ai.projects import AIProjectClient
+        from azure.ai.projects.models import PromptAgentDefinition, MCPTool, WebSearchPreviewTool
         project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
         
         # Build tools for research agent (Web Search + MCP) - v2 patterns

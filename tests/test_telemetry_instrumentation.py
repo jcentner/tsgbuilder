@@ -441,7 +441,7 @@ class TestSetupCompletedEvent:
         mock_project.__exit__ = MagicMock(return_value=False)
         mock_project.agents.create_version.return_value = mock_agent
 
-        with patch("web_app.AIProjectClient", return_value=mock_project), \
+        with patch("azure.ai.projects.AIProjectClient", return_value=mock_project), \
              patch("web_app.save_agent_ids"):
             response = client.post("/api/create-agent")
 

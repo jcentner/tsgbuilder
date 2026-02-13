@@ -20,9 +20,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from azure.identity import DefaultAzureCredential
-from azure.ai.projects import AIProjectClient
-
 from tsg_constants import (
     # Markers
     TSG_BEGIN,
@@ -1192,8 +1189,10 @@ class TSGPipeline:
             data["stage"] = stage.value
             self._event_queue.put({"type": event_type, "data": data})
     
-    def _get_project_client(self) -> AIProjectClient:
+    def _get_project_client(self) -> "AIProjectClient":
         """Create a project client."""
+        from azure.identity import DefaultAzureCredential
+        from azure.ai.projects import AIProjectClient
         return AIProjectClient(
             endpoint=self.project_endpoint,
             credential=DefaultAzureCredential()

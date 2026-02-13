@@ -12,13 +12,11 @@ from __future__ import annotations
 
 import os
 
-from azure.ai.textanalytics import TextAnalyticsClient, PiiEntityCategory
 from azure.core.exceptions import (
     ClientAuthenticationError,
     HttpResponseError,
     ServiceRequestError,
 )
-from azure.identity import DefaultAzureCredential
 
 from error_utils import classify_azure_sdk_error
 
@@ -29,18 +27,21 @@ from error_utils import classify_azure_sdk_error
 
 # PII categories to detect — intentionally curated to reduce false positives.
 # See docs/pii-detection-plan.md for rationale on each category.
-PII_CATEGORIES: list[PiiEntityCategory] = [
-    PiiEntityCategory.EMAIL,
-    PiiEntityCategory.PHONE_NUMBER,
-    PiiEntityCategory.IP_ADDRESS,
-    PiiEntityCategory.PERSON,
-    PiiEntityCategory.AZURE_DOCUMENT_DB_AUTH_KEY,
-    PiiEntityCategory.AZURE_STORAGE_ACCOUNT_KEY,
-    PiiEntityCategory.AZURE_SAS,
-    PiiEntityCategory.AZURE_IO_T_CONNECTION_STRING,
-    PiiEntityCategory.SQL_SERVER_CONNECTION_STRING,
-    PiiEntityCategory.CREDIT_CARD_NUMBER,
-    PiiEntityCategory.US_SOCIAL_SECURITY_NUMBER,
+# Uses raw strings instead of PiiEntityCategory enum to avoid importing the
+# entire azure.ai.textanalytics package at module load time (startup perf).
+# The recognize_pii_entities() API accepts category name strings natively.
+PII_CATEGORIES: list[str] = [
+    "Email",
+    "PhoneNumber",
+    "IPAddress",
+    "Person",
+    "AzureDocumentDBAuthKey",
+    "AzureStorageAccountKey",
+    "AzureSAS",
+    "AzureIoTConnectionString",
+    "SQLServerConnectionString",
+    "CreditCardNumber",
+    "USSocialSecurityNumber",
 ]
 
 # Minimum confidence score to include a finding (0.0–1.0).
@@ -81,11 +82,11 @@ def _extract_ai_services_endpoint(project_endpoint: str) -> str:
 # CLIENT
 # =============================================================================
 
-_client: TextAnalyticsClient | None = None
+_client: "TextAnalyticsClient | None" = None
 _client_endpoint: str | None = None
 
 
-def get_language_client(endpoint: str) -> TextAnalyticsClient:
+def get_language_client(endpoint: str) -> "TextAnalyticsClient":
     """Create or return a cached TextAnalyticsClient.
 
     Uses DefaultAzureCredential (Entra ID) and the AI Services endpoint
@@ -95,6 +96,9 @@ def get_language_client(endpoint: str) -> TextAnalyticsClient:
         endpoint: The AI Services base URL
                   (e.g. ``https://<resource>.services.ai.azure.com/``).
     """
+    from azure.ai.textanalytics import TextAnalyticsClient
+    from azure.identity import DefaultAzureCredential
+
     global _client, _client_endpoint
     if _client is None or _client_endpoint != endpoint:
         _client = TextAnalyticsClient(
