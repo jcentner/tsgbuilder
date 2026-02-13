@@ -228,6 +228,9 @@ When possible, prefer **stable/canonical URLs** over ephemeral sources:
 
 Note: Internal tools (Kusto queries, ASC actions, Acis commands) are not publicly documented. Flag these as research gaps for the Writer to mark as MISSING.
 
+### Code Sample Extraction
+When a source (GitHub issue, discussion, doc, Q&A thread) contains a code sample, script, CLI command, REST payload, or API call — **extract and include the concrete code** in your report. The Writer cannot access these sources and relies entirely on what you provide. Do not just note that a code sample exists; include the actual code, URLs, payloads, parameters, and API versions.
+
 ## Output Format
 Output your findings concisely and between these markers:
 
@@ -235,10 +238,9 @@ Output your findings concisely and between these markers:
 <!-- RESEARCH_BEGIN -->
 # Research Report
 
-## Notes Analysis
-- **Provided**: [What the notes already contain — symptom, cause, workaround, code, URLs]
+## Search Priority
 - **Missing/Gaps**: [What the notes lack that research should fill]
-- **Search Priority**: [What you prioritized searching for based on gaps]
+- **Search Strategy**: [What you prioritized searching for based on gaps]
 
 ## Topic Summary
 [What is the issue and what was researched]
