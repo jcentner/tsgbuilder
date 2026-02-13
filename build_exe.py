@@ -133,6 +133,15 @@ def build_executable():
     if exe_path.exists():
         size_mb = exe_path.stat().st_size / (1024 * 1024)
         folder_path = exe_path.parent
+
+        # Copy GETTING_STARTED.md into the distribution folder
+        getting_started = Path("GETTING_STARTED.md")
+        if getting_started.exists():
+            shutil.copy2(getting_started, folder_path / "GETTING_STARTED.md")
+            print(f"[OK] Included GETTING_STARTED.md in distribution")
+        else:
+            print(f"[WARN] GETTING_STARTED.md not found — skipping")
+
         print(f"\n[OK] Build successful!")
         print(f"    Executable: {exe_path}")
         print(f"    Folder: {folder_path}")
