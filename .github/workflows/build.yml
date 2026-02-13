@@ -75,6 +75,9 @@ jobs:
       - name: Zip executables
         run: |
           cd artifacts
+          # Restore executable permissions lost by upload/download-artifact
+          chmod +x tsg-builder-linux/tsg-builder-linux 2>/dev/null || true
+          chmod +x tsg-builder-macos/tsg-builder-macos 2>/dev/null || true
           # Zip each platform folder for distribution
           for dir in tsg-builder-*/; do
             platform="${dir%/}"
