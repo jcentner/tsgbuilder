@@ -1207,20 +1207,6 @@ def main():
             target=_init_telemetry_background, daemon=True
         ).start()
 
-    # Check configuration before starting
-    endpoint = os.getenv("PROJECT_ENDPOINT")
-    if not endpoint:
-        print("WARNING: PROJECT_ENDPOINT not set. The app will start but won't be functional.")
-        print("Please configure your .env file and restart.")
-    
-    try:
-        agent_ids = get_agent_ids()
-        prefix = agent_ids.get("name_prefix", "TSG")
-        print(f"Pipeline agents: 3 configured ({prefix})")
-    except Exception as e:
-        print(f"WARNING: {e}")
-        print("Use the Setup wizard in the web UI to create agents.")
-    
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
     

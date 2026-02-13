@@ -161,7 +161,6 @@ def init_telemetry() -> None:
             return
 
         # Import OpenTelemetry components
-        from opentelemetry._logs import set_logger_provider
         from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
         from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
         from azure.monitor.opentelemetry.exporter import AzureMonitorLogExporter
@@ -172,13 +171,22 @@ def init_telemetry() -> None:
         logger_provider.add_log_record_processor(
             BatchLogRecordProcessor(exporter)
         )
-        set_logger_provider(logger_provider)
+        # NOTE: We intentionally do NOT call set_logger_provider() here.
+        # Setting a global provider allows other components (Azure SDKs,
+        # OTel auto-instrumentation) to discover it and attach additional
+        # handlers, which causes duplicate events in App Insights.
+        # Instead we pass logger_provider explicitly to LoggingHandler.
 
-        # Create a namespaced logger (avoids recursion with azure-core internals)
-        handler = LoggingHandler()
+        # Create a namespaced logger with explicit provider binding
+        # (avoids recursion with azure-core internals)
+        handler = LoggingHandler(logger_provider=logger_provider)
         _logger = logging.getLogger("tsgbuilder.telemetry")
         _logger.addHandler(handler)
         _logger.setLevel(logging.INFO)
+        # Prevent propagation to root logger — without this, any
+        # LoggingHandler on a parent/root logger would re-export
+        # the same record, producing exact duplicates in App Insights.
+        _logger.propagate = False
 
         _initialized = True
 
