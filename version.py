@@ -9,7 +9,7 @@ See docs/releasing.md for the release process.
 
 # Application version - update this for each release
 # Format: MAJOR.MINOR.PATCH (semver)
-APP_VERSION = "1.0.6-beta.4"
+APP_VERSION = "1.0.6"
 
 # Project URLs
 GITHUB_URL = "https://github.com/jcentner/tsgbuilder"
