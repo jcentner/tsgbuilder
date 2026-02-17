@@ -40,7 +40,7 @@ help:
 	@echo "  make ui TEST=1           # Run with test output capture"
 	@echo "  make clean DELETE_AGENTS=1  # Clean and delete agents from Azure"
 
-setup: .venv install
+setup: .venv install-dev
 	@echo ""
 	@echo "========================================="
 	@echo "Setup complete!"
