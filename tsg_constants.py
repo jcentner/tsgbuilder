@@ -233,6 +233,23 @@ Note: Internal tools (Kusto queries, ASC actions, Acis commands) are not publicl
 ### Code Sample Extraction
 When a source (GitHub issue, discussion, doc, Q&A thread) contains a code sample, script, CLI command, REST payload, or API call — **extract and include the concrete code** in your report. The Writer cannot access these sources and relies entirely on what you provide. Do not just note that a code sample exists; include the actual code, URLs, payloads, parameters, and API versions.
 
+⚠️ **Critical**: If the notes have no workaround and your research goal is to FIND one, code extraction from community sources is your **highest-value deliverable**. A research report that finds a workaround discussion but doesn't extract the code has failed its primary objective. If a code sample has multiple steps (e.g., create account-level resource, then project-level resource), include ALL steps.
+
+### Handling Web Search Results (Important)
+Your web search tool is a **Bing grounding tool** behind the scenes — it returns search result snippets with URL citations, NOT full page content. You cannot open or fetch individual pages. This means:
+
+1. **You see Bing's grounded text for each result** — this includes excerpts, summaries, and sometimes partial code fragments from matching pages
+2. **You will NOT see full page content** — if a GitHub Discussion has a 50-line code sample, you may only see a few lines in the search snippet
+3. **Run follow-up searches to surface code**: If your first search finds a relevant page but the snippet doesn't contain enough code, search again with more specific terms targeting the code itself:
+   - Instead of: `"Agents cannot use connected resources" site:github.com`
+   - Try also: `azure capability host REST API PUT code DefaultAzureCredential`
+   - Try also: `capabilityHost aiServicesConnections JSON body example`
+4. **Extract ALL code visible** in search snippets — even partial fragments are valuable. Note the source URL alongside.
+5. **Report the URL** where code lives so the Writer can reference it, even if you couldn't extract the full sample.
+6. **Note in Research Gaps** what content you could not fully extract (e.g., "Full Python workaround at [URL] — only partial code visible in search results").
+
+The Writer has NO access to these sources and relies entirely on what you provide.
+
 ## Output Format
 Output your findings concisely and between these markers. Do NOT repeat URLs as inline citations in body text — each URL should appear once in its section header.
 
@@ -296,11 +313,14 @@ Internal tools (Kusto queries, ASC actions, Acis commands) are Azure-internal an
 ## Rules
 1. Use only information from the notes and research—no fabrication
 2. For required content not found in notes or research, use: `{{MISSING::<Section>::<Hint>}}`
+   - Before creating a MISSING placeholder, check whether the content can be **reasonably inferred** from explicit statements in the notes. For example, if notes say "this applies to Foundry Classic (not hub-based projects)," you can infer that hub-based projects are an exclusion for "When does the TSG not Apply" — no MISSING needed.
+   - MISSING is for content that is **completely absent and cannot be derived** from explicit note content, not for content you'd like independent confirmation of. Do not infer from general domain knowledge — only from what the notes explicitly state.
 3. Internal tools (Kusto queries, ASC actions, Acis commands) won't be in research—mark as MISSING
 4. Include only URLs that directly help diagnose or resolve this issue
 5. Include code samples from notes in the Mitigation/Resolution section."
 6. The TSG MUST start with `[[_TOC_]]` followed by the title as the first H1 heading. The title IS the heading itself, e.g., `# **Azure AI Foundry: Model deployments not visible**` — do NOT create a separate "Title" section.
 7. **Do NOT include**: source attributions, inline citations, "(from notes)", "(per docs)", "(community-sourced)", or any reference to where information came from. Don't add any commentary.
+8. When including code samples or API examples in Mitigation/Resolution, **tailor them to the specific fix**. If official docs or research show a complete example with many optional properties, only include the properties relevant to this workaround. Mention other optional properties separately if useful, but don't mix them into the primary example where they create noise.
 
 ## Output Format
 ```
@@ -372,6 +392,10 @@ A TSG is an **internal operations manual** presenting facts and procedures as es
 - **Warnings inform, not block**: Discrepancies between notes and public docs should surface as `accuracy_issues` for the user to consider, but should NOT block TSG generation.
 - **No source attributions needed**: TSGs should NOT contain phrases like "(from docs)", "(per research)", "(community-sourced)", or "(as provided in notes)". If present, flag for removal.
 - **Write feedback for the user**: Your accuracy_issues and suggestions will be shown to the user who submitted the notes. Write them as direct, actionable feedback.
+- **MISSING placeholders should be necessary**: If a MISSING placeholder covers content that can be reasonably inferred from explicit statements in the notes, flag it in `completeness_issues` as "MISSING placeholder may be unnecessary — derivable from notes."
+- **Be concise and high-signal**: Each accuracy_issue or suggestion is displayed as a UI warning banner. Keep each item to **1 sentence** (2 max if needed). Don't include hedging, caveats, or "if applicable" qualifiers — if it's not clearly applicable, don't raise it.
+- **Raise only actionable items**: Only flag issues the user can and should act on. Don't suggest rewording that's already acceptable, don't second-guess editorial choices (e.g., which links to include), and don't raise speculative improvements you're unsure about. Aim for **2–3 high-value suggestions**, not 5+ minor ones.
+- **No cross-category redundancy**: Each issue should appear in exactly **one** category. Don't repeat the same point in `accuracy_issues` and `suggestions`, or in `completeness_issues` and `suggestions`. Pick the single most appropriate category.
 
 ## Task
 Review the draft TSG against the research and notes for:
@@ -379,6 +403,7 @@ Review the draft TSG against the research and notes for:
 2. **Accuracy**: Claims match research/notes (no fabrications)
 3. **Completeness**: Appropriate MISSING placeholders
 4. **Format**: Correct markers
+5. **Workaround completeness**: If the research describes a multi-step workaround or procedure, verify the Mitigation/Resolution section covers ALL steps — not just a subset. Flag missing steps as `completeness_issues`.
 
 ## Required TSG Sections
 The TSG must start with `[[_TOC_]]` followed by the title as the first H1 heading (e.g., `# **Azure AI Foundry: Error XYZ**`), then these exact headings:

@@ -656,7 +656,9 @@ def api_create_agent():
         
         # Build tools for research agent (Web Search + MCP) - v2 patterns
         # WebSearchPreviewTool uses Microsoft-managed Bing — no connection ID required
-        web_search_tool = WebSearchPreviewTool()
+        # search_context_size="high" allocates more context window for search results,
+        # improving code extraction from community sources (GitHub, SO, etc.)
+        web_search_tool = WebSearchPreviewTool(search_context_size="high")
         
         mcp_tool = MCPTool(
             server_label="learn",
