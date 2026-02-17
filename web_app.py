@@ -7,10 +7,15 @@ Provides an easy-to-use web interface for generating TSGs from notes.
 
 from __future__ import annotations
 
+import sys
+
+# --- Immediate startup feedback for compiled executable ---
+if getattr(sys, 'frozen', False):
+    print("TSG Builder is starting...", flush=True)
+
 import json
 import os
 import subprocess
-import sys
 import threading
 import queue
 import uuid
@@ -20,18 +25,11 @@ from typing import Any, Generator
 
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from dotenv import load_dotenv, find_dotenv, set_key
-from azure.identity import DefaultAzureCredential
 from azure.core.exceptions import (
     HttpResponseError,
     ClientAuthenticationError,
     ServiceRequestError,
     ResourceNotFoundError,
-)
-from azure.ai.projects import AIProjectClient
-from azure.ai.projects.models import (
-    PromptAgentDefinition,
-    MCPTool,
-    WebSearchPreviewTool,
 )
 
 from tsg_constants import (
@@ -57,6 +55,9 @@ from error_utils import classify_azure_sdk_error
 from pii_check import check_for_pii
 from version import APP_VERSION, GITHUB_URL
 import telemetry
+
+if getattr(sys, 'frozen', False):
+    print("Starting web server...", flush=True)
 
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
@@ -142,8 +143,10 @@ TEST_MODE = os.getenv("TSG_TEST_MODE", "").strip() in ("1", "true", "True", "yes
 if TEST_MODE:
     print("🧪 Test mode enabled - stage outputs will be captured to test_output_*.json")
 
-# Configure Flask with proper paths for PyInstaller executable mode
-# When frozen, PyInstaller extracts bundled files to sys._MEIPASS temp directory
+# Configure Flask with proper paths for PyInstaller executable mode.
+# In --onedir + --contents-directory mode, sys._MEIPASS points to the
+# _internal/ subdirectory where PyInstaller places bundled data files
+# (templates, static). sys.executable is in the parent (top-level) folder.
 if getattr(sys, 'frozen', False):
     _bundle_dir = Path(sys._MEIPASS)  # type: ignore[attr-defined]
     app = Flask(
@@ -234,8 +237,10 @@ def _is_valid_thread_id(thread_id: str) -> bool:
     return thread_id.replace("-", "").replace("_", "").isalnum()
 
 
-def get_project_client() -> AIProjectClient:
+def get_project_client() -> "AIProjectClient":
     """Create and return an AIProjectClient."""
+    from azure.identity import DefaultAzureCredential
+    from azure.ai.projects import AIProjectClient
     endpoint = os.getenv("PROJECT_ENDPOINT")
     if not endpoint:
         raise ValueError("PROJECT_ENDPOINT environment variable is required")
@@ -445,6 +450,7 @@ def api_validate():
     # 3. Check Azure authentication (only if env vars are set)
     if env_ok:
         try:
+            from azure.identity import DefaultAzureCredential
             credential = DefaultAzureCredential()
             token = credential.get_token("https://cognitiveservices.azure.com/.default")
             checks.append({
@@ -467,6 +473,8 @@ def api_validate():
     if env_ok:
         endpoint = os.getenv("PROJECT_ENDPOINT")
         try:
+            from azure.identity import DefaultAzureCredential
+            from azure.ai.projects import AIProjectClient
             project_client = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
             with project_client:
                 # Actually make an API call to verify the token works for this resource
@@ -498,6 +506,8 @@ def api_validate():
     if project_client and deployment_name:
         try:
             # Re-open project client for deployment check
+            from azure.identity import DefaultAzureCredential
+            from azure.ai.projects import AIProjectClient
             with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
                 deployment = project.deployments.get(name=deployment_name)
                 # Check if the underlying model is gpt-5.2
@@ -521,6 +531,8 @@ def api_validate():
             # Try to list available deployments for helpful error message
             available_names = []
             try:
+                from azure.identity import DefaultAzureCredential
+                from azure.ai.projects import AIProjectClient
                 with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
                     deployments = list(project.deployments.list())
                     available_names = [d.name for d in deployments]
@@ -637,11 +649,16 @@ def api_create_agent():
         print("⚠️  BING_CONNECTION_NAME is set but no longer used. Web search is now managed automatically via WebSearchPreviewTool.")
     
     try:
+        from azure.identity import DefaultAzureCredential
+        from azure.ai.projects import AIProjectClient
+        from azure.ai.projects.models import PromptAgentDefinition, MCPTool, WebSearchPreviewTool
         project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
         
         # Build tools for research agent (Web Search + MCP) - v2 patterns
         # WebSearchPreviewTool uses Microsoft-managed Bing — no connection ID required
-        web_search_tool = WebSearchPreviewTool()
+        # search_context_size="high" allocates more context window for search results,
+        # improving code extraction from community sources (GitHub, SO, etc.)
+        web_search_tool = WebSearchPreviewTool(search_context_size="high")
         
         mcp_tool = MCPTool(
             server_label="learn",
@@ -1162,41 +1179,36 @@ def api_debug_threads():
 
 def main():
     """Run the Flask development server."""
-    # Initialize telemetry subsystem
-    telemetry.init_telemetry()
-    if telemetry.is_active():
-        print("📊 Telemetry: enabled")
-    elif telemetry.is_telemetry_enabled():
-        print("📊 Telemetry: disabled (no connection string)")
-    else:
+    # Initialize telemetry subsystem (background for speed, or instant if opted out)
+    if not telemetry.is_telemetry_enabled():
         print("📊 Telemetry: disabled (opted out)")
-    
-    # Emit app_started event
-    import platform as _platform
-    telemetry.track_event(
-        "app_started",
-        properties={
-            "version": APP_VERSION,
-            "platform": _get_platform(),
-            "python_version": _platform.python_version(),
-            "run_mode": _get_run_mode(),
-        },
-    )
-    
-    # Check configuration before starting
-    endpoint = os.getenv("PROJECT_ENDPOINT")
-    if not endpoint:
-        print("WARNING: PROJECT_ENDPOINT not set. The app will start but won't be functional.")
-        print("Please configure your .env file and restart.")
-    
-    try:
-        agent_ids = get_agent_ids()
-        prefix = agent_ids.get("name_prefix", "TSG")
-        print(f"Pipeline agents: 3 configured ({prefix})")
-    except Exception as e:
-        print(f"WARNING: {e}")
-        print("Use the Setup wizard in the web UI to create agents.")
-    
+    else:
+        print("📊 Telemetry: initializing...")
+
+        def _init_telemetry_background():
+            telemetry.init_telemetry()
+
+            # Report final status (matches the 3 outcomes from the old sync flow)
+            if telemetry.is_active():
+                print("📊 Telemetry: enabled", flush=True)
+            else:
+                print("📊 Telemetry: disabled (no connection string)", flush=True)
+
+            import platform as _platform
+            telemetry.track_event(
+                "app_started",
+                properties={
+                    "version": APP_VERSION,
+                    "platform": _get_platform(),
+                    "python_version": _platform.python_version(),
+                    "run_mode": _get_run_mode(),
+                },
+            )
+
+        threading.Thread(
+            target=_init_telemetry_background, daemon=True
+        ).start()
+
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
     

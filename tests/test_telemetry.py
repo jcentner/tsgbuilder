@@ -352,8 +352,8 @@ class TestSilentFailure:
         monkeypatch.delenv("TSG_TELEMETRY", raising=False)
         monkeypatch.setenv("APPINSIGHTS_CONNECTION_STRING", "InstrumentationKey=test")
 
-        # Make the OpenTelemetry import fail
-        with patch.dict(sys.modules, {"opentelemetry._logs": None}):
+        # Make the OpenTelemetry SDK import fail
+        with patch.dict(sys.modules, {"opentelemetry.sdk._logs": None}):
             telemetry.init_telemetry()
 
         # Should be marked as initialized (to avoid retrying) but logger stays None
@@ -414,7 +414,6 @@ class TestInitWithExporter:
         monkeypatch.setenv("APPINSIGHTS_CONNECTION_STRING", "InstrumentationKey=test-key")
 
         # Mock all OTel components that get imported inside init_telemetry
-        mock_logs_module = MagicMock()
         mock_sdk_logs_module = MagicMock()
         mock_export_module = MagicMock()
         mock_exporter_module = MagicMock()
@@ -430,7 +429,6 @@ class TestInitWithExporter:
 
         with patch.dict(sys.modules, {
             "_build_config": None,
-            "opentelemetry._logs": mock_logs_module,
             "opentelemetry.sdk._logs": mock_sdk_logs_module,
             "opentelemetry.sdk._logs.export": mock_export_module,
             "azure.monitor.opentelemetry.exporter": mock_exporter_module,
@@ -443,3 +441,9 @@ class TestInitWithExporter:
         assert telemetry._initialized is True
         assert telemetry._logger is not None
         assert telemetry._logger.name == "tsgbuilder.telemetry"
+        # LoggingHandler must receive explicit logger_provider (no global leak)
+        mock_sdk_logs_module.LoggingHandler.assert_called_once_with(
+            logger_provider=mock_logger_provider_instance
+        )
+        # propagate must be False to prevent duplicate events via root handlers
+        assert telemetry._logger.propagate is False

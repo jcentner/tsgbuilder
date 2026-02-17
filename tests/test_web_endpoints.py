@@ -159,8 +159,8 @@ class TestModelDeploymentValidation:
         mock_project.deployments.get.return_value = deployment
         mock_project.agents.list.return_value = []
 
-        with patch("web_app.DefaultAzureCredential", return_value=mock_credential), \
-             patch("web_app.AIProjectClient", return_value=mock_project), \
+        with patch("azure.identity.DefaultAzureCredential", return_value=mock_credential), \
+             patch("azure.ai.projects.AIProjectClient", return_value=mock_project), \
              patch("web_app.get_agent_ids", side_effect=ValueError("no agents")):
             response = client.get("/api/validate")
 

@@ -21,7 +21,7 @@ This directory contains example input files, expected outputs, and test run resu
 
 ### Test Run Results
 
-JSON files named `test_output_{date}_{time}` show full end-to-end capture of test runs. 
+JSON files named `test_output_{date}_{time}` from pipeline test mode runs are saved in the `logs/` directory (see `make ui TEST=1`).
 
 ## Usage
 

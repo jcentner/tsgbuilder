@@ -100,7 +100,7 @@ This is a known limitation in the Azure AI Foundry Classic portal. By default, t
 - [Use your own resources - Azure AI Foundry](https://learn.microsoft.com/en-us/azure/ai-foundry/agents/how-to/use-your-own-resources?view=foundry-classic#basic-agent-setup-use-an-existing-azure-openai-resource)
 - [Capability hosts - Azure AI Foundry](https://learn.microsoft.com/en-us/azure/ai-foundry/agents/concepts/capability-hosts?view=foundry-classic)
 - [Environment setup for agents](https://learn.microsoft.com/en-us/azure/ai-foundry/agents/environment-setup?view=foundry-classic)
-- [GitHub Discussion: Connected OpenAI resources not visible](https://github.com/orgs/azure-ai-foundry/discussions/59)
+- [GitHub Discussion: Connected OpenAI resources not visible](https://github.com/orgs/microsoft-foundry/discussions/59)
 - [Microsoft Foundry portals overview](https://learn.microsoft.com/en-us/azure/ai-foundry/what-is-azure-ai-foundry?view=foundry-classic#microsoft-foundry-portals)
 
 # **Tags or Prompts**

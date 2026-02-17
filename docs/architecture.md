@@ -143,9 +143,13 @@ When the TSG has missing information:
 | `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
 | `pii_check.py` | PII detection via Azure AI Language API (pre-flight gate) |
 | `error_utils.py` | Shared Azure SDK error classification utilities |
+| `telemetry.py` | Anonymous usage telemetry (see [docs/telemetry.md](telemetry.md)) |
 | `version.py` | Single source of truth for version, GitHub URL, and TSG signature |
 | `web_app.py` | Flask web UI + agent creation |
 | `build_exe.py` | PyInstaller build script (bundles templates/, static/) |
+| `validate_setup.py` | Validate environment configuration (CLI troubleshooting) |
+| `delete_agents.py` | Delete agents from Azure (used by `make clean DELETE_AGENTS=1`) |
+| `Makefile` | Common operations (setup, ui, test, build, clean) |
 | `templates/index.html` | Web UI HTML structure |
 | `static/css/styles.css` | Web UI styles |
 | `static/js/main.js` | Core application logic (streaming, TSG display, images, PII modal) |
@@ -153,8 +157,8 @@ When the TSG has missing information:
 | `.agent_ids.json` | Stores agent IDs after creation |
 | `tests/` | Pytest test suite |
 | `tests/conftest.py` | Shared fixtures and test utilities |
-| `docs/error-handling-plan.md` | Error handling implementation plan |
-| `docs/pii-detection-plan.md` | PII detection implementation plan |
+| `docs/archive/error-handling-plan.md` | Error handling implementation plan (archived) |
+| `docs/archive/pii-detection-plan.md` | PII detection implementation plan (archived) |
 
 ## Design Decisions
 

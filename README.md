@@ -276,11 +276,16 @@ This creates executables in `dist/`:
 | `make ui` | Start the web UI at http://localhost:5000 |
 | `make build` | Build standalone executable with PyInstaller |
 | `make validate` | Check environment configuration (CLI troubleshooting) |
+| `make install` | Install dependencies only (assumes venv exists) |
+| `make install-dev` | Install dev dependencies (pytest, etc.) |
 | `make clean` | Remove venv and generated files |
 | `make clean DELETE_AGENTS=1` | Also delete agents from Azure before cleaning |
 | `make lint` | Check Python syntax |
 | `make test` | Run the test suite |
+| `make test-verbose` | Run tests with verbose output |
 | `make test-cov` | Run tests with coverage report |
+| `make test-unit` | Run only unit tests (fast) |
+| `make test-quick` | Skip dep install (fastest) |
 | `make help` | Show all commands |
 
 ### Architecture
@@ -295,6 +300,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed pipeline architect
 | `pipeline.py` | Multi-stage pipeline orchestration (Research → Write → Review) |
 | `pii_check.py` | PII detection via Azure AI Language API (pre-flight gate) |
 | `error_utils.py` | Shared Azure SDK error classification utilities |
+| `telemetry.py` | Anonymous usage telemetry (see [docs/telemetry.md](docs/telemetry.md)) |
 | `version.py` | Single source of truth for version, GitHub URL, and TSG signature |
 | `build_exe.py` | PyInstaller build script (bundles templates/, static/) |
 | `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
