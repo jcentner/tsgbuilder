@@ -58,7 +58,7 @@ TSG Builder was born out of this need. The idea: **you provide a raw dump of inf
 <details>
 <summary>Click to expand developer instructions</summary>
 
-Requires Python 3.9+, GNU Make, and Azure CLI.
+Requires Python 3.11+, GNU Make, and Azure CLI.
 
 ```bash
 # 1. Clone and setup
@@ -94,7 +94,7 @@ The setup wizard opens automatically to guide you through configuration.
 ### Local Requirements
 
 - **Azure CLI** — Logged in with `az login` ([Install Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli))
-- **For source builds only**: Python 3.9+, GNU Make
+- **For source builds only**: Python 3.11+, GNU Make
 
 ## Using TSG Builder
 
