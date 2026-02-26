@@ -77,7 +77,10 @@ Always run `make test` before submitting changes. Tests live in `tests/` with sh
 | PII detected in notes/follow-up answers | **Block** until edited/redacted |
 | PII check service/auth error | **Block** (fail-closed) |
 | Review `accuracy_issues` / `suggestions` | **Warn only** |
-| Model is not gpt-5.2 | **Warn only** (`critical: false`) |
+| Model is gpt-5.2 (non-chat) | **Pass** (fully compatible) |
+| Model is gpt-5.1 (non-chat) | **Warn only** (`critical: false`) — may work but prompts optimized for 5.2 |
+| Model is any `-chat` variant | **Block** (`critical: true`) — lacks image input, limited Agent Service tool support |
+| Model is any other (gpt-5, gpt-4.1, etc.) | **Block** (`critical: true`) — unsupported Agent Service tools/capabilities |
 
 ## Code Conventions
 
