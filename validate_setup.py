@@ -114,8 +114,14 @@ def check_project_connection(endpoint: str) -> bool:
     return False
 
 
-def check_model_deployment(endpoint: str, deployment_name: str) -> bool:
-    """Check if the specified model deployment exists in the project."""
+def check_model_deployment(endpoint: str, deployment_name: str) -> tuple[bool, bool]:
+    """Check if the specified model deployment exists and is compatible.
+    
+    Returns:
+        (found, compatible): found=True if deployment exists,
+                             compatible=True if model is gpt-5.2/5.1,
+                             compatible=False if model is unsupported.
+    """
     print("\n[4/6] Checking model deployment...")
     
     try:
@@ -124,8 +130,35 @@ def check_model_deployment(endpoint: str, deployment_name: str) -> bool:
         
         with AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential()) as project:
             deployment = project.deployments.get(name=deployment_name)
-            print_ok(f"Found deployment: {deployment.name}")
-            return True
+            underlying_model = getattr(deployment, "model_name", None) or ""
+            model_lower = underlying_model.lower()
+
+            if not underlying_model:
+                print_ok(f"Found deployment: {deployment.name} (could not determine underlying model)")
+                return True, True
+            elif "chat" in model_lower:
+                print_fail(
+                    f"Deployment '{deployment.name}' uses {underlying_model}. "
+                    f"-chat models lack image input and full Agent Service tool support."
+                )
+                print("    Use a gpt-5.2 (non-chat) deployment.")
+                return True, False
+            elif "gpt-5.2" in model_lower:
+                print_ok(f"Found deployment: {deployment.name} ({underlying_model})")
+                return True, True
+            elif "gpt-5.1" in model_lower:
+                print_warn(
+                    f"Deployment '{deployment.name}' uses {underlying_model}. "
+                    f"Prompts are optimized for gpt-5.2; gpt-5.1 may work but is not fully tested."
+                )
+                return True, True  # Warning, not blocking
+            else:
+                print_fail(
+                    f"Deployment '{deployment.name}' uses {underlying_model}. "
+                    f"Only gpt-5.2 is supported."
+                )
+                print("    Other models lack required Agent Service tool support and image input capabilities.")
+                return True, False
     except Exception as e:
         error_str = str(e)
         # Try to list available deployments for helpful error
@@ -146,7 +179,7 @@ def check_model_deployment(endpoint: str, deployment_name: str) -> bool:
             print_warn(f"Deployment '{deployment_name}' not found in project")
         else:
             print_warn(f"Could not verify deployment: {str(e)[:80]}")
-        return False
+        return False, False
 
 
 def check_agent_ref() -> bool:
@@ -246,15 +279,18 @@ def main():
             project_connected = check_project_connection(env_vars["PROJECT_ENDPOINT"])
             results.append(("Project connection", project_connected))
             
-            # Run deployment and connection checks (warnings, not blocking)
+            # Run deployment and model compatibility checks
             if project_connected:
                 endpoint = env_vars["PROJECT_ENDPOINT"]
                 model_name = env_vars.get("MODEL_DEPLOYMENT_NAME", "")
                 
                 if model_name:
-                    model_ok = check_model_deployment(endpoint, model_name)
-                    if not model_ok:
+                    found, compatible = check_model_deployment(endpoint, model_name)
+                    if not found:
                         warnings.append("Model Deployment")
+                    elif not compatible:
+                        # Incompatible model — treat as failure (blocking)
+                        results.append(("Model Deployment", False))
                     else:
                         results.append(("Model Deployment", True))
     

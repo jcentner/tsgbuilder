@@ -501,7 +501,10 @@ def api_validate():
             })
             project_client = None  # Can't proceed with deployment/connection checks
     
-    # 5. Check model deployment exists and is gpt-5.2 (warning if can't verify)
+    # 5. Check model deployment exists and validate model compatibility
+    # Tier 1: gpt-5.2 (non-chat) — fully compatible (pass)
+    # Tier 2: gpt-5.1 (non-chat) — may work but prompts written for 5.2 (warn, non-blocking)
+    # Tier 3: everything else (-chat, older models, etc.) — unsupported (block)
     deployment_name = os.getenv("MODEL_DEPLOYMENT_NAME", "")
     if project_client and deployment_name:
         try:
@@ -510,21 +513,60 @@ def api_validate():
             from azure.ai.projects import AIProjectClient
             with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
                 deployment = project.deployments.get(name=deployment_name)
-                # Check if the underlying model is gpt-5.2
                 underlying_model = getattr(deployment, "model_name", None) or ""
-                if underlying_model and "gpt-5.2" not in underlying_model.lower():
-                    checks.append({
-                        "name": "Model Deployment",
-                        "passed": False,
-                        "message": f"Deployment '{deployment.name}' uses {underlying_model}. Only gpt-5.2 is supported.",
-                        "critical": False,  # Warning, not blocking
-                    })
-                else:
+                model_lower = underlying_model.lower()
+
+                if not underlying_model:
+                    # Can't determine model — pass with note
                     checks.append({
                         "name": "Model Deployment",
                         "passed": True,
-                        "message": f"Found deployment: {deployment.name}" + (f" ({underlying_model})" if underlying_model else ""),
+                        "message": f"Found deployment: {deployment.name} (could not determine underlying model)",
                         "critical": False,
+                    })
+                elif "chat" in model_lower:
+                    # -chat variants lack image input, have limited Agent Service
+                    # tool support, and are Preview — block
+                    checks.append({
+                        "name": "Model Deployment",
+                        "passed": False,
+                        "message": (
+                            f"Deployment '{deployment.name}' uses {underlying_model}. "
+                            f"-chat models lack image input and full Agent Service tool support. "
+                            f"Use a gpt-5.2 (non-chat) deployment."
+                        ),
+                        "critical": True,
+                    })
+                elif "gpt-5.2" in model_lower:
+                    # Fully compatible
+                    checks.append({
+                        "name": "Model Deployment",
+                        "passed": True,
+                        "message": f"Found deployment: {deployment.name} ({underlying_model})",
+                        "critical": False,
+                    })
+                elif "gpt-5.1" in model_lower:
+                    # May work but prompts were written for gpt-5.2
+                    checks.append({
+                        "name": "Model Deployment",
+                        "passed": False,
+                        "message": (
+                            f"Deployment '{deployment.name}' uses {underlying_model}. "
+                            f"Prompts are optimized for gpt-5.2; gpt-5.1 may work but is not fully tested."
+                        ),
+                        "critical": False,  # Warning, not blocking
+                    })
+                else:
+                    # Any other model — block
+                    checks.append({
+                        "name": "Model Deployment",
+                        "passed": False,
+                        "message": (
+                            f"Deployment '{deployment.name}' uses {underlying_model}. "
+                            f"Only gpt-5.2 is supported. Other models lack required Agent Service "
+                            f"tool support and image input capabilities."
+                        ),
+                        "critical": True,
                     })
         except Exception as e:
             error_str = str(e)
