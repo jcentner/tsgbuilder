@@ -62,6 +62,77 @@ if getattr(sys, 'frozen', False):
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
 
+# ---------------------------------------------------------------------------
+# Version check (background, fail-silent)
+# ---------------------------------------------------------------------------
+
+_latest_version: str | None = None
+_update_url: str | None = None
+_update_check_done: bool = False
+
+
+def _is_newer(latest: str, current: str) -> bool:
+    """Return True if *latest* is strictly newer than *current* (semver).
+
+    Compares major.minor.patch integers.  Pre-release suffixes (e.g. -beta.1)
+    are treated as older than the same version without a suffix.
+    Malformed input returns False (safe default).
+    """
+    import re
+    _semver_re = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$")
+    m_latest = _semver_re.match(latest.strip())
+    m_current = _semver_re.match(current.strip())
+    if not m_latest or not m_current:
+        return False
+    l_tuple = tuple(int(m_latest.group(i)) for i in (1, 2, 3))
+    c_tuple = tuple(int(m_current.group(i)) for i in (1, 2, 3))
+    if l_tuple != c_tuple:
+        return l_tuple > c_tuple
+    # Same numeric version — pre-release is older than stable
+    l_pre = m_latest.group(4)
+    c_pre = m_current.group(4)
+    if c_pre and not l_pre:
+        return True  # latest is stable, current is pre-release
+    return False
+
+
+def _check_for_updates() -> None:
+    """Hit the GitHub releases API and cache the result.  Fail-silent."""
+    global _latest_version, _update_url, _update_check_done
+    try:
+        # Opt-out via TSG_UPDATE_CHECK=0
+        opt = os.getenv("TSG_UPDATE_CHECK", "1").strip().lower()
+        if opt in ("0", "false", "no"):
+            _update_check_done = True
+            return
+
+        import urllib.request
+        req = urllib.request.Request(
+            f"{GITHUB_URL.rstrip('/')}/releases/latest".replace(
+                "github.com", "api.github.com/repos"
+            ),
+            headers={"Accept": "application/vnd.github+json"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        tag = data.get("tag_name", "").lstrip("v")
+        if tag and _is_newer(tag, APP_VERSION):
+            _latest_version = tag
+            _update_url = data.get("html_url", f"{GITHUB_URL}/releases")
+
+            telemetry.track_event(
+                "update_available",
+                properties={
+                    "current_version": APP_VERSION,
+                    "latest_version": _latest_version,
+                },
+            )
+    except Exception:
+        pass  # Network errors, rate limits, airgapped — all fine
+    finally:
+        _update_check_done = True
+
 
 def _get_platform() -> str:
     """Detect the runtime platform for telemetry."""
@@ -102,6 +173,9 @@ PROJECT_ENDPOINT=
 MODEL_DEPLOYMENT_NAME=gpt-5.2
 
 AGENT_NAME=TSG-Builder
+
+# Set to 0 to disable update checks
+# TSG_UPDATE_CHECK=0
 """
 
 
@@ -289,6 +363,7 @@ def save_agent_ids(researcher: dict, writer: dict, reviewer: dict, name_prefix: 
         "writer": writer,
         "reviewer": reviewer,
         "name_prefix": name_prefix,
+        "app_version": APP_VERSION,
     }
     _get_agent_ids_file().write_text(json.dumps(data, indent=2), encoding="utf-8")
 
@@ -355,6 +430,13 @@ def api_status():
             else:
                 result["agents"][role] = str(agent_info)[:8] + "..."
         result["agents"]["name_prefix"] = agent_ids.get("name_prefix")
+        # Agent staleness detection: compare stored version to current
+        stored_version = agent_ids.get("app_version")
+        if stored_version != APP_VERSION:
+            result["agents"]["agents_stale"] = True
+            result["agents"]["agents_created_version"] = stored_version or "unknown"
+        else:
+            result["agents"]["agents_stale"] = False
     except ValueError:
         result["agents"]["configured"] = False
     
@@ -394,6 +476,9 @@ def api_about():
     except ValueError:
         agent_info = {"configured": False}
     
+    # Version check results (may still be in-flight on first About open)
+    update_check_enabled = os.getenv("TSG_UPDATE_CHECK", "1").strip().lower() not in ("0", "false", "no")
+
     return jsonify({
         "app_name": "TSG Builder",
         "version": APP_VERSION,
@@ -403,6 +488,9 @@ def api_about():
         "model": os.getenv("MODEL_DEPLOYMENT_NAME", ""),
         "agents": agent_info,
         "github_url": GITHUB_URL,
+        "latest_version": _latest_version,
+        "update_url": _update_url,
+        "update_check_enabled": update_check_enabled,
     })
 
 
@@ -553,15 +641,25 @@ def api_validate():
                 "warning": False,
             })
     
-    # 6. Check agent IDs (not critical)
+    # 6. Check agent IDs (not critical) + staleness detection
+    agents_stale = False
+    agents_created_version = None
     try:
         agent_ids = get_agent_ids()
         prefix = agent_ids.get("name_prefix", "TSG")
+        stored_version = agent_ids.get("app_version")
+        if stored_version != APP_VERSION:
+            agents_stale = True
+            agents_created_version = stored_version or "unknown"
+            message = f"3 agents configured ({prefix}) — created with v{agents_created_version}, current is v{APP_VERSION}"
+        else:
+            message = f"3 agents configured ({prefix})"
         checks.append({
             "name": "Pipeline Agents",
             "passed": True,
-            "message": f"3 agents configured ({prefix})",
+            "message": message,
             "critical": False,
+            "warning": agents_stale,
         })
     except ValueError:
         checks.append({
@@ -579,6 +677,8 @@ def api_validate():
         "checks": checks,
         "all_passed": all_passed,
         "ready_for_agent": all_critical_passed,
+        "agents_stale": agents_stale,
+        "agents_created_version": agents_created_version,
     })
 
 
@@ -1225,6 +1325,9 @@ def main():
         threading.Thread(
             target=_init_telemetry_background, daemon=True
         ).start()
+
+    # Background version check (fail-silent, respects TSG_UPDATE_CHECK=0)
+    threading.Thread(target=_check_for_updates, daemon=True).start()
 
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"

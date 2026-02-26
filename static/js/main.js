@@ -1139,13 +1139,34 @@ async function loadAboutInfo() {
                 <input type="hidden" id="${id}" value="${escapeHtml(val)}">
             </span>`;
         };
+
+        // Determine version status
+        let versionStatusHtml = '';
+        if (data.latest_version && _isNewer(data.latest_version, data.version)) {
+            const updateUrl = data.update_url || (data.github_url + '/releases');
+            versionStatusHtml = `
+                <div style="margin: 12px 0 16px; padding: 12px 16px; background: var(--warning-bg, #fff3cd); border: 1px solid var(--warning-border, #ffc107); border-radius: 8px; font-size: 13px; color: var(--warning-text, #856404);">
+                    <div style="font-weight: 600; margin-bottom: 6px;">📦 Version ${escapeHtml(data.latest_version)} is available</div>
+                    <div style="margin-bottom: 8px;">To upgrade: download the new release and extract into this same folder, overwriting the executable and _internal/ directory. Your .env configuration and agent setup will be preserved automatically.</div>
+                    <a href="${escapeHtml(updateUrl)}" target="_blank" style="color: inherit; font-weight: 600; text-decoration: underline;">Download Latest →</a>
+                </div>
+            `;
+        } else if (data.latest_version && data.latest_version === data.version) {
+            versionStatusHtml = '<span style="color: var(--success, #28a745); font-size: 12px; margin-left: 8px;">✓ Up to date</span>';
+        }
+
+        // Version line — inline "up to date" or separate banner
+        const isUpToDate = data.latest_version && data.latest_version === data.version;
+        const versionLine = `Version ${escapeHtml(data.version)}${isUpToDate ? ' <span style="color: var(--success, #28a745); font-size: 12px;">✓ Up to date</span>' : ''}`;
+        const bannerHtml = (!isUpToDate && data.latest_version && _isNewer(data.latest_version, data.version)) ? versionStatusHtml : '';
         
         // Build the about content
         let html = `
             <div style="margin-bottom: 20px; text-align: center;">
                 <div style="font-size: 24px; font-weight: 600; margin-bottom: 4px;">🔧 ${escapeHtml(data.app_name)}</div>
-                <div style="color: var(--text-secondary);">Version ${escapeHtml(data.version)}</div>
+                <div style="color: var(--text-secondary);">${versionLine}</div>
             </div>
+            ${bannerHtml}
             
             <div style="background: var(--bg); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
                 <h4 style="margin-bottom: 12px; font-size: 13px; text-transform: uppercase; color: var(--text-secondary);">Environment</h4>
@@ -1205,6 +1226,25 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+/**
+ * Semver comparison: returns true if a is strictly newer than b.
+ * Handles major.minor.patch and pre-release suffixes.
+ */
+function _isNewer(a, b) {
+    const re = /^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/;
+    const ma = re.exec((a || '').trim());
+    const mb = re.exec((b || '').trim());
+    if (!ma || !mb) return false;
+    for (let i = 1; i <= 3; i++) {
+        const ai = parseInt(ma[i], 10);
+        const bi = parseInt(mb[i], 10);
+        if (ai !== bi) return ai > bi;
+    }
+    // Same numeric — pre-release is older than stable
+    if (mb[4] && !ma[4]) return true;
+    return false;
 }
 
 // Example input embedded directly to avoid file bundling issues in executable

@@ -244,7 +244,7 @@ async function updateSetupOverallStatus() {
         // Update agents status display
         if (data.agents && data.agents.configured) {
             const prefix = data.agents.name_prefix || 'TSG';
-            document.getElementById('agentStatus').innerHTML = `
+            let agentHtml = `
                 <div class="agent-info">
                     <span class="icon">🤖</span>
                     <div class="details">
@@ -257,6 +257,16 @@ async function updateSetupOverallStatus() {
                     </div>
                 </div>
             `;
+            // Agent staleness warning
+            if (data.agents.agents_stale) {
+                const createdVer = data.agents.agents_created_version || 'unknown';
+                agentHtml += `
+                    <div style="margin-top: 8px; padding: 8px 12px; background: var(--warning-bg, #fff3cd); border: 1px solid var(--warning-border, #ffc107); border-radius: 6px; font-size: 13px; color: var(--warning-text, #856404);">
+                        ⚠️ Agents were created with v${createdVer} — recreate them to get the latest improvements.
+                    </div>
+                `;
+            }
+            document.getElementById('agentStatus').innerHTML = agentHtml;
             const createBtn = document.getElementById('createAgentBtn');
             createBtn.textContent = '🔄 Recreate Agents';
             createBtn.disabled = false;  // Keep enabled so user can recreate if needed

@@ -89,6 +89,21 @@ You're ready to build TSGs!
 
 ---
 
+## Upgrading
+
+### Windows (installer)
+
+Run the new `tsg-builder-windows-setup.exe` — it automatically replaces app files while preserving your configuration.
+
+### All platforms (zip)
+
+1. Download the new release zip from [Releases](https://github.com/jcentner/tsgbuilder/releases)
+2. Extract into **the same folder** as your current installation, overwriting existing files
+3. Your `.env` configuration and settings are preserved automatically
+4. Open TSG Builder — if prompted, recreate agents to pick up the latest improvements
+
+---
+
 ## Finding Your Configuration Values
 
 If you already have a Foundry project set up, here's where to find the values TSG Builder asks for:
@@ -140,6 +155,12 @@ To opt out, add this to the `.env` file (created automatically next to the execu
 
 ```
 TSG_TELEMETRY=0
+```
+
+TSG Builder also checks for new versions on startup (once per launch, no credentials sent). To disable:
+
+```
+TSG_UPDATE_CHECK=0
 ```
 
 ---

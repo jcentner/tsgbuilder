@@ -56,6 +56,21 @@ jobs:
           path: dist/${{ matrix.folder_name }}/
           if-no-files-found: error
 
+      - name: Build Windows installer
+        if: matrix.platform == 'windows'
+        run: |
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss /DAppVersion=${{ github.ref_name }}
+        shell: pwsh
+
+      - name: Upload installer
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tsg-builder-windows-installer
+          path: Output/tsg-builder-windows-setup.exe
+          if-no-files-found: error
+
   release:
     needs: build
     runs-on: ubuntu-latest
@@ -78,8 +93,8 @@ jobs:
           # Restore executable permissions lost by upload/download-artifact
           chmod +x tsg-builder-linux/tsg-builder-linux 2>/dev/null || true
           chmod +x tsg-builder-macos/tsg-builder-macos 2>/dev/null || true
-          # Zip each platform folder for distribution
-          for dir in tsg-builder-*/; do
+          # Zip each platform folder for distribution (skip installer artifact)
+          for dir in tsg-builder-linux/ tsg-builder-macos/ tsg-builder-windows/; do
             platform="${dir%/}"
             zipname="${platform}.zip"
             echo "Zipping $dir -> $zipname"
@@ -87,6 +102,8 @@ jobs:
             zip -r "../../release/$zipname" .
             cd ..
           done
+          # Copy installer exe into release/
+          cp tsg-builder-windows-installer/tsg-builder-windows-setup.exe ../release/
           ls -la ../release/
 
       - name: Generate SHA256 checksums
@@ -114,6 +131,7 @@ jobs:
             release/tsg-builder-linux.zip
             release/tsg-builder-macos.zip
             release/tsg-builder-windows.zip
+            release/tsg-builder-windows-setup.exe
             release/SHA256SUMS.txt
           body: |
             ## TSG Builder ${{ github.ref_name }}
@@ -123,13 +141,19 @@ jobs:
             |----------|------|
             | Linux | `tsg-builder-linux.zip` |
             | macOS | `tsg-builder-macos.zip` |
-            | Windows | `tsg-builder-windows.zip` |
+            | Windows (installer) | `tsg-builder-windows-setup.exe` |
+            | Windows (zip) | `tsg-builder-windows.zip` |
             
             ### First Run
             1. Download the zip for your platform and extract
             2. Run the executable inside the extracted folder — a `.env` file will be created automatically
             3. Your browser will open to the setup wizard
             4. Configure your Azure AI Foundry settings
+            
+            ### Upgrading
+            - **Installer (Windows)**: Run `tsg-builder-windows-setup.exe` — your configuration is preserved
+            - **Zip (all platforms)**: Extract into the same folder, overwriting existing files
+            - If you see an "agents stale" warning, click **Recreate Agents** in Setup
             
             ### Verify Download (optional)
             ```bash
