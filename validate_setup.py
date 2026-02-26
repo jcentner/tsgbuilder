@@ -114,8 +114,16 @@ def check_project_connection(endpoint: str) -> bool:
     return False
 
 
-def check_model_deployment(endpoint: str, deployment_name: str) -> bool:
-    """Check if the specified model deployment exists in the project."""
+def check_model_deployment(endpoint: str, deployment_name: str) -> tuple[bool, bool]:
+    """Check if the specified model deployment exists and is compatible.
+    
+    Returns:
+        (found, compatible): found=True if deployment exists,
+                             compatible=True if model is gpt-5.2/5.1,
+                             compatible=False if model is unsupported.
+    """
+    from error_utils import classify_model, ModelTier
+
     print("\n[4/6] Checking model deployment...")
     
     try:
@@ -124,29 +132,44 @@ def check_model_deployment(endpoint: str, deployment_name: str) -> bool:
         
         with AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential()) as project:
             deployment = project.deployments.get(name=deployment_name)
-            print_ok(f"Found deployment: {deployment.name}")
-            return True
+            underlying_model = getattr(deployment, "model_name", None) or ""
+
+            result = classify_model(underlying_model, deployment.name)
+
+            if result.tier == ModelTier.SUPPORTED:
+                print_ok(result.message)
+                return True, True
+            elif result.tier == ModelTier.WARN:
+                print_warn(result.message)
+                return True, True  # Warning, not blocking
+            else:
+                # BLOCKED
+                print_fail(result.message)
+                return True, False
     except Exception as e:
         error_str = str(e)
-        # Try to list available deployments for helpful error
-        available_names = []
+        # Try to list available deployments, filtered to compatible models only
+        compatible_names = []
         try:
             from azure.identity import DefaultAzureCredential
             from azure.ai.projects import AIProjectClient
             with AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential()) as project:
-                deployments = list(project.deployments.list())
-                available_names = [d.name for d in deployments]
+                for dep in project.deployments.list():
+                    dep_model = getattr(dep, "model_name", None) or ""
+                    dep_class = classify_model(dep_model, dep.name)
+                    if dep_class.tier != ModelTier.BLOCKED:
+                        compatible_names.append(dep.name)
         except Exception:
             pass
         
-        if available_names:
+        if compatible_names:
             print_warn(f"Deployment '{deployment_name}' not found.")
-            print(f"    Available deployments: {', '.join(available_names[:5])}")
+            print(f"    Compatible deployments: {', '.join(compatible_names[:5])}")
         elif "404" in error_str or "NotFound" in error_str:
             print_warn(f"Deployment '{deployment_name}' not found in project")
         else:
             print_warn(f"Could not verify deployment: {str(e)[:80]}")
-        return False
+        return False, False
 
 
 def check_agent_ref() -> bool:
@@ -246,15 +269,18 @@ def main():
             project_connected = check_project_connection(env_vars["PROJECT_ENDPOINT"])
             results.append(("Project connection", project_connected))
             
-            # Run deployment and connection checks (warnings, not blocking)
+            # Run deployment and model compatibility checks
             if project_connected:
                 endpoint = env_vars["PROJECT_ENDPOINT"]
                 model_name = env_vars.get("MODEL_DEPLOYMENT_NAME", "")
                 
                 if model_name:
-                    model_ok = check_model_deployment(endpoint, model_name)
-                    if not model_ok:
+                    found, compatible = check_model_deployment(endpoint, model_name)
+                    if not found:
                         warnings.append("Model Deployment")
+                    elif not compatible:
+                        # Incompatible model — treat as failure (blocking)
+                        results.append(("Model Deployment", False))
                     else:
                         results.append(("Model Deployment", True))
     

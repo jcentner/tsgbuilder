@@ -3,9 +3,15 @@ error_utils.py — Shared Azure SDK error classification utilities.
 
 Provides user-friendly error messages and hints for Azure SDK exceptions.
 Used by web_app.py (agent creation) and pii_check.py (Language API errors).
+
+Also provides model deployment classification (classify_model) used by
+web_app.py (/api/validate, /api/create-agent) and validate_setup.py.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
 
 from azure.core.exceptions import (
     ClientAuthenticationError,
@@ -21,6 +27,88 @@ from pipeline import (
     HINT_SERVICE_ERROR,
     HTTP_STATUS_MESSAGES,
 )
+
+
+# =============================================================================
+# Model deployment classification
+# =============================================================================
+
+class ModelTier(Enum):
+    """Classification tier for Azure AI model deployments."""
+    SUPPORTED = "supported"   # gpt-5.2 — fully compatible
+    WARN = "warn"             # gpt-5.1 — may work, prompts optimized for 5.2
+    BLOCKED = "blocked"       # -chat variants, older models — unsupported
+
+
+@dataclass
+class ModelClassification:
+    """Result of classifying a model deployment's underlying model."""
+    tier: ModelTier
+    message: str
+    critical: bool  # True only for BLOCKED tier
+
+
+def classify_model(underlying_model: str | None, deployment_name: str = "") -> ModelClassification:
+    """Classify a model deployment's underlying model into support tiers.
+
+    Args:
+        underlying_model: The model_name from the deployment object (e.g. "gpt-5.2").
+                          None or empty if the model could not be determined.
+        deployment_name: The deployment name, used for display in messages.
+
+    Returns:
+        ModelClassification with tier, user-facing message, and critical flag.
+    """
+    if not underlying_model:
+        return ModelClassification(
+            tier=ModelTier.SUPPORTED,
+            message=f"Found deployment: {deployment_name} (could not determine underlying model)",
+            critical=False,
+        )
+
+    model_lower = underlying_model.lower()
+
+    # -chat variants lack image input and full Agent Service tool support — block
+    if model_lower.endswith("-chat"):
+        return ModelClassification(
+            tier=ModelTier.BLOCKED,
+            message=(
+                f"Deployment '{deployment_name}' uses {underlying_model}. "
+                f"-chat models lack image input and full Agent Service tool support. "
+                f"Use a gpt-5.2 (non-chat) deployment."
+            ),
+            critical=True,
+        )
+
+    # gpt-5.2 — fully compatible
+    if "gpt-5.2" in model_lower:
+        return ModelClassification(
+            tier=ModelTier.SUPPORTED,
+            message=f"Found deployment: {deployment_name} ({underlying_model})",
+            critical=False,
+        )
+
+    # gpt-5.1 — may work but prompts are optimized for gpt-5.2
+    if "gpt-5.1" in model_lower:
+        return ModelClassification(
+            tier=ModelTier.WARN,
+            message=(
+                f"Deployment '{deployment_name}' uses {underlying_model}. "
+                f"Prompts are optimized for gpt-5.2; gpt-5.1 may work but is not fully tested."
+            ),
+            critical=False,
+        )
+
+    # Everything else — unsupported
+    return ModelClassification(
+        tier=ModelTier.BLOCKED,
+        message=(
+            f"Deployment '{deployment_name}' uses {underlying_model}. "
+            f"Only gpt-5.2 is supported. Other models lack required Agent Service "
+            f"tool support and image input capabilities."
+        ),
+        critical=True,
+    )
 
 
 def classify_azure_sdk_error(error: Exception) -> tuple[str, str | None, int]:

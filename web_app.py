@@ -51,7 +51,7 @@ from pipeline import (
     PipelineStage,
     PipelineError,
 )
-from error_utils import classify_azure_sdk_error
+from error_utils import classify_azure_sdk_error, classify_model, ModelTier
 from pii_check import check_for_pii
 from version import APP_VERSION, GITHUB_URL
 import telemetry
@@ -501,7 +501,8 @@ def api_validate():
             })
             project_client = None  # Can't proceed with deployment/connection checks
     
-    # 5. Check model deployment exists and is gpt-5.2 (warning if can't verify)
+    # 5. Check model deployment exists and validate model compatibility
+    # Uses shared classify_model() from error_utils for consistent tier logic.
     deployment_name = os.getenv("MODEL_DEPLOYMENT_NAME", "")
     if project_client and deployment_name:
         try:
@@ -510,37 +511,36 @@ def api_validate():
             from azure.ai.projects import AIProjectClient
             with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
                 deployment = project.deployments.get(name=deployment_name)
-                # Check if the underlying model is gpt-5.2
                 underlying_model = getattr(deployment, "model_name", None) or ""
-                if underlying_model and "gpt-5.2" not in underlying_model.lower():
-                    checks.append({
-                        "name": "Model Deployment",
-                        "passed": False,
-                        "message": f"Deployment '{deployment.name}' uses {underlying_model}. Only gpt-5.2 is supported.",
-                        "critical": False,  # Warning, not blocking
-                    })
-                else:
-                    checks.append({
-                        "name": "Model Deployment",
-                        "passed": True,
-                        "message": f"Found deployment: {deployment.name}" + (f" ({underlying_model})" if underlying_model else ""),
-                        "critical": False,
-                    })
+
+                classification = classify_model(underlying_model, deployment.name)
+
+                # SUPPORTED and WARN both pass; only BLOCKED fails
+                checks.append({
+                    "name": "Model Deployment",
+                    "passed": classification.tier != ModelTier.BLOCKED,
+                    "message": classification.message,
+                    "critical": classification.critical,
+                    "warning": classification.tier == ModelTier.WARN,
+                })
         except Exception as e:
             error_str = str(e)
-            # Try to list available deployments for helpful error message
-            available_names = []
+            # Try to list available deployments, filtered to compatible models only
+            compatible_names = []
             try:
                 from azure.identity import DefaultAzureCredential
                 from azure.ai.projects import AIProjectClient
                 with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
-                    deployments = list(project.deployments.list())
-                    available_names = [d.name for d in deployments]
+                    for dep in project.deployments.list():
+                        dep_model = getattr(dep, "model_name", None) or ""
+                        dep_class = classify_model(dep_model, dep.name)
+                        if dep_class.tier != ModelTier.BLOCKED:
+                            compatible_names.append(dep.name)
             except Exception:
                 pass
             
-            if available_names:
-                message = f"Deployment '{deployment_name}' not found. Available: {', '.join(available_names[:5])}"
+            if compatible_names:
+                message = f"Deployment '{deployment_name}' not found. Compatible deployments: {', '.join(compatible_names[:5])}"
             elif "404" in error_str or "NotFound" in error_str:
                 message = f"Deployment '{deployment_name}' not found in project"
             else:
@@ -550,6 +550,7 @@ def api_validate():
                 "passed": False,
                 "message": message,
                 "critical": False,  # Warning, not blocking
+                "warning": False,
             })
     
     # 6. Check agent IDs (not critical)
@@ -652,6 +653,22 @@ def api_create_agent():
         from azure.identity import DefaultAzureCredential
         from azure.ai.projects import AIProjectClient
         from azure.ai.projects.models import PromptAgentDefinition, MCPTool, WebSearchPreviewTool
+        project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
+        
+        # Gate: verify the deployment's underlying model is compatible before
+        # creating agents. This prevents agents from being created on
+        # unsupported models (e.g. -chat variants, gpt-4o).
+        with project:
+            deployment = project.deployments.get(name=model)
+            underlying_model = getattr(deployment, "model_name", None) or ""
+            classification = classify_model(underlying_model, deployment.name)
+            if classification.tier == ModelTier.BLOCKED:
+                return jsonify({
+                    "success": False,
+                    "error": classification.message,
+                }), 400
+        
+        # Re-create client (prior context manager closed it)
         project = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential())
         
         # Build tools for research agent (Web Search + MCP) - v2 patterns
