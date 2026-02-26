@@ -122,8 +122,8 @@ async function runValidation() {
         
         for (const check of result.checks) {
             const item = document.createElement('li');
-            const statusClass = check.warning ? 'warning' : (check.passed ? 'passed' : (check.critical ? 'failed' : 'warning'));
-            const icon = check.warning ? '⚠️' : (check.passed ? '✓' : (check.critical ? '✗' : '⚠️'));
+            const statusClass = check.passed ? (check.warning ? 'warning' : 'passed') : (check.critical ? 'failed' : 'warning');
+            const icon = check.passed ? (check.warning ? '⚠️' : '✓') : (check.critical ? '✗' : '⚠️');
             
             item.className = `validation-item ${statusClass}`;
             item.innerHTML = `

@@ -550,6 +550,7 @@ def api_validate():
                 "passed": False,
                 "message": message,
                 "critical": False,  # Warning, not blocking
+                "warning": False,
             })
     
     # 6. Check agent IDs (not critical)
