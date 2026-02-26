@@ -225,13 +225,13 @@ class TestModelDeploymentValidation:
 
     @pytest.mark.unit
     def test_gpt51_deployment_warns(self, client, monkeypatch):
-        """A gpt-5.1 deployment should produce a warning (passed=False, critical=False)."""
+        """A gpt-5.1 deployment should pass with a warning (passed=True, critical=False)."""
         dep = self._make_mock_deployment("my-gpt51", model_name="gpt-5.1")
         data = self._run_validate_with_deployment(client, monkeypatch, dep)
         check = self._find_model_check(data)
 
         assert check is not None, "Model Deployment check not found in response"
-        assert check["passed"] is False
+        assert check["passed"] is True, "gpt-5.1 should pass (non-blocking warning)"
         assert check["critical"] is False, "gpt-5.1 should warn, not block"
         assert "gpt-5.1" in check["message"]
         assert "not fully tested" in check["message"]

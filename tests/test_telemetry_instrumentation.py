@@ -452,10 +452,16 @@ class TestSetupCompletedEvent:
         mock_agent.version = "1.0"
         mock_agent.id = "agent-123"
 
+        # Mock deployment for model compatibility gate
+        mock_deployment = MagicMock()
+        mock_deployment.name = "gpt-5.2"
+        mock_deployment.model_name = "gpt-5.2"
+
         mock_project = MagicMock()
         mock_project.__enter__ = MagicMock(return_value=mock_project)
         mock_project.__exit__ = MagicMock(return_value=False)
         mock_project.agents.create_version.return_value = mock_agent
+        mock_project.deployments.get.return_value = mock_deployment
 
         with patch("azure.ai.projects.AIProjectClient", return_value=mock_project), \
              patch("web_app.save_agent_ids"):
