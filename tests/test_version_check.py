@@ -153,7 +153,7 @@ class TestCheckForUpdates:
 
     @pytest.mark.unit
     def test_no_update_when_current_is_latest(self, monkeypatch):
-        """When GitHub returns the same version, cache stays None."""
+        """When GitHub returns the same version, cache is set but no telemetry fires."""
         import web_app
         self._reset_update_state()
 
@@ -171,8 +171,11 @@ class TestCheckForUpdates:
              patch.object(web_app.telemetry, "track_event") as mock_track:
             web_app._check_for_updates()
 
-        assert web_app._latest_version is None
+        # latest_version is always populated from API (enables "up to date" UI)
+        assert web_app._latest_version == "1.0.7"
+        assert web_app._update_url == "https://github.com/jcentner/tsgbuilder/releases/tag/v1.0.7"
         assert web_app._update_check_done is True
+        # No telemetry when versions match
         mock_track.assert_not_called()
 
         self._reset_update_state()

@@ -66,6 +66,8 @@ LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
 # Version check (background, fail-silent)
 # ---------------------------------------------------------------------------
 
+_GITHUB_API_LATEST = "https://api.github.com/repos/jcentner/tsgbuilder/releases/latest"
+
 _latest_version: str | None = None
 _update_url: str | None = None
 _update_check_done: bool = False
@@ -108,26 +110,25 @@ def _check_for_updates() -> None:
 
         import urllib.request
         req = urllib.request.Request(
-            f"{GITHUB_URL.rstrip('/')}/releases/latest".replace(
-                "github.com", "api.github.com/repos"
-            ),
+            _GITHUB_API_LATEST,
             headers={"Accept": "application/vnd.github+json"},
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
         tag = data.get("tag_name", "").lstrip("v")
-        if tag and _is_newer(tag, APP_VERSION):
+        if tag:
             _latest_version = tag
             _update_url = data.get("html_url", f"{GITHUB_URL}/releases")
 
-            telemetry.track_event(
-                "update_available",
-                properties={
-                    "current_version": APP_VERSION,
-                    "latest_version": _latest_version,
-                },
-            )
+            if _is_newer(tag, APP_VERSION):
+                telemetry.track_event(
+                    "update_available",
+                    properties={
+                        "current_version": APP_VERSION,
+                        "latest_version": _latest_version,
+                    },
+                )
     except Exception:
         pass  # Network errors, rate limits, airgapped — all fine
     finally:

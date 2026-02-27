@@ -60,7 +60,10 @@ jobs:
         if: matrix.platform == 'windows'
         run: |
           choco install innosetup -y --no-progress
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss /DAppVersion=${{ github.ref_name }}
+          # Strip leading 'v' from tag (e.g. v1.0.7 -> 1.0.7) so
+          # Add/Remove Programs shows a clean version number.
+          $ver = "${{ github.ref_name }}" -replace '^v', ''
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss /DAppVersion=$ver
         shell: pwsh
 
       - name: Upload installer
@@ -102,8 +105,10 @@ jobs:
             zip -r "../../release/$zipname" .
             cd ..
           done
-          # Copy installer exe into release/
-          cp tsg-builder-windows-installer/tsg-builder-windows-setup.exe ../release/
+          # Zip the installer so browsers don't flag a bare .exe download
+          cd tsg-builder-windows-installer
+          zip -r "../../release/tsg-builder-windows-setup.zip" tsg-builder-windows-setup.exe
+          cd ..
           ls -la ../release/
 
       - name: Generate SHA256 checksums
@@ -131,7 +136,7 @@ jobs:
             release/tsg-builder-linux.zip
             release/tsg-builder-macos.zip
             release/tsg-builder-windows.zip
-            release/tsg-builder-windows-setup.exe
+            release/tsg-builder-windows-setup.zip
             release/SHA256SUMS.txt
           body: |
             ## TSG Builder ${{ github.ref_name }}
@@ -141,7 +146,7 @@ jobs:
             |----------|------|
             | Linux | `tsg-builder-linux.zip` |
             | macOS | `tsg-builder-macos.zip` |
-            | Windows (installer) | `tsg-builder-windows-setup.exe` |
+            | Windows (installer) | `tsg-builder-windows-setup.zip` |
             | Windows (zip) | `tsg-builder-windows.zip` |
             
             ### First Run
@@ -151,7 +156,7 @@ jobs:
             4. Configure your Azure AI Foundry settings
             
             ### Upgrading
-            - **Installer (Windows)**: Run `tsg-builder-windows-setup.exe` — your configuration is preserved
+            - **Installer (Windows)**: Download and extract `tsg-builder-windows-setup.zip`, then run the installer — your configuration is preserved
             - **Zip (all platforms)**: Extract into the same folder, overwriting existing files
             - If you see an "agents stale" warning, click **Recreate Agents** in Setup
             

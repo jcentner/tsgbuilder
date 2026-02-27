@@ -14,6 +14,9 @@
 #endif
 
 [Setup]
+; Stable AppId so Windows recognises upgrades even if AppName changes.
+; The double {{ escapes the brace for Inno Setup.
+AppId={{TSGBuilder}
 AppName=TSG Builder
 AppVersion={#AppVersion}
 AppPublisher=Jacob Centner
@@ -46,27 +49,33 @@ Source: "dist\tsg-builder-windows\GETTING_STARTED.md"; DestDir: "{app}"; Flags: 
 Name: "{userprograms}\TSG Builder"; Filename: "{app}\tsg-builder-windows.exe"
 Name: "{userdesktop}\TSG Builder"; Filename: "{app}\tsg-builder-windows.exe"
 
+[Run]
+; Offer to launch TSG Builder after install finishes
+Filename: "{app}\tsg-builder-windows.exe"; Description: "Launch TSG Builder"; Flags: nowait postinstall skipifsilent
+
 [UninstallDelete]
 ; Clean up _internal directory on uninstall (Inno Setup normally handles this,
 ; but explicit entry ensures leftover .pyc / __pycache__ files are removed)
 Type: filesandordirs; Name: "{app}\_internal"
 
 [Code]
-// Runs right before file extraction. Kills TSG Builder if running and
-// proves the exe is unlocked by deleting it. If the file is still locked
-// after retries, returns an error string that aborts the install.
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+
+// --------------------------------------------------------------------------
+//  Shared helper: kill tsg-builder-windows.exe and wait for the file handle
+//  to be released.  Used by both install (PrepareToInstall) and uninstall
+//  (CurUninstallStepChanged).  Returns True if the exe is unlocked (or was
+//  never running), False if it is still locked after retries.
+// --------------------------------------------------------------------------
+function KillAndWaitForUnlock(): Boolean;
 var
   ExePath: String;
   ResultCode: Integer;
   Retries: Integer;
 begin
-  Result := '';
-  NeedsRestart := False;
-
+  Result := True;
   ExePath := ExpandConstant('{app}\tsg-builder-windows.exe');
 
-  // Fresh install — nothing to replace
+  // Nothing to kill on a fresh install
   if not FileExists(ExePath) then
     Exit;
 
@@ -74,20 +83,48 @@ begin
   Exec('taskkill', '/F /IM tsg-builder-windows.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(1000);
 
-  // Try to delete the old exe to prove the file handle is released.
-  // If deletion succeeds, Inno Setup will write the new one normally.
+  // Try to delete the exe to prove the file handle is released.
+  // If deletion succeeds, Inno Setup (or the uninstaller) can proceed.
   Retries := 0;
   while Retries < 10 do
   begin
     if DeleteFile(ExePath) then
-      Exit;  // File deleted — unlocked, good to proceed
+      Exit;   // File deleted — unlocked, good to proceed
     Sleep(1000);
-    // Retry kill in case handle is still held
     Exec('taskkill', '/F /IM tsg-builder-windows.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Retries := Retries + 1;
   end;
 
-  // Still locked after ~10 seconds — abort with a clear message
-  Result := 'Could not replace tsg-builder-windows.exe — it may still be running or locked by another program (e.g. antivirus).'
-    + #13#10 + #13#10 + 'Please close TSG Builder and try again.';
+  // Still locked after ~10 seconds
+  Result := False;
+end;
+
+// --------------------------------------------------------------------------
+//  Install: runs right before file extraction.
+// --------------------------------------------------------------------------
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  NeedsRestart := False;
+
+  if not KillAndWaitForUnlock() then
+    Result := 'Could not replace tsg-builder-windows.exe — it may still be running or locked by another program (e.g. antivirus).'
+      + #13#10 + #13#10 + 'Please close TSG Builder and try again.';
+end;
+
+// --------------------------------------------------------------------------
+//  Uninstall: kill the running app *before* the uninstaller tries to
+//  delete files.  Without this, the exe and _internal DLLs remain locked
+//  and the uninstaller shows "some files could not be removed".
+//  CloseApplications only applies during install, not uninstall.
+// --------------------------------------------------------------------------
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    Exec('taskkill', '/F /IM tsg-builder-windows.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(1500);
+  end;
 end;

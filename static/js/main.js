@@ -1186,7 +1186,7 @@ async function loadAboutInfo() {
         `;
         
         // Agents section
-        if (data.agents && !data.agents.configured === false) {
+        if (data.agents && data.agents.configured !== false) {
             html += `
                 <div style="background: var(--bg); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
                     <h4 style="margin-bottom: 12px; font-size: 13px; text-transform: uppercase; color: var(--text-secondary);">Agents</h4>

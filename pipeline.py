@@ -1229,7 +1229,7 @@ class TSGPipeline:
                 "stream": True,
                 "input": user_message,
                 "extra_body": {
-                    "agent": {
+                    "agent_reference": {
                         "name": agent_name,
                         "type": "agent_reference"
                     }
