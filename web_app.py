@@ -53,7 +53,7 @@ from pipeline import (
 )
 from error_utils import classify_azure_sdk_error, classify_model, ModelTier
 from pii_check import check_for_pii
-from version import APP_VERSION, GITHUB_URL
+from version import APP_VERSION, GITHUB_URL, GITHUB_API_LATEST
 import telemetry
 
 if getattr(sys, 'frozen', False):
@@ -65,8 +65,6 @@ LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
 # ---------------------------------------------------------------------------
 # Version check (background, fail-silent)
 # ---------------------------------------------------------------------------
-
-_GITHUB_API_LATEST = "https://api.github.com/repos/jcentner/tsgbuilder/releases/latest"
 
 _latest_version: str | None = None
 _update_url: str | None = None
@@ -110,7 +108,7 @@ def _check_for_updates() -> None:
 
         import urllib.request
         req = urllib.request.Request(
-            _GITHUB_API_LATEST,
+            GITHUB_API_LATEST,
             headers={"Accept": "application/vnd.github+json"},
         )
         with urllib.request.urlopen(req, timeout=5) as resp:

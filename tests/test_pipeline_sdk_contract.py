@@ -9,7 +9,7 @@ These are unit tests that mock the OpenAI client — no Azure credentials needed
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock, patch
 
 from pipeline import TSGPipeline, PipelineStage
 
@@ -32,26 +32,29 @@ def _make_pipeline(**overrides) -> TSGPipeline:
     return TSGPipeline(**defaults)
 
 
-def _mock_stream_with_completed_event(text: str = "done"):
-    """Return a mock stream that yields a single response.completed event.
+def _mock_completed_stream():
+    """Return a minimal stream with a response.completed event.
 
-    This is the minimal stream the pipeline needs to produce a result.
+    The event has properly typed attributes so process_pipeline_v2_stream
+    can handle it without hitting Mock arithmetic errors.
     """
     event = Mock()
     event.type = "response.completed"
-    event.response = Mock()
-    event.response.conversation_id = "conv_test123"
-    event.response.id = "resp_test456"
 
-    # The process_pipeline_v2_stream function looks for output items
-    output_item = Mock()
-    output_item.type = "message"
-    content_part = Mock()
-    content_part.type = "output_text"
-    content_part.text = text
-    output_item.content = [content_part]
-    event.response.output = [output_item]
+    # Build a proper response mock with correct types
+    response = Mock()
+    response.output_text = "test output"
+    response.conversation_id = "conv_test123"
+    response.id = "resp_test456"
 
+    # usage must return real ints, not Mocks
+    usage = Mock()
+    usage.input_tokens = 10
+    usage.output_tokens = 20
+    response.usage = usage
+    response.output = []
+
+    event.response = response
     return iter([event])
 
 
@@ -71,24 +74,19 @@ class TestAgentReferenceContract:
     def test_extra_body_uses_agent_reference_key(self):
         """extra_body must use 'agent_reference', not 'agent'."""
         pipeline = _make_pipeline()
-        mock_project = Mock()
         mock_openai = Mock()
-
-        # responses.create returns an iterable stream
-        mock_openai.responses.create.return_value = _mock_stream_with_completed_event()
+        mock_openai.responses.create.return_value = _mock_completed_stream()
 
         with patch("pipeline._iterate_with_timeout", side_effect=lambda stream, *a, **kw: stream):
             pipeline._run_stage(
-                project=mock_project,
+                project=Mock(),
                 openai_client=mock_openai,
                 agent_name="TSG-Builder-Researcher",
                 stage=PipelineStage.RESEARCH,
                 user_message="test prompt",
             )
 
-        # Extract the kwargs passed to responses.create
-        call_kwargs = mock_openai.responses.create.call_args
-        extra_body = call_kwargs.kwargs.get("extra_body") or call_kwargs[1].get("extra_body")
+        extra_body = mock_openai.responses.create.call_args.kwargs["extra_body"]
 
         # CRITICAL: must be 'agent_reference', not 'agent'
         assert "agent_reference" in extra_body, (
@@ -103,43 +101,39 @@ class TestAgentReferenceContract:
     def test_agent_reference_has_name_and_type(self):
         """agent_reference must include 'name' and 'type' fields."""
         pipeline = _make_pipeline()
-        mock_project = Mock()
         mock_openai = Mock()
-        mock_openai.responses.create.return_value = _mock_stream_with_completed_event()
+        mock_openai.responses.create.return_value = _mock_completed_stream()
 
         with patch("pipeline._iterate_with_timeout", side_effect=lambda stream, *a, **kw: stream):
             pipeline._run_stage(
-                project=mock_project,
+                project=Mock(),
                 openai_client=mock_openai,
                 agent_name="TSG-Builder-Writer",
                 stage=PipelineStage.WRITE,
                 user_message="test prompt",
             )
 
-        extra_body = mock_openai.responses.create.call_args.kwargs["extra_body"]
-        agent_ref = extra_body["agent_reference"]
-
+        agent_ref = mock_openai.responses.create.call_args.kwargs["extra_body"]["agent_reference"]
         assert agent_ref["name"] == "TSG-Builder-Writer"
         assert agent_ref["type"] == "agent_reference"
 
     def test_agent_name_propagated_correctly(self):
         """The agent name passed to _run_stage should appear in extra_body."""
         pipeline = _make_pipeline()
-        mock_project = Mock()
         mock_openai = Mock()
-        mock_openai.responses.create.return_value = _mock_stream_with_completed_event()
+        mock_openai.responses.create.return_value = _mock_completed_stream()
 
         with patch("pipeline._iterate_with_timeout", side_effect=lambda stream, *a, **kw: stream):
             pipeline._run_stage(
-                project=mock_project,
+                project=Mock(),
                 openai_client=mock_openai,
                 agent_name="Custom-Agent-Name",
                 stage=PipelineStage.REVIEW,
                 user_message="review this",
             )
 
-        extra_body = mock_openai.responses.create.call_args.kwargs["extra_body"]
-        assert extra_body["agent_reference"]["name"] == "Custom-Agent-Name"
+        agent_ref = mock_openai.responses.create.call_args.kwargs["extra_body"]["agent_reference"]
+        assert agent_ref["name"] == "Custom-Agent-Name"
 
 
 # =============================================================================
@@ -153,13 +147,12 @@ class TestSessionContinuityContract:
     def test_no_conversation_when_fresh(self):
         """First call (no conversation_id) should not include conversation param."""
         pipeline = _make_pipeline()
-        mock_project = Mock()
         mock_openai = Mock()
-        mock_openai.responses.create.return_value = _mock_stream_with_completed_event()
+        mock_openai.responses.create.return_value = _mock_completed_stream()
 
         with patch("pipeline._iterate_with_timeout", side_effect=lambda stream, *a, **kw: stream):
             pipeline._run_stage(
-                project=mock_project,
+                project=Mock(),
                 openai_client=mock_openai,
                 agent_name="TSG-Builder-Researcher",
                 stage=PipelineStage.RESEARCH,
@@ -168,21 +161,19 @@ class TestSessionContinuityContract:
             )
 
         call_kwargs = mock_openai.responses.create.call_args.kwargs
-        extra_body = call_kwargs["extra_body"]
         # No conversation key when starting fresh
-        assert "conversation" not in extra_body
+        assert "conversation" not in call_kwargs["extra_body"]
         assert "previous_response_id" not in call_kwargs
 
     def test_conversation_id_passed_in_extra_body(self):
         """conv_* IDs go into extra_body['conversation']."""
         pipeline = _make_pipeline()
-        mock_project = Mock()
         mock_openai = Mock()
-        mock_openai.responses.create.return_value = _mock_stream_with_completed_event()
+        mock_openai.responses.create.return_value = _mock_completed_stream()
 
         with patch("pipeline._iterate_with_timeout", side_effect=lambda stream, *a, **kw: stream):
             pipeline._run_stage(
-                project=mock_project,
+                project=Mock(),
                 openai_client=mock_openai,
                 agent_name="TSG-Builder-Writer",
                 stage=PipelineStage.WRITE,
@@ -196,13 +187,12 @@ class TestSessionContinuityContract:
     def test_response_id_passed_as_previous_response_id(self):
         """resp_* IDs go into top-level previous_response_id."""
         pipeline = _make_pipeline()
-        mock_project = Mock()
         mock_openai = Mock()
-        mock_openai.responses.create.return_value = _mock_stream_with_completed_event()
+        mock_openai.responses.create.return_value = _mock_completed_stream()
 
         with patch("pipeline._iterate_with_timeout", side_effect=lambda stream, *a, **kw: stream):
             pipeline._run_stage(
-                project=mock_project,
+                project=Mock(),
                 openai_client=mock_openai,
                 agent_name="TSG-Builder-Reviewer",
                 stage=PipelineStage.REVIEW,
@@ -218,37 +208,33 @@ class TestSessionContinuityContract:
     def test_stream_kwarg_always_true(self):
         """responses.create must always be called with stream=True."""
         pipeline = _make_pipeline()
-        mock_project = Mock()
         mock_openai = Mock()
-        mock_openai.responses.create.return_value = _mock_stream_with_completed_event()
+        mock_openai.responses.create.return_value = _mock_completed_stream()
 
         with patch("pipeline._iterate_with_timeout", side_effect=lambda stream, *a, **kw: stream):
             pipeline._run_stage(
-                project=mock_project,
+                project=Mock(),
                 openai_client=mock_openai,
                 agent_name="TSG-Builder-Researcher",
                 stage=PipelineStage.RESEARCH,
                 user_message="test",
             )
 
-        call_kwargs = mock_openai.responses.create.call_args.kwargs
-        assert call_kwargs["stream"] is True
+        assert mock_openai.responses.create.call_args.kwargs["stream"] is True
 
     def test_input_message_passed_through(self):
         """The user_message must appear as 'input' in the API call."""
         pipeline = _make_pipeline()
-        mock_project = Mock()
         mock_openai = Mock()
-        mock_openai.responses.create.return_value = _mock_stream_with_completed_event()
+        mock_openai.responses.create.return_value = _mock_completed_stream()
 
         with patch("pipeline._iterate_with_timeout", side_effect=lambda stream, *a, **kw: stream):
             pipeline._run_stage(
-                project=mock_project,
+                project=Mock(),
                 openai_client=mock_openai,
                 agent_name="TSG-Builder-Writer",
                 stage=PipelineStage.WRITE,
                 user_message="Generate TSG for topic X",
             )
 
-        call_kwargs = mock_openai.responses.create.call_args.kwargs
-        assert call_kwargs["input"] == "Generate TSG for topic X"
+        assert mock_openai.responses.create.call_args.kwargs["input"] == "Generate TSG for topic X"
