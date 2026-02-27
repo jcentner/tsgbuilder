@@ -45,6 +45,19 @@ Emitted once when the Flask server starts, in `main()`.
 
 ---
 
+### `update_available`
+
+Emitted once per app launch when the background version check detects a newer release on GitHub.
+
+| Field | Kind | Description |
+|-------|------|-------------|
+| `current_version` | property | Running app version (e.g. `"1.0.7"`) |
+| `latest_version` | property | Newest release tag on GitHub (e.g. `"1.1.0"`) |
+
+**Trigger**: Background thread `_check_for_updates()` in `web_app.py` → `main()`. Only fires when `_is_newer(latest, current)` is true. Disabled by `TSG_UPDATE_CHECK=0`.
+
+---
+
 ### `setup_completed`
 
 Emitted when pipeline agents are successfully created through the setup wizard.

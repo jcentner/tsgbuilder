@@ -35,8 +35,10 @@ errors.log
 .TODO
 todo.md
 issues/
+tmp/
 
 # PyInstaller
 build/
 dist/
 *.spec
+

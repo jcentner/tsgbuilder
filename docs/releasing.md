@@ -67,8 +67,9 @@ Build takes approximately 3-5 minutes per platform.
 2. Find the new **draft** release
 3. Review:
    - Release notes (auto-generated from commits)
-   - All 4 files attached (3 executables + SHA256SUMS.txt)
+   - All 5 files attached (3 zips + installer + SHA256SUMS.txt)
    - Pre-release checkbox (should be checked for beta/rc)
+   - Add upgrade instructions if agent prompts changed (users should recreate agents)
 4. Click **Publish release**
 
 ---

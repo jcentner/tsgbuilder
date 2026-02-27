@@ -9,10 +9,11 @@ See docs/releasing.md for the release process.
 
 # Application version - update this for each release
 # Format: MAJOR.MINOR.PATCH (semver)
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.0.8"
 
 # Project URLs
 GITHUB_URL = "https://github.com/jcentner/tsgbuilder"
+GITHUB_API_LATEST = "https://api.github.com/repos/" + GITHUB_URL.split("github.com/")[1] + "/releases/latest"
 
 # Signature appended to generated TSGs for usage tracking
 # This makes TSGs searchable in the ADO wiki
