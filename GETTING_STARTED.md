@@ -53,29 +53,39 @@ You now have the two values TSG Builder needs: the **project endpoint** and the 
 
 ## Quick Start
 
-### 1. Extract the zip
+### Windows — Installer (recommended)
 
-Extract this zip file to a folder of your choosing.
+1. Download **`tsg-builder-windows-setup.zip`** from the [Releases page](https://github.com/jcentner/tsgbuilder/releases)
+2. Extract the zip, then run **`tsg-builder-windows-setup.exe`**
+   - Installs to your user profile (no admin required)
+   - Creates a **Start Menu shortcut** and **desktop shortcut**
+   - Handles upgrades automatically — just re-run the installer when a new version is available
+3. Launch **TSG Builder** from the Start Menu or desktop shortcut
+4. Your browser opens to `http://localhost:5000`
 
-### 2. Run the executable
+> **First-run note:** SmartScreen may warn about an unrecognized app — click **More info** → **Run anyway**. First launch may be slow due to Defender scanning.
 
-**Linux / macOS:**
-```bash
-./tsg-builder-linux    # or ./tsg-builder-macos
-```
+### Windows — Portable / Linux / macOS
 
-> **macOS**: Right-click the executable → **Open** → **Open** to bypass Gatekeeper on the first launch.
+1. Extract the zip to a folder of your choosing
+2. Run the executable:
 
-**Windows:**
-```
-tsg-builder-windows.exe
-```
+   **Windows:**
+   ```
+   tsg-builder-windows.exe
+   ```
 
-> **Windows notes:**
-> - Windows SmartScreen may warn about an unrecognized app. Click **More info** → **Run anyway**.
-> - The first startup may be slow as Windows Defender scans the application files. Subsequent launches will be faster.
+   **Linux / macOS:**
+   ```bash
+   chmod +x tsg-builder-linux   # or tsg-builder-macos
+   ./tsg-builder-linux
+   ```
 
-### 3. Complete setup in the browser
+   > **macOS:** Right-click the executable → **Open** → **Open** to bypass Gatekeeper on the first launch.
+
+3. Your browser opens to `http://localhost:5000`
+
+### Complete setup in the browser
 
 Your browser opens to `http://localhost:5000`. The setup wizard guides you through:
 

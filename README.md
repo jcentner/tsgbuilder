@@ -28,12 +28,27 @@ TSG Builder was born out of this need. The idea: **you provide a raw dump of inf
 
 ### Option 1: Download & Run (Recommended)
 
+> **Prerequisites**: [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) logged in (`az login`) + [Azure AI Foundry project](#azure-resources-required)
+
+#### Windows — Installer (recommended)
+
+1. **Download** `tsg-builder-windows-setup.zip` from [Releases](../../releases)
+2. Extract the zip, then run **`tsg-builder-windows-setup.exe`**
+   - Installs to your user profile (no admin required), creates Start Menu and desktop shortcuts
+   - Handles upgrades automatically — just re-run the installer when a new version is available
+3. Launch **TSG Builder** from the Start Menu or desktop shortcut
+4. Your browser opens to `http://localhost:5000` — complete setup and click **Create Agents**
+
+> **First run:** SmartScreen may warn about an unrecognized app — click **More info** → **Run anyway**. First launch may be slow due to Defender scanning.
+
+#### Windows — Portable / Linux / macOS
+
 1. **Download** the zip for your platform from [Releases](../../releases):
    | Platform | File |
    |----------|------|
+   | Windows (portable) | `tsg-builder-windows.zip` |
    | Linux | `tsg-builder-linux.zip` |
    | macOS | `tsg-builder-macos.zip` |
-   | Windows | `tsg-builder-windows.zip` |
 
 2. **Extract and run**:
    ```bash
@@ -41,17 +56,11 @@ TSG Builder was born out of this need. The idea: **you provide a raw dump of inf
    chmod +x tsg-builder-linux   # or tsg-builder-macos
    ./tsg-builder-linux
    ```
-   Your browser opens to `http://localhost:5000`
+   On Windows, run `tsg-builder-windows.exe`. Your browser opens to `http://localhost:5000`.
 
-   > **Note**: The executables are unsigned. On **Windows**, click "More info" → "Run anyway" when SmartScreen warns. On **macOS**, right-click → "Open" → "Open" to bypass Gatekeeper.
+   > **macOS**: Right-click → "Open" → "Open" to bypass Gatekeeper on first launch.
 
-3. **Complete setup** in the browser:
-   - Enter your Azure AI Foundry project endpoint
-   - Click **Create Agents**
-
-4. **Start building TSGs!**
-
-> **Prerequisites**: [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) logged in (`az login`) + [Azure AI Foundry project](#azure-resources-required)
+3. **Complete setup** in the browser — enter your Azure AI Foundry endpoint and click **Create Agents**
 
 ### Option 2: Run from Source
 

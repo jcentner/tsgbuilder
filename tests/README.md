@@ -39,13 +39,16 @@ tests/
 ├── __init__.py                        # Package marker
 ├── conftest.py                        # Shared fixtures and utilities
 ├── README.md                          # This file
+├── test_agent_staleness.py            # Agent staleness detection tests
 ├── test_error_handling.py             # Error handling and classification tests
 ├── test_iteration_feedback.py         # Iteration/follow-up flow tests
 ├── test_pii_check.py                  # PII detection tests
+├── test_pipeline_sdk_contract.py      # Pipeline SDK contract tests
 ├── test_pipeline_telemetry.py         # Pipeline telemetry plumbing tests
 ├── test_telemetry.py                  # Core telemetry module tests
 ├── test_telemetry_instrumentation.py  # Instrumentation point integration tests
 ├── test_tsg_validation.py             # TSG structure validation tests
+├── test_version_check.py             # Version check and update detection tests
 └── test_web_endpoints.py              # Flask endpoint tests
 ```
 
