@@ -1151,8 +1151,6 @@ async function loadAboutInfo() {
                     <a href="${escapeHtml(updateUrl)}" target="_blank" style="color: inherit; font-weight: 600; text-decoration: underline;">Download Latest →</a>
                 </div>
             `;
-        } else if (data.latest_version && data.latest_version === data.version) {
-            versionStatusHtml = '<span style="color: var(--success, #28a745); font-size: 12px; margin-left: 8px;">✓ Up to date</span>';
         }
 
         // Version line — inline "up to date" or separate banner

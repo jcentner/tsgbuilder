@@ -6,7 +6,7 @@
 ;   - Creates Start Menu and Desktop shortcuts
 ;   - Registers in Add/Remove Programs
 ;
-; CI passes the version via: ISCC installer.iss /DAppVersion=1.0.7
+; CI passes the version via: ISCC installer.iss /DAppVersion=<version>
 ; For local testing:         ISCC installer.iss /DAppVersion=dev
 
 #ifndef AppVersion

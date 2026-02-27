@@ -109,7 +109,11 @@ def _check_for_updates() -> None:
         import urllib.request
         req = urllib.request.Request(
             GITHUB_API_LATEST,
-            headers={"Accept": "application/vnd.github+json"},
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": f"TSGBuilder/{APP_VERSION}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))

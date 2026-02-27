@@ -1,4 +1,4 @@
-# Implementation Plan: Upgrade Experience (v1.0.7)
+# Implementation Plan: Upgrade Experience
 
 Tracking issue: [`issues/issue-upgrade-experience.md`](../issues/issue-upgrade-experience.md)
 
