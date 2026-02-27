@@ -52,25 +52,42 @@ Name: "{userdesktop}\TSG Builder"; Filename: "{app}\tsg-builder-windows.exe"
 Type: filesandordirs; Name: "{app}\_internal"
 
 [Code]
-// Close any running TSG Builder instance before installing (upgrade scenario).
-function InitializeSetup(): Boolean;
+// Runs right before file extraction. Kills TSG Builder if running and
+// proves the exe is unlocked by deleting it. If the file is still locked
+// after retries, returns an error string that aborts the install.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
+  ExePath: String;
   ResultCode: Integer;
   Retries: Integer;
 begin
+  Result := '';
+  NeedsRestart := False;
+
+  ExePath := ExpandConstant('{app}\tsg-builder-windows.exe');
+
+  // Fresh install — nothing to replace
+  if not FileExists(ExePath) then
+    Exit;
+
   // Kill any running instance
   Exec('taskkill', '/F /IM tsg-builder-windows.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  // Wait up to 5 seconds for the process to fully terminate and release file handles.
-  // taskkill signals termination but the OS may hold the exe lock briefly.
+  Sleep(1000);
+
+  // Try to delete the old exe to prove the file handle is released.
+  // If deletion succeeds, Inno Setup will write the new one normally.
   Retries := 0;
   while Retries < 10 do
   begin
-    // tasklist exits 0 if process found, non-zero if not found
-    Exec('tasklist', '/FI "IMAGENAME eq tsg-builder-windows.exe" /NH', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    if ResultCode <> 0 then
-      Break;
-    Sleep(500);
+    if DeleteFile(ExePath) then
+      Exit;  // File deleted — unlocked, good to proceed
+    Sleep(1000);
+    // Retry kill in case handle is still held
+    Exec('taskkill', '/F /IM tsg-builder-windows.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Retries := Retries + 1;
   end;
-  Result := True;
+
+  // Still locked after ~10 seconds — abort with a clear message
+  Result := 'Could not replace tsg-builder-windows.exe — it may still be running or locked by another program (e.g. antivirus).'
+    + #13#10 + #13#10 + 'Please close TSG Builder and try again.';
 end;
