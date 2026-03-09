@@ -86,7 +86,7 @@ def delete_agents(skip_confirm: bool = False) -> bool:
         from azure.ai.projects import AIProjectClient
     except ImportError:
         print("Error: azure-ai-projects package not installed.")
-        print("Run: pip install --pre azure-ai-projects")
+        print("Run: pip install azure-ai-projects")
         return False
     
     # Delete agents
@@ -98,19 +98,14 @@ def delete_agents(skip_confirm: bool = False) -> bool:
         with project:
             for role, agent_info in agents.items():
                 try:
-                    # Handle v2 format (dict with name/version)
-                    if isinstance(agent_info, dict):
-                        agent_name = agent_info.get("name")
-                        agent_version = agent_info.get("version")
-                        project.agents.delete_version(
-                            agent_name=agent_name,
-                            agent_version=agent_version
-                        )
-                        print(f"  ✓ Deleted {role}: {agent_name} (version {agent_version})")
-                    else:
-                        # Fallback for v1 format (string ID) - try v1 delete
-                        project.agents.delete_agent(agent_info)
-                        print(f"  ✓ Deleted {role}: {agent_info}")
+                    # v2 format: dict with name/version
+                    agent_name = agent_info.get("name")
+                    agent_version = agent_info.get("version")
+                    project.agents.delete_version(
+                        agent_name=agent_name,
+                        agent_version=agent_version
+                    )
+                    print(f"  ✓ Deleted {role}: {agent_name} (version {agent_version})")
                 except Exception as e:
                     # Agent may already be deleted or not exist
                     print(f"  ⚠ Could not delete {role}: {e}")

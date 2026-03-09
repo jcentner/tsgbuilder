@@ -199,7 +199,7 @@ def check_dependencies() -> bool:
     
     all_ok = True
     
-    # Check azure-ai-projects version (must be v2: 2.0.0b3+)
+    # Check azure-ai-projects version (must be v2: 2.0.0+)
     try:
         import azure.ai.projects
         version = azure.ai.projects.__version__
@@ -208,10 +208,10 @@ def check_dependencies() -> bool:
             print_ok(f"azure-ai-projects {version} (v2 SDK ✓)")
         else:
             print_fail(f"azure-ai-projects {version} is v1 (classic Foundry)")
-            print("    Need v2 SDK: pip install --pre azure-ai-projects")
+            print("    Need v2 SDK: pip install azure-ai-projects")
             all_ok = False
     except ImportError:
-        print_fail("azure-ai-projects is not installed. Run: pip install --pre azure-ai-projects")
+        print_fail("azure-ai-projects is not installed. Run: pip install azure-ai-projects")
         all_ok = False
     except (ValueError, IndexError):
         print_warn(f"azure-ai-projects installed but couldn't parse version")
