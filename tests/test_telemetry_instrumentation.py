@@ -477,6 +477,33 @@ class TestSetupCompletedEvent:
         assert props["model_deployment"] == "gpt-5.2"
         assert props["version"]
 
+    @pytest.mark.unit
+    def test_create_agent_blocks_unsupported_model(self, client, monkeypatch):
+        """Agent creation is blocked for unsupported model deployments."""
+        monkeypatch.setenv("PROJECT_ENDPOINT", "https://test.services.ai.azure.com/api/projects/test-project")
+        monkeypatch.setenv("MODEL_DEPLOYMENT_NAME", "gpt-5.2-chat")
+        monkeypatch.setenv("AGENT_NAME", "TestTSG")
+
+        mock_deployment = MagicMock()
+        mock_deployment.name = "gpt-5.2-chat"
+        mock_deployment.model_name = "gpt-5.2-chat-20260210"
+
+        mock_project = MagicMock()
+        mock_project.__enter__ = MagicMock(return_value=mock_project)
+        mock_project.__exit__ = MagicMock(return_value=False)
+        mock_project.deployments.get.return_value = mock_deployment
+
+        with patch("azure.ai.projects.AIProjectClient", return_value=mock_project), \
+             patch("web_app.save_agent_ids") as mock_save:
+            response = client.post("/api/create-agent")
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data["success"] is False
+        assert "chat variant" in data["error"]
+        mock_project.agents.create_version.assert_not_called()
+        mock_save.assert_not_called()
+
 
 # =============================================================================
 # TSG_COPIED EVENT

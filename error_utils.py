@@ -27,6 +27,7 @@ from pipeline import (
     HINT_SERVICE_ERROR,
     HTTP_STATUS_MESSAGES,
 )
+from model_policy import SUPPORTED_MODELS_DISPLAY, evaluate_model_policy
 
 
 # =============================================================================
@@ -35,9 +36,8 @@ from pipeline import (
 
 class ModelTier(Enum):
     """Classification tier for Azure AI model deployments."""
-    SUPPORTED = "supported"   # gpt-5.2 — fully compatible
-    WARN = "warn"             # gpt-5.1 — may work, prompts optimized for 5.2
-    BLOCKED = "blocked"       # -chat variants, older models — unsupported
+    SUPPORTED = "supported"
+    BLOCKED = "blocked"
 
 
 @dataclass
@@ -66,36 +66,23 @@ def classify_model(underlying_model: str | None, deployment_name: str = "") -> M
             critical=False,
         )
 
-    model_lower = underlying_model.lower()
+    policy = evaluate_model_policy(underlying_model)
 
-    # -chat variants lack image input and full Agent Service tool support — block
-    if model_lower.endswith("-chat"):
+    if policy.blocked_variant:
         return ModelClassification(
             tier=ModelTier.BLOCKED,
             message=(
                 f"Deployment '{deployment_name}' uses {underlying_model}. "
-                f"-chat models lack image input and full Agent Service tool support. "
-                f"Use a gpt-5.2 (non-chat) deployment."
+                f"The {policy.blocked_variant} variant is not validated for TSG Builder. "
+                f"Use one of these non-chat base models: {SUPPORTED_MODELS_DISPLAY}."
             ),
             critical=True,
         )
 
-    # gpt-5.2 — fully compatible
-    if "gpt-5.2" in model_lower:
+    if policy.supported:
         return ModelClassification(
             tier=ModelTier.SUPPORTED,
             message=f"Found deployment: {deployment_name} ({underlying_model})",
-            critical=False,
-        )
-
-    # gpt-5.1 — may work but prompts are optimized for gpt-5.2
-    if "gpt-5.1" in model_lower:
-        return ModelClassification(
-            tier=ModelTier.WARN,
-            message=(
-                f"Deployment '{deployment_name}' uses {underlying_model}. "
-                f"Prompts are optimized for gpt-5.2; gpt-5.1 may work but is not fully tested."
-            ),
             critical=False,
         )
 
@@ -104,8 +91,9 @@ def classify_model(underlying_model: str | None, deployment_name: str = "") -> M
         tier=ModelTier.BLOCKED,
         message=(
             f"Deployment '{deployment_name}' uses {underlying_model}. "
-            f"Only gpt-5.2 is supported. Other models lack required Agent Service "
-            f"tool support and image input capabilities."
+            f"Supported models are non-chat deployments of: {SUPPORTED_MODELS_DISPLAY}. "
+            f"Other models are not validated for this app's Agent Service tools, "
+            f"image input, and review output requirements."
         ),
         critical=True,
     )

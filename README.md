@@ -98,7 +98,7 @@ The setup wizard opens automatically to guide you through configuration.
 | Resource | Purpose | How to Get |
 |----------|---------|------------|
 | **Azure AI Foundry Project** | Hosts the agent | [Create a project](https://learn.microsoft.com/azure/ai-foundry/how-to/create-projects) |
-| **Model Deployment** | LLM for the agent (recommended: `gpt-5.2`) | Deploy in your project |
+| **Model Deployment** | LLM for the agent (`gpt-5.1`, `gpt-5.2`, `gpt-5.4`, or `gpt-5.5`) | Deploy in your project |
 
 ### Local Requirements
 
@@ -158,7 +158,7 @@ The setup wizard (opens automatically on first run) guides you through configura
 
 #### MODEL_DEPLOYMENT_NAME
 1. In AI Foundry Portal, go to Deployments
-2. Use the name of your deployed model (e.g., `gpt-5.2`)
+2. Use the name of your supported non-chat deployment (for example, `gpt-5.2`)
 
 ## How It Works
 

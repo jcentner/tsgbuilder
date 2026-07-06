@@ -1,6 +1,6 @@
 # Implementation Plan: Upgrade Experience
 
-Tracking issue: [`issues/issue-upgrade-experience.md`](../issues/issue-upgrade-experience.md)
+Historical status: this implementation plan is archived in place for reference. The original local tracking issue lives under the gitignored `issues/` scratch area and is not shipped source-of-truth.
 
 This document breaks the four deliverables into concrete, ordered implementation checklists vetted against the existing codebase. Each checkbox is a discrete commit-sized unit of work.
 
@@ -194,6 +194,8 @@ Current state: `updateSetupOverallStatus()` (line ~228) fetches `/api/status` an
 
 ### 3B. CI — build installer (`build.yml`)
 
+Historical note: the snippet below was the implementation checklist. Current CI strips the leading `v` from the tag before passing `AppVersion` to Inno Setup.
+
 Current state: Windows build creates `dist/tsg-builder-windows/` folder, zips it.
 
 - [x] Add a step after the Windows `Build executable` step (inside the `build` job, conditional on `matrix.platform == 'windows'`):
@@ -222,12 +224,12 @@ Current state: Windows build creates `dist/tsg-builder-windows/` folder, zips it
 Current state: The `release` job downloads all artifacts and zips them.
 
 - [x] In the `release` job, download the installer artifact alongside the existing ones
-- [x] Copy the installer `.exe` into the `release/` directory
+- [x] Zip the installer `.exe` into the `release/` directory
 - [x] Add to SHA256 checksums generation
-- [x] Add `release/tsg-builder-windows-setup.exe` to the `files:` list in the `Create draft release` step
+- [x] Add `release/tsg-builder-windows-setup.zip` to the `files:` list in the `Create draft release` step
 - [x] Update the release body template to include installer row:
   ```markdown
-  | Windows (installer) | `tsg-builder-windows-setup.exe` |
+  | Windows (installer) | `tsg-builder-windows-setup.zip` |
   | Windows (zip) | `tsg-builder-windows.zip` |
   ```
 
@@ -271,7 +273,7 @@ Current state: The release body template in `build.yml` has "First Run" instruct
 - [x] Update the release body template in `build.yml` to add an "Upgrading" section after "First Run":
   ```markdown
   ### Upgrading
-  - **Installer (Windows)**: Run `tsg-builder-windows-setup.exe` — your configuration is preserved
+  - **Installer (Windows)**: Download and extract `tsg-builder-windows-setup.zip`, then run the installer — your configuration is preserved
   - **Zip (all platforms)**: Extract into the same folder, overwriting existing files
   - If you see an "agents stale" warning, click **Recreate Agents** in Setup
   ```

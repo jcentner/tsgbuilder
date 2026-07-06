@@ -9,7 +9,7 @@ Turn raw troubleshooting notes into polished **Technical Support Guides (TSGs)**
 1. **Azure CLI** — installed and logged in
    - [Install Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
    - Run `az login` to authenticate
-2. **Azure AI Foundry project with a `gpt-5.2` model deployed** — follow the guide below if you don't have one yet
+2. **Azure AI Foundry project with a supported model deployed** — use a non-chat `gpt-5.1`, `gpt-5.2`, `gpt-5.4`, or `gpt-5.5` deployment
 
 ---
 
@@ -25,21 +25,20 @@ A project organizes your models, agents, and other resources. The following deta
 2. Select the **project name** in the upper-left corner, then select **Create new project**
 3. Enter a project name (e.g., `tsg-builder-project`)
 4. Select **Advanced options** to choose a specific resource group and region
-   - TSG Builder is designed for gpt-5.2 Check [Supported regions](https://learn.microsoft.com/en-us/azure/ai-foundry/agents/concepts/model-region-support?view=foundry&tabs=global-standard#available-models) to ensure your Foundry resource is in a region that supports this model (eastus2, southcentralus, swedencentral).
+   - Check [supported regions](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/model-region-support?view=foundry) to ensure your Foundry resource can use your chosen model.
 5. Select **Create project**
 
 > **What gets created**: Azure creates a *Foundry resource* (of type AI Services) and a *project* inside it. You don't need to create these separately. See the [Foundry quickstart](https://learn.microsoft.com/azure/ai-foundry/tutorials/quickstart-create-foundry-resources?view=foundry) for more details.
 
-### Step 2: Deploy a gpt-5.2 Model
+### Step 2: Deploy a Supported Model
 
 1. In your project, select **Discover** in the top navigation
 2. Select **Models**
-3. Search for **gpt-5.2**
+3. Search for **gpt-5.1**, **gpt-5.2**, **gpt-5.4**, or **gpt-5.5**
 4. Select the model, then select **Deploy** → **Default settings**
-5. Note the **deployment name** shown (e.g., `gpt-5.2`) — you'll need this for TSG Builder setup
+5. Note the **deployment name** shown (for example, `gpt-5.2`) — you'll need this for TSG Builder setup
 
-> **Can't find gpt-5.2?** Check that your project is in a [supported region](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/model-region-support?view=foundry). 
-> **Can't deploy - the model is locked?** GPT-5.2 access requires filling out a [registration form](https://customervoice.microsoft.com/Pages/ResponsePage.aspx?id=v4j5cvGGr0GRqy180BHbR7en2Ais5pxKtso_Pz4b1_xUQ1VGQUEzRlBIMVU2UFlHSFpSNkpOR0paRSQlQCN0PWcu) - use your Microsoft email and, if you have one, a nonprod subscription for quick approval. 
+> **Can't find a model?** Check that your project is in a [supported region](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/model-region-support?view=foundry) and that your subscription has access to the model you selected.
 
 ### Step 3: Find Your Project Endpoint
 
@@ -103,7 +102,7 @@ You're ready to build TSGs!
 
 ### Windows (installer)
 
-Run the new `tsg-builder-windows-setup.exe` — it automatically replaces app files while preserving your configuration.
+Download `tsg-builder-windows-setup.zip`, extract it, then run `tsg-builder-windows-setup.exe`. The installer replaces app files while preserving your configuration.
 
 ### All platforms (zip)
 
@@ -127,7 +126,7 @@ If you already have a Foundry project set up, here's where to find the values TS
 ### MODEL_DEPLOYMENT_NAME
 
 1. In your project at [ai.azure.com](https://ai.azure.com), select **Discover** → **Models** → **My models** (or **Operate** → **Deployments** in the sidebar)
-2. Use the name shown in the **Deployment name** column (e.g., `gpt-5.2`)
+2. Use the name shown in the **Deployment name** column for a supported non-chat model (for example, `gpt-5.2`)
 
 ---
 

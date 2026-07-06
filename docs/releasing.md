@@ -67,7 +67,7 @@ Build takes approximately 3-5 minutes per platform.
 2. Find the new **draft** release
 3. Review:
    - Release notes (auto-generated from commits)
-   - All 5 files attached (3 zips + installer + SHA256SUMS.txt)
+   - All 5 files attached (4 zips + SHA256SUMS.txt)
    - Pre-release checkbox (should be checked for beta/rc)
    - Add upgrade instructions if agent prompts changed (users should recreate agents)
 4. Click **Publish release**
@@ -107,7 +107,7 @@ Build takes approximately 3-5 minutes per platform.
 
 Runs after all builds succeed:
 
-1. Downloads all 3 platform artifacts
+1. Downloads all 3 platform artifacts plus the Windows installer artifact
 2. Generates SHA256 checksums
 3. Detects pre-release (tag contains `-`)
 4. Creates draft release with auto-generated notes

@@ -119,7 +119,7 @@ def check_model_deployment(endpoint: str, deployment_name: str) -> tuple[bool, b
     
     Returns:
         (found, compatible): found=True if deployment exists,
-                             compatible=True if model is gpt-5.2/5.1,
+                             compatible=True if model is supported,
                              compatible=False if model is unsupported.
     """
     from error_utils import classify_model, ModelTier
@@ -139,9 +139,6 @@ def check_model_deployment(endpoint: str, deployment_name: str) -> tuple[bool, b
             if result.tier == ModelTier.SUPPORTED:
                 print_ok(result.message)
                 return True, True
-            elif result.tier == ModelTier.WARN:
-                print_warn(result.message)
-                return True, True  # Warning, not blocking
             else:
                 # BLOCKED
                 print_fail(result.message)

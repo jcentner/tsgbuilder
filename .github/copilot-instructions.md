@@ -18,7 +18,7 @@ TSG Builder transforms troubleshooting notes into structured Technical Support G
 
 - **Language**: Python 3.11 (CI pinned)
 - **Runtime**: Flask dev server or PyInstaller standalone executable
-- **AI backend**: Azure AI Foundry v2 SDK, gpt-5.2 deployments only
+- **AI backend**: Azure AI Foundry v2 SDK, non-chat gpt-5.1/gpt-5.2/gpt-5.4/gpt-5.5 deployments
 - **Auth**: `DefaultAzureCredential` (typically `az login`)
 - **PII gate**: Azure AI Language API (fail-closed pre-flight check)
 
@@ -77,9 +77,8 @@ Always run `make test` before submitting changes. Tests live in `tests/` with sh
 | PII detected in notes/follow-up answers | **Block** until edited/redacted |
 | PII check service/auth error | **Block** (fail-closed) |
 | Review `accuracy_issues` / `suggestions` | **Warn only** |
-| Model is gpt-5.2 (non-chat) | **Pass** (fully compatible) |
-| Model is gpt-5.1 (non-chat) | **Warn only** (`critical: false`) — may work but prompts optimized for 5.2 |
-| Model is any `-chat` variant | **Block** (`critical: true`) — lacks image input, limited Agent Service tool support |
+| Model is gpt-5.1, gpt-5.2, gpt-5.4, or gpt-5.5 (non-chat) | **Pass** |
+| Model is any `-chat`, `-mini`, `-nano`, `-pro`, or `-codex` variant | **Block** (`critical: true`) — not validated for this app |
 | Model is any other (gpt-5, gpt-4.1, etc.) | **Block** (`critical: true`) — unsupported Agent Service tools/capabilities |
 
 ## Code Conventions

@@ -139,9 +139,8 @@ class TestModelDeploymentValidation:
     """Tests for model deployment validation in /api/validate.
     
     Validation tiers:
-    - gpt-5.2 (non-chat): pass (fully compatible)
-    - gpt-5.1 (non-chat): warn (critical=False) — may work
-    - -chat variants: block (critical=True) — lacks image input / agent tools
+    - gpt-5.1, gpt-5.2, gpt-5.4, gpt-5.5 (non-chat): pass
+    - chat/mini/nano/pro/codex variants: block (critical=True)
     - all other models: block (critical=True) — unsupported
     """
 
@@ -178,20 +177,22 @@ class TestModelDeploymentValidation:
         return next((c for c in data["checks"] if c["name"] == "Model Deployment"), None)
 
     @pytest.mark.unit
-    def test_gpt52_deployment_passes(self, client, monkeypatch):
-        """A gpt-5.2 deployment should pass the model check."""
-        dep = self._make_mock_deployment("my-deployment", model_name="gpt-5.2")
+    @pytest.mark.parametrize("model_name", ["gpt-5.1", "gpt-5.2", "gpt-5.4", "gpt-5.5"])
+    def test_supported_deployment_passes(self, client, monkeypatch, model_name):
+        """Supported non-chat model deployments should pass the model check."""
+        dep = self._make_mock_deployment("my-deployment", model_name=model_name)
         data = self._run_validate_with_deployment(client, monkeypatch, dep)
         check = self._find_model_check(data)
 
         assert check is not None, "Model Deployment check not found in response"
         assert check["passed"] is True
         assert "my-deployment" in check["message"]
-        assert "gpt-5.2" in check["message"]
+        assert model_name in check["message"]
+        assert not check.get("warning", False)
 
     @pytest.mark.unit
-    def test_non_gpt52_deployment_blocks(self, client, monkeypatch):
-        """A non-gpt-5.2/5.1 deployment should be blocked (passed=False, critical=True)."""
+    def test_unsupported_deployment_blocks(self, client, monkeypatch):
+        """Unsupported deployments should be blocked (passed=False, critical=True)."""
         dep = self._make_mock_deployment("my-gpt41", model_name="gpt-4.1")
         data = self._run_validate_with_deployment(client, monkeypatch, dep)
         check = self._find_model_check(data)
@@ -200,7 +201,7 @@ class TestModelDeploymentValidation:
         assert check["passed"] is False
         assert check["critical"] is True, "Unsupported model should block, not warn"
         assert "gpt-4.1" in check["message"]
-        assert "Only gpt-5.2" in check["message"]
+        assert "Supported models" in check["message"]
 
     @pytest.mark.unit
     def test_deployment_without_model_name_passes(self, client, monkeypatch):
@@ -214,9 +215,10 @@ class TestModelDeploymentValidation:
         assert "my-deployment" in check["message"]
 
     @pytest.mark.unit
-    def test_gpt52_variant_passes(self, client, monkeypatch):
-        """A model name containing 'gpt-5.2' (e.g. with version suffix) should pass."""
-        dep = self._make_mock_deployment("prod-deploy", model_name="gpt-5.2-20260101")
+    @pytest.mark.parametrize("model_name", ["gpt-5.1-20251113", "gpt-5.2-20260101", "gpt-5.4-20260305", "gpt-5.5-20260424"])
+    def test_supported_versioned_deployment_passes(self, client, monkeypatch, model_name):
+        """Supported base models with numeric version suffixes should pass."""
+        dep = self._make_mock_deployment("prod-deploy", model_name=model_name)
         data = self._run_validate_with_deployment(client, monkeypatch, dep)
         check = self._find_model_check(data)
 
@@ -224,30 +226,27 @@ class TestModelDeploymentValidation:
         assert check["passed"] is True
 
     @pytest.mark.unit
-    def test_gpt51_deployment_warns(self, client, monkeypatch):
-        """A gpt-5.1 deployment should pass with a warning (passed=True, critical=False)."""
-        dep = self._make_mock_deployment("my-gpt51", model_name="gpt-5.1")
-        data = self._run_validate_with_deployment(client, monkeypatch, dep)
-        check = self._find_model_check(data)
-
-        assert check is not None, "Model Deployment check not found in response"
-        assert check["passed"] is True, "gpt-5.1 should pass (non-blocking warning)"
-        assert check["critical"] is False, "gpt-5.1 should warn, not block"
-        assert "gpt-5.1" in check["message"]
-        assert "not fully tested" in check["message"]
-
-    @pytest.mark.unit
-    def test_chat_model_blocks(self, client, monkeypatch):
-        """A -chat model variant should be blocked (passed=False, critical=True)."""
-        dep = self._make_mock_deployment("my-chat", model_name="gpt-5.2-chat")
+    @pytest.mark.parametrize(
+        "model_name",
+        [
+            "gpt-5.1-mini-20260101",
+            "gpt-5.2-chat",
+            "gpt-5.2-chat-20260210",
+            "gpt-5.4-codex-mini",
+            "gpt-5.4-pro",
+            "gpt-5.5-pro",
+        ],
+    )
+    def test_supported_model_siblings_block(self, client, monkeypatch, model_name):
+        """Unvalidated sibling variants should be blocked even with version suffixes."""
+        dep = self._make_mock_deployment("my-variant", model_name=model_name)
         data = self._run_validate_with_deployment(client, monkeypatch, dep)
         check = self._find_model_check(data)
 
         assert check is not None, "Model Deployment check not found in response"
         assert check["passed"] is False
-        assert check["critical"] is True, "-chat model should block"
-        assert "chat" in check["message"].lower()
-        assert "image input" in check["message"].lower()
+        assert check["critical"] is True, "Sibling variants should block"
+        assert "variant" in check["message"].lower()
 
     @pytest.mark.unit
     def test_gpt5_chat_blocks(self, client, monkeypatch):
@@ -273,7 +272,7 @@ class TestModelDeploymentValidation:
 
     @pytest.mark.unit
     def test_gpt5_nano_blocks(self, client, monkeypatch):
-        """gpt-5-nano should be blocked — only gpt-5.2 and gpt-5.1 are allowed."""
+        """gpt-5-nano should be blocked."""
         dep = self._make_mock_deployment("nano-deploy", model_name="gpt-5-nano")
         data = self._run_validate_with_deployment(client, monkeypatch, dep)
         check = self._find_model_check(data)

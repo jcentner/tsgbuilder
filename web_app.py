@@ -172,7 +172,7 @@ DEFAULT_ENV_CONTENT = """# Azure AI Foundry Configuration
 # example: https://<YOUR_RESOURCE>.services.ai.azure.com/api/projects/<YOUR_PROJECT>
 PROJECT_ENDPOINT=
 
-# Only gpt-5.2 deployments are supported
+# Supported non-chat deployments: gpt-5.1, gpt-5.2, gpt-5.4, gpt-5.5
 MODEL_DEPLOYMENT_NAME=gpt-5.2
 
 AGENT_NAME=TSG-Builder
@@ -514,7 +514,7 @@ def api_validate():
     # 2. Check environment variables
     required_vars = [
         ("PROJECT_ENDPOINT", "Azure AI Foundry project endpoint"),
-        ("MODEL_DEPLOYMENT_NAME", "gpt-5.2 deployment name (only gpt-5.2 is supported)"),
+        ("MODEL_DEPLOYMENT_NAME", "Supported non-chat deployment name: gpt-5.1, gpt-5.2, gpt-5.4, or gpt-5.5"),
     ]
     
     env_ok = True
@@ -606,13 +606,12 @@ def api_validate():
 
                 classification = classify_model(underlying_model, deployment.name)
 
-                # SUPPORTED and WARN both pass; only BLOCKED fails
                 checks.append({
                     "name": "Model Deployment",
                     "passed": classification.tier != ModelTier.BLOCKED,
                     "message": classification.message,
                     "critical": classification.critical,
-                    "warning": classification.tier == ModelTier.WARN,
+                    "warning": False,
                 })
         except Exception as e:
             error_str = str(e)
@@ -760,7 +759,7 @@ def api_create_agent():
         
         # Gate: verify the deployment's underlying model is compatible before
         # creating agents. This prevents agents from being created on
-        # unsupported models (e.g. -chat variants, gpt-4o).
+        # unsupported models (for example sibling variants or gpt-4o).
         with project:
             deployment = project.deployments.get(name=model)
             underlying_model = getattr(deployment, "model_name", None) or ""
