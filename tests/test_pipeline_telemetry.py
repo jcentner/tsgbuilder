@@ -11,6 +11,7 @@ import queue
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
+import pytest
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from pipeline import (
     PipelineResult,
     PipelineStage,
+    ResponseFailedError,
     process_pipeline_v2_stream,
 )
 
@@ -206,6 +208,114 @@ class TestTokenAccumulation:
         
         assert timing_context['input_tokens'] == 0
         assert timing_context['output_tokens'] == 0
+
+
+# =============================================================================
+# STREAM EVENT VARIANTS
+# =============================================================================
+
+class TestStreamEventVariants:
+    """Streaming event variants preserve UI and retry contracts."""
+
+    def _make_item_event(self, event_type, item_type, **attrs):
+        event = MagicMock()
+        event.type = event_type
+        event.item = MagicMock()
+        event.item.type = item_type
+        for name, value in attrs.items():
+            setattr(event.item, name, value)
+        return event
+
+    def test_web_search_and_legacy_bing_emit_same_tool_type(self):
+        """Current and legacy web-search event names emit web_search tool events."""
+        for item_type in ("web_search_call", "bing_grounding_call"):
+            event_queue = queue.Queue()
+            timing_context = {}
+            event = self._make_item_event("response.output_item.added", item_type, query="storage account error")
+
+            process_pipeline_v2_stream(
+                event, event_queue, PipelineStage.RESEARCH, [], timing_context
+            )
+
+            queued = event_queue.get_nowait()
+            assert queued["type"] == "tool"
+            assert queued["data"]["type"] == "web_search"
+            assert queued["data"]["status"] == "running"
+            assert timing_context["tool_name"] == "Web Search"
+
+    def test_tool_done_clears_tool_timeout_tracking(self):
+        """Completed tool events clear active tool timeout tracking."""
+        event_queue = queue.Queue()
+        timing_context = {"tool_start": 1.0, "tool_name": "Web Search"}
+        event = self._make_item_event("response.output_item.done", "web_search_call")
+
+        process_pipeline_v2_stream(
+            event, event_queue, PipelineStage.RESEARCH, [], timing_context
+        )
+
+        assert "tool_start" not in timing_context
+        assert "tool_name" not in timing_context
+        assert "tool_end" in timing_context
+
+    def test_response_failed_dict_error_raises_response_failed_error(self):
+        """response.failed with dict-shaped error raises structured failure."""
+        event_queue = queue.Queue()
+        event = MagicMock()
+        event.type = "response.failed"
+        event.response = MagicMock()
+        event.response.error = {
+            "code": "rate_limit_exceeded",
+            "message": "Too many requests",
+            "status": 429,
+        }
+
+        with pytest.raises(ResponseFailedError) as exc_info:
+            process_pipeline_v2_stream(
+                event, event_queue, PipelineStage.RESEARCH, [], {}
+            )
+
+        assert exc_info.value.error_code == "rate_limit_exceeded"
+        assert exc_info.value.http_status_code == 429
+        assert "Too many requests" in str(exc_info.value)
+        assert event_queue.empty()
+
+    def test_plain_error_event_raises_response_failed_error(self):
+        """Plain stream error events raise so stage retry logic can handle them."""
+        event_queue = queue.Queue()
+        event = MagicMock()
+        event.type = "error"
+        event.code = "server_error"
+        event.message = "temporary service issue"
+        event.status = 500
+
+        with pytest.raises(ResponseFailedError) as exc_info:
+            process_pipeline_v2_stream(
+                event, event_queue, PipelineStage.RESEARCH, [], {}
+            )
+
+        assert exc_info.value.error_code == "server_error"
+        assert exc_info.value.http_status_code == 500
+        assert "temporary service issue" in str(exc_info.value)
+        assert event_queue.empty()
+
+    def test_prefixed_error_event_preserves_structured_error_dict(self):
+        """error* stream events preserve structured error fields."""
+        event = MagicMock()
+        event.type = "error.invalid_request"
+        event.error = {
+            "code": "invalid_request",
+            "message": "bad request",
+            "status": 400,
+        }
+
+        with pytest.raises(ResponseFailedError) as exc_info:
+            process_pipeline_v2_stream(
+                event, queue.Queue(), PipelineStage.RESEARCH, [], {}
+            )
+
+        assert exc_info.value.error_code == "invalid_request"
+        assert exc_info.value.http_status_code == 400
+        assert "bad request" in str(exc_info.value)
 
 
 # =============================================================================

@@ -58,6 +58,16 @@ def _mock_completed_stream():
     return iter([event])
 
 
+def _mock_error_stream(status=500, code="server_error", message="temporary service issue"):
+    """Return a minimal stream with a plain error event."""
+    event = Mock()
+    event.type = "error"
+    event.status = status
+    event.code = code
+    event.message = message
+    return iter([event])
+
+
 # =============================================================================
 # Tests: extra_body contract
 # =============================================================================
@@ -238,3 +248,57 @@ class TestSessionContinuityContract:
             )
 
         assert mock_openai.responses.create.call_args.kwargs["input"] == "Generate TSG for topic X"
+
+
+@pytest.mark.unit
+class TestStageRetryContract:
+    """Verify retry behavior for stage execution failures."""
+
+    def test_plain_stream_error_retries_then_succeeds(self):
+        """Retryable plain stream error events should flow through stage retry."""
+        pipeline = _make_pipeline()
+        pipeline.RATE_LIMIT_BACKOFF_BASE = 0
+        mock_openai = Mock()
+        mock_openai.responses.create.side_effect = [
+            _mock_error_stream(status=500),
+            _mock_completed_stream(),
+        ]
+
+        with patch("pipeline._iterate_with_timeout", side_effect=lambda stream, *a, **kw: stream):
+            response_text, conversation_id, timing_context = pipeline._run_stage_with_retry(
+                project=Mock(),
+                openai_client=mock_openai,
+                agent_name="TSG-Builder-Researcher",
+                stage=PipelineStage.RESEARCH,
+                prompt="test prompt",
+            )
+
+        assert response_text == "test output"
+        assert conversation_id == ""
+        assert timing_context["input_tokens"] == 10
+        assert mock_openai.responses.create.call_count == 2
+
+    def test_non_retryable_prefixed_error_does_not_retry(self):
+        """Non-retryable prefixed error events should not be retried."""
+        pipeline = _make_pipeline()
+        mock_openai = Mock()
+        error_event = Mock()
+        error_event.type = "error.invalid_request"
+        error_event.error = {
+            "code": "invalid_request",
+            "message": "bad request",
+            "status": 400,
+        }
+        mock_openai.responses.create.return_value = iter([error_event])
+
+        with patch("pipeline._iterate_with_timeout", side_effect=lambda stream, *a, **kw: stream):
+            with pytest.raises(Exception):
+                pipeline._run_stage_with_retry(
+                    project=Mock(),
+                    openai_client=mock_openai,
+                    agent_name="TSG-Builder-Researcher",
+                    stage=PipelineStage.RESEARCH,
+                    prompt="test prompt",
+                )
+
+        assert mock_openai.responses.create.call_count == 1

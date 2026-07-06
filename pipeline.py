@@ -721,6 +721,52 @@ def _send_classified_error(
     })
 
 
+def _extract_stream_error(event) -> tuple[str, str | None, int | None]:
+    """Extract message, code, and status from a streaming error event."""
+    error_msg = None
+    error_code = None
+    http_status_code = None
+
+    error_obj = getattr(event, 'error', None)
+
+    def _real_string(value) -> str | None:
+        return value if isinstance(value, str) and value else None
+
+    def _real_status(value) -> int | None:
+        return value if isinstance(value, int) else None
+
+    if _real_string(getattr(event, 'code', None)):
+        error_code = event.code
+    elif isinstance(error_obj, dict) and error_obj.get('code'):
+        error_code = error_obj['code']
+    elif _real_string(getattr(error_obj, 'code', None)):
+        error_code = error_obj.code
+
+    if _real_string(getattr(event, 'message', None)):
+        error_msg = event.message
+    elif isinstance(error_obj, dict) and error_obj.get('message'):
+        error_msg = error_obj['message']
+    elif _real_string(getattr(error_obj, 'message', None)):
+        error_msg = error_obj.message
+    elif error_obj:
+        error_msg = str(error_obj)
+    else:
+        error_msg = str(event)
+
+    if _real_status(getattr(event, 'status', None)):
+        http_status_code = event.status
+    elif _real_status(getattr(event, 'status_code', None)):
+        http_status_code = event.status_code
+    elif isinstance(error_obj, dict):
+        http_status_code = error_obj.get('status') or error_obj.get('status_code')
+    elif _real_status(getattr(error_obj, 'status', None)):
+        http_status_code = error_obj.status
+    elif _real_status(getattr(error_obj, 'status_code', None)):
+        http_status_code = error_obj.status_code
+
+    return error_msg or "Unknown error", error_code, http_status_code
+
+
 def _iterate_with_timeout(stream, timeout: float, stage: str):
     """
     Wrap a stream iterator with a per-event timeout.
@@ -1059,48 +1105,25 @@ def process_pipeline_v2_stream(
                     verbose_log(f"[{stage_name}] response attrs: {[a for a in dir(event.response) if not a.startswith('_')]}")
                 verbose_log(f"[{stage_name}] event repr: {repr(event)[:200]}")
         
-        # Send the error to UI (it will also be sent after retry if retry fails)
-        _send_classified_error(send_event, stage_name, error_msg, error_code=error_code, http_status_code=http_status_code)
-        
         # Raise exception so retry logic can handle it
         # This ensures the caller knows the response failed and can retry if appropriate
         raise ResponseFailedError(stage_name, error_msg, error_code, http_status_code)
     
     elif event_type == "error":
         # Handle error events that may occur during tool processing
-        # Try to extract structured fields: code, message, param
-        error_msg = None
-        error_code = None
-        http_status_code = None
-        
-        # Extract error code if available
-        if hasattr(event, 'code'):
-            error_code = event.code
-        
-        # Extract message (try multiple attribute names)
-        if hasattr(event, 'message') and event.message:
-            error_msg = event.message
-        elif hasattr(event, 'error') and event.error:
-            error_msg = str(event.error)
-        else:
-            error_msg = str(event)
-        
-        # Extract HTTP status if available
-        if hasattr(event, 'status'):
-            http_status_code = event.status
-        elif hasattr(event, 'status_code'):
-            http_status_code = event.status_code
+        error_msg, error_code, http_status_code = _extract_stream_error(event)
         
         # Log structured error for debugging
         if verbose:
             param = getattr(event, 'param', None)
             verbose_log(f"[{stage_name}] error event: code={error_code}, status={http_status_code}, param={param}, msg={error_msg[:100] if error_msg else 'None'}")
         
-        _send_classified_error(send_event, stage_name, error_msg, error_code=error_code, http_status_code=http_status_code)
+        raise ResponseFailedError(stage_name, error_msg or "Unknown error", error_code, http_status_code)
     
     elif event_type and event_type.startswith("error"):
         # Catch any other error-type events
-        _send_classified_error(send_event, stage_name, str(event))
+        error_msg, error_code, http_status_code = _extract_stream_error(event)
+        raise ResponseFailedError(stage_name, error_msg, error_code, http_status_code)
 
 
 class TSGPipeline:
