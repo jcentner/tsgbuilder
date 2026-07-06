@@ -2,6 +2,8 @@
 
 Use this as authoritative guidance when making changes or answering questions about the codebase. Detailed pipeline stage contracts live in `.github/instructions/` as path-specific instruction files.
 
+Reusable workflow prompts live in `.github/prompts/`; focused domain skills live in `.github/skills/`. Prefer path-scoped instructions and skills over adding broad always-loaded guidance here.
+
 > **📝 Maintenance Note**: When discussing this codebase, if we identify undocumented intentions or expected behaviors, prompt the user to update this file or the relevant `.instructions.md` file.
 
 ## Prompt Sync Rule
@@ -89,6 +91,7 @@ Always run `make test` before submitting changes. Tests live in `tests/` with sh
 - PII categories defined in `PII_CATEGORIES` in `pii_check.py`; `Organization` intentionally excluded
 - Error classification shared via `error_utils.py` — import from there, don't duplicate
 - Telemetry events documented in `docs/telemetry.md` — update when adding events
+- Setup/model policy is centralized in `model_policy.py` + `error_utils.py`; keep route and CLI validation wired through that shared path
 
 ## Version Management
 

@@ -20,7 +20,7 @@ Expected behavior:
 - Verify and summarize URLs from user notes first
 - Prioritize issue-specific docs and community workarounds
 - Note internal diagnostic tooling (Kusto, ASC, Acis) in Research Gaps as informational
-- Research Gaps are informational, NOT directives for the Writer to create MISSING placeholders
+- Research Gaps are informational except absent internal diagnostic/tool details, which should become `MISSING` when not provided in notes or research
 
 Output contract: `<!-- RESEARCH_BEGIN --> ... <!-- RESEARCH_END -->` containing Topic Summary, URLs from User Notes, Sources & Findings, Research Gaps.
 

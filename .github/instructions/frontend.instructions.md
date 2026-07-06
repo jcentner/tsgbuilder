@@ -10,7 +10,7 @@ These instructions apply when editing the web UI (HTML, JS, CSS).
 
 - **`templates/index.html`** — Single-page Flask template. Contains the full HTML structure rendered by `web_app.py`.
 - **`static/js/main.js`** — Core UI logic: SSE streaming from `/api/generate/stream` and `/api/answer/stream`, TSG rendering via `marked` + `DOMPurify`, copy/download, PII modal, warning banners, image handling.
-- **`static/js/setup.js`** — Setup wizard: configuration form, validation via `/api/validate`, agent creation via `/api/setup/stream`.
+- **`static/js/setup.js`** — Setup wizard: configuration form, validation via `/api/validate`, agent creation via `POST /api/create-agent`.
 - **`static/css/styles.css`** — CSS custom properties for theming, component styles for the setup modal, TSG display, warnings, and PII modal.
 
 ## Key UI Flows
@@ -28,7 +28,7 @@ These instructions apply when editing the web UI (HTML, JS, CSS).
 
 ### Setup Wizard
 - Opens automatically if agents not configured (checked via `/api/status`)
-- Validates config, creates agents via SSE stream, stores IDs in `.agent_ids.json`
+- Validates config, creates agents via `POST /api/create-agent` JSON response, stores IDs in `.agent_ids.json`
 
 ## Conventions
 
@@ -36,11 +36,11 @@ These instructions apply when editing the web UI (HTML, JS, CSS).
 - Markdown rendering uses `marked.min.js` + `purify.min.js` (vendored in `static/js/`)
 - SSE streaming uses native `EventSource` API
 - CSS uses custom properties (variables) defined at `:root` in `styles.css`
-- Warning banners are generated from the `warnings` array in the pipeline response (sourced from `accuracy_issues` + `suggestions`)
+- Review feedback is generated from the `warnings` array in the pipeline response (sourced from `accuracy_issues` + `suggestions`)
 
 ## Warnings Display
 
-Warnings from the review stage (`accuracy_issues`, `suggestions`) appear as a banner between TSG output and follow-up questions. Warnings must:
+Warnings from the review stage (`accuracy_issues`, `suggestions`) appear in the feedback panel outside the rendered TSG content. Warnings must:
 - Never block TSG display
 - Never appear inside the rendered TSG content
-- Be dismissible by the user
+- Let the user address or skip them during follow-up
