@@ -122,26 +122,29 @@ Current state: `save_agent_ids()` (line ~271) writes `{"researcher": {...}, "wri
 
 Current state: `/api/validate` (line ~412) runs 6 checks. Check #6 is "Pipeline Agents" — reads `.agent_ids.json` and reports pass/fail.
 
+Historical note: initial upgrade work used `app_version` as the staleness signal. Current implementation keeps `app_version` for display but uses `model_deployment_name`, `underlying_model_name`, and `agent_definition_signature` to decide whether agents are ready for generation.
+
 - [x] In the Pipeline Agents check block (check #6), after loading `agent_ids`:
-  - Read `agent_ids.get("app_version")` — may be `None` for pre-upgrade files
-  - Compare to `APP_VERSION`:
-    - Match → no change (existing pass/fail logic)
-    - Mismatch or missing → add `"agents_stale": True` and `"agents_created_version": stored_version or "unknown"` to the check dict
-    - Update the message to include: `"3 agents configured ({prefix}) — created with v{stored_version}, current is v{APP_VERSION}"`
-  - The check still **passes** (staleness is a warning, not a blocker)
-- [x] Add `agents_stale` and `agents_created_version` to the top-level `/api/validate` response for easy frontend access:
+  - Require v2 role objects with `name`, `version`, and `id`
+  - Treat missing or blank model/signature metadata as stale
+  - Compare the stored `model_deployment_name` with current `MODEL_DEPLOYMENT_NAME`
+  - Recompute `agent_definition_signature` from the current deployment and stage/tool contract
+  - Block `ready_for_generation` until stale agents are recreated
+- [x] Add staleness fields to the top-level `/api/validate` response for easy frontend access:
   ```python
   "agents_stale": agents_stale,
   "agents_created_version": agents_created_version,
+  "agent_stale_reasons": agent_stale_reasons,
+  "ready_for_generation": ready_for_generation,
   ```
 
 ### 2C. Staleness detection in `/api/status` (`web_app.py`)
 
 Current state: `/api/status` (line ~315) loads agent IDs and reports `configured: true/false`.
 
-- [x] After loading agent IDs, check `data.get("app_version")` vs `APP_VERSION`
-- [x] Add `"agents_stale": True/False` to the `result["agents"]` dict
-- [x] Add `"agents_created_version": stored_version` to the response
+- [x] After loading agent IDs, compare the current model deployment and agent-definition metadata
+- [x] Add `"agents_stale"`, `"agents_ready"`, and `"agents_stale_reasons"` to the `result["agents"]` dict
+- [x] Keep `"agents_created_version"` for display when stale metadata exists
 
 ### 2D. Frontend — staleness warning in setup wizard (`setup.js`)
 
@@ -151,18 +154,18 @@ Current state: `updateSetupOverallStatus()` (line ~228) fetches `/api/status` an
   - If `data.agents.agents_stale === true`:
     - Show warning text below the agent info div:
       ```
-      ⚠️ Agents were created with vX.Y.Z — recreate them to get the latest improvements.
+      ⚠️ Recreate agents to use the current setup (<reason>).
       ```
     - Optionally highlight the "Recreate Agents" button (it already exists and is enabled)
 - [x] In `runValidation()`, the check rendering already handles a `warning` field — the backend just needs to set it. Verify the staleness check renders correctly with the existing `warning` CSS class.
 
 ### 2E. Tests
 
-- [x] Unit test `save_agent_ids()` includes `app_version` in written JSON — **2 tests in `test_agent_staleness.py`**
-- [x] Unit test `/api/validate`: agents created with older version → `agents_stale: true` — **in `test_agent_staleness.py`**
-- [x] Unit test `/api/validate`: agents created with current version → `agents_stale: false` (or absent) — **in `test_agent_staleness.py`**
-- [x] Unit test `/api/validate`: pre-existing `.agent_ids.json` without `app_version` → treated as stale — **in `test_agent_staleness.py`**
-- [x] Unit test `/api/status`: same staleness cases — **4 tests in `test_agent_staleness.py`**
+- [x] Unit test `save_agent_ids()` includes app, model, underlying model, and signature metadata — **in `test_agent_staleness.py`**
+- [x] Unit test `/api/validate`: matching metadata → `ready_for_generation: true` — **in `test_agent_staleness.py`**
+- [x] Unit test `/api/validate`: missing/blank metadata or changed model → `ready_for_generation: false` — **in `test_agent_staleness.py`**
+- [x] Unit test `/api/status`: same staleness cases — **in `test_agent_staleness.py`**
+- [x] Unit test `/api/generate/stream`: stale metadata blocks before `run_pipeline()` — **in `test_agent_staleness.py`**
 
 ---
 
@@ -303,6 +306,6 @@ Deliverables 1 and 2 can be developed in parallel. Deliverable 4 (docs) should b
 ## Risk Notes
 
 - **GitHub API rate limit**: Unauthenticated requests are limited to 60/hour per IP. For a desktop app that checks once per launch, this is fine. The 5-second timeout and fail-silent behavior prevent any user impact.
-- **Pre-existing `.agent_ids.json`**: Files from v1.0.6 and earlier won't have `app_version`. Treating missing as stale is the safe default — users get a one-time "recreate agents" prompt after upgrading.
+- **Pre-existing `.agent_ids.json`**: Files from older versions won't have model/signature metadata. Treating missing metadata as stale is the safe default — users get a one-time "recreate agents" prompt after upgrading.
 - **Inno Setup on CI**: `choco install innosetup` is well-established in GitHub Actions Windows runners. The step adds ~30 seconds to the build.
 - **No `requests` library**: Using `urllib.request` avoids adding a dependency. The GitHub API response is small JSON — no need for a full HTTP client.
