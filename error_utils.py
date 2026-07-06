@@ -20,13 +20,7 @@ from azure.core.exceptions import (
     ServiceRequestError,
 )
 
-from pipeline import (
-    HINT_AUTH,
-    HINT_CONNECTION,
-    HINT_NOT_FOUND,
-    HINT_SERVICE_ERROR,
-    HTTP_STATUS_MESSAGES,
-)
+from error_messages import HINT_AUTH, HINT_CONNECTION, HINT_NOT_FOUND, HINT_SERVICE_ERROR, HTTP_STATUS_MESSAGES
 from model_policy import SUPPORTED_MODELS_DISPLAY, evaluate_model_policy
 
 
@@ -102,7 +96,7 @@ def classify_model(underlying_model: str | None, deployment_name: str = "") -> M
 def classify_azure_sdk_error(error: Exception) -> tuple[str, str | None, int]:
     """Classify Azure SDK exceptions into user-friendly messages with hints.
 
-    Uses shared constants from pipeline.py for consistent messaging across
+    Uses shared constants from error_messages.py for consistent messaging across
     the codebase. Returns (user_message, hint, http_status_code).
     """
     # ClientAuthenticationError - credentials/auth issues

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Generator
 
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
-from dotenv import load_dotenv, find_dotenv, set_key
+from dotenv import load_dotenv, set_key
 from azure.core.exceptions import (
     HttpResponseError,
     ClientAuthenticationError,
@@ -216,9 +216,8 @@ def _ensure_env_file() -> Path:
     return env_path
 
 
-# Load environment variables (create .env from defaults if needed)
-_env_file = _ensure_env_file()
-load_dotenv(_env_file)
+# Load existing environment variables without creating files at import time.
+load_dotenv(_get_app_dir() / ".env")
 
 # Check for test mode from environment variable
 TEST_MODE = os.getenv("TSG_TEST_MODE", "").strip() in ("1", "true", "True", "yes")
@@ -1433,6 +1432,9 @@ def api_debug_threads():
 
 def main():
     """Run the Flask development server."""
+    env_file = _ensure_env_file()
+    load_dotenv(env_file, override=False)
+
     # Initialize telemetry subsystem (background for speed, or instant if opted out)
     if not telemetry.is_telemetry_enabled():
         print("📊 Telemetry: disabled (opted out)")

@@ -111,6 +111,7 @@ Required sections (10 total) — see `REQUIRED_TSG_HEADINGS` in `tsg_constants.p
 ## Error Classification (`error_utils.py`)
 
 Shared error classification for Azure SDK errors. Always import from `error_utils.py` — do not duplicate classification logic in `pipeline.py` or `web_app.py`.
+Shared user-facing hint/status strings live in `error_messages.py` so error utilities do not import pipeline orchestration.
 
 ## Common Gotchas
 
