@@ -7,6 +7,8 @@ Provides an easy-to-use web interface for generating TSGs from notes.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import sys
 
@@ -66,6 +68,8 @@ LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
 AGENT_DEFINITION_CONTRACT_VERSION = "2026-07-06.1"
 AGENT_ROLES = ("researcher", "writer", "reviewer")
 AGENT_REQUIRED_FIELDS = ("name", "version", "id")
+MAX_IMAGES_PER_REQUEST = 10
+ALLOWED_IMAGE_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
 
 # ---------------------------------------------------------------------------
 # Version check (background, fail-silent)
@@ -170,6 +174,41 @@ def _extract_missing_sections(questions_content: str | None) -> list[str]:
     if not questions_content or questions_content.strip() == "NO_MISSING":
         return []
     return re.findall(r'\{\{MISSING::([^:}]+)::', questions_content)
+
+
+def _validate_images(images: Any) -> str | None:
+    """Return an error message when an image payload is invalid."""
+    if images is None:
+        return None
+
+    if not isinstance(images, list):
+        return "Images must be a list"
+
+    if len(images) > MAX_IMAGES_PER_REQUEST:
+        return f"Maximum {MAX_IMAGES_PER_REQUEST} images allowed"
+
+    for index, image in enumerate(images):
+        if not isinstance(image, dict):
+            return f"Image {index} must be an object"
+
+        image_type = image.get("type")
+        if not isinstance(image_type, str) or not image_type.strip():
+            return f"Image {index} must include a MIME type"
+        image_type = image_type.strip().lower()
+        if image_type not in ALLOWED_IMAGE_TYPES:
+            allowed = ", ".join(sorted(ALLOWED_IMAGE_TYPES))
+            return f"Image {index} has unsupported MIME type '{image_type}'. Supported types: {allowed}"
+        image["type"] = image_type
+
+        image_data = image.get("data")
+        if not isinstance(image_data, str) or not image_data.strip():
+            return f"Image {index} must include base64 data"
+        try:
+            base64.b64decode(image_data, validate=True)
+        except (binascii.Error, ValueError):
+            return f"Image {index} has invalid base64 data"
+
+    return None
 
 # Default .env content (created automatically on first run)
 # These provide sensible defaults; users still need to fill in their Azure-specific values
@@ -1271,16 +1310,9 @@ def api_generate_stream():
         )
         return jsonify({"error": "PII detected in notes", "findings": pii_result["findings"]}), 400
     
-    # Validate images if provided
-    if images:
-        if not isinstance(images, list):
-            return jsonify({"error": "Images must be a list"}), 400
-        for i, img in enumerate(images):
-            if not isinstance(img, dict) or "data" not in img:
-                return jsonify({"error": f"Image {i} must have 'data' field"}), 400
-            # Default type to png if not specified
-            if "type" not in img:
-                img["type"] = "image/png"
+    image_error = _validate_images(images)
+    if image_error:
+        return jsonify({"error": image_error}), 400
 
     agent_blocker = _get_generation_agent_blocker()
     if agent_blocker:

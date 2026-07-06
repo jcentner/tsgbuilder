@@ -114,7 +114,7 @@ The setup wizard opens automatically to guide you through configuration.
 **Features:**
 - ⚙️ **Built-in setup wizard** — Configure, validate, and create agents from the browser
 - 📝 Paste notes directly in the browser
-- 🖼️ **Image support** — Attach screenshots via drag-and-drop, file picker, or paste
+- 🖼️ **Image support** — Attach screenshots via drag-and-drop or file picker
 - 🔄 Interactive follow-up questions
 - 📋 One-click copy to clipboard
 - 👁️ **Raw/Preview toggle** — Switch between raw markdown and rendered preview
@@ -130,11 +130,7 @@ You can include screenshots or images with your troubleshooting notes:
 
 Supported formats: PNG, JPG, GIF, WebP. Maximum 10 images per request.
 
-Images are sent to the AI agent for visual analysis, which is especially useful for:
-- Error screenshots
-- Architecture diagrams
-- Console/terminal output
-- Configuration screenshots
+Image attachments are validated and tracked with the request. Visual analysis support depends on the active pipeline path and model capability.
 
 ![TSG Builder UI](docs/ui-screenshot.png)
 

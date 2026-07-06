@@ -61,11 +61,11 @@ Include:
                     <!-- Image Upload Section -->
                     <div class="image-upload-section">
                         <h4>📎 Attach Images (Optional) <span class="image-count" id="imageCount"></span></h4>
-                        <input type="file" id="imageInput" class="image-input" accept="image/*" multiple>
+                        <input type="file" id="imageInput" class="image-input" accept="image/png,image/jpeg,image/gif,image/webp" multiple>
                         <div class="image-drop-zone" id="imageDropZone" onclick="document.getElementById('imageInput').click()">
                             <div class="drop-icon">🖼️</div>
                             <div class="drop-text">Drop images here or click to upload</div>
-                            <div class="drop-hint">Supports PNG, JPG, GIF • Max 10 images</div>
+                            <div class="drop-hint">Supports PNG, JPG, GIF, WebP • Max 10 images</div>
                         </div>
                         <div class="image-previews" id="imagePreviews"></div>
                     </div>

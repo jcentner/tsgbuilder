@@ -20,6 +20,7 @@ let isMarkdownPreview = localStorage.getItem('tsgPreviewMode') === 'true';
 // Image storage
 let uploadedImages = [];
 const MAX_IMAGES = 10;
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 
 // Run cancellation support
 let currentRunId = null;
@@ -107,11 +108,11 @@ function initImageUpload() {
 function handleFiles(files) {
     const fileArray = Array.from(files);
     
-    // Filter for images only
-    const imageFiles = fileArray.filter(f => f.type.startsWith('image/'));
+    // Filter for supported images only
+    const imageFiles = fileArray.filter(f => ALLOWED_IMAGE_TYPES.includes(f.type));
     
     if (imageFiles.length === 0) {
-        showError('Please select image files only.');
+        showError('Please select PNG, JPG, GIF, or WebP images only.');
         return;
     }
     

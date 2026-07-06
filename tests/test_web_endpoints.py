@@ -6,6 +6,7 @@ Tests the REST API endpoints in web_app.py.
 Run with: pytest tests/test_web_endpoints.py -v
 """
 
+import base64
 import json
 import pytest
 from unittest.mock import patch, MagicMock
@@ -322,6 +323,15 @@ class TestDebugEndpoint:
 
 class TestGenerateAPIValidation:
     """Tests for /api/generate/stream input validation."""
+
+    def _clean_pii_result(self):
+        return {
+            "pii_detected": False,
+            "findings": [],
+            "redacted_text": "Some test notes",
+            "error": None,
+            "hint": None,
+        }
     
     @pytest.mark.unit
     def test_generate_requires_notes(self, client):
@@ -338,14 +348,15 @@ class TestGenerateAPIValidation:
     @pytest.mark.unit
     def test_generate_rejects_invalid_images(self, client):
         """POST with invalid images format should return 400."""
-        response = client.post(
-            "/api/generate/stream",
-            data=json.dumps({
-                "notes": "Some test notes",
-                "images": "not a list"
-            }),
-            content_type="application/json"
-        )
+        with patch("web_app.check_for_pii", return_value=self._clean_pii_result()):
+            response = client.post(
+                "/api/generate/stream",
+                data=json.dumps({
+                    "notes": "Some test notes",
+                    "images": "not a list"
+                }),
+                content_type="application/json"
+            )
         assert response.status_code == 400
         data = json.loads(response.data)
         assert "error" in data
@@ -354,17 +365,90 @@ class TestGenerateAPIValidation:
     @pytest.mark.unit
     def test_generate_rejects_images_without_data(self, client):
         """POST with images missing 'data' field should return 400."""
-        response = client.post(
-            "/api/generate/stream",
-            data=json.dumps({
-                "notes": "Some test notes",
-                "images": [{"type": "image/png"}]  # Missing 'data'
-            }),
-            content_type="application/json"
-        )
+        with patch("web_app.check_for_pii", return_value=self._clean_pii_result()):
+            response = client.post(
+                "/api/generate/stream",
+                data=json.dumps({
+                    "notes": "Some test notes",
+                    "images": [{"type": "image/png"}]  # Missing 'data'
+                }),
+                content_type="application/json"
+            )
         assert response.status_code == 400
         data = json.loads(response.data)
         assert "error" in data
+
+    @pytest.mark.unit
+    def test_generate_rejects_too_many_images(self, client):
+        """POST with more than 10 images should return 400."""
+        image_data = base64.b64encode(b"image").decode("ascii")
+        with patch("web_app.check_for_pii", return_value=self._clean_pii_result()):
+            response = client.post(
+                "/api/generate/stream",
+                data=json.dumps({
+                    "notes": "Some test notes",
+                    "images": [{"type": "image/png", "data": image_data} for _ in range(11)]
+                }),
+                content_type="application/json"
+            )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "maximum 10" in data["error"].lower()
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("image_type", ["text/plain", "image/svg+xml"])
+    def test_generate_rejects_unsupported_image_types(self, client, image_type):
+        """POST with unsupported image MIME types should return 400."""
+        image_data = base64.b64encode(b"image").decode("ascii")
+        with patch("web_app.check_for_pii", return_value=self._clean_pii_result()):
+            response = client.post(
+                "/api/generate/stream",
+                data=json.dumps({
+                    "notes": "Some test notes",
+                    "images": [{"type": image_type, "data": image_data}]
+                }),
+                content_type="application/json"
+            )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "unsupported mime type" in data["error"].lower()
+
+    @pytest.mark.unit
+    def test_generate_rejects_missing_image_type(self, client):
+        """POST with images missing a MIME type should return 400."""
+        image_data = base64.b64encode(b"image").decode("ascii")
+        with patch("web_app.check_for_pii", return_value=self._clean_pii_result()):
+            response = client.post(
+                "/api/generate/stream",
+                data=json.dumps({
+                    "notes": "Some test notes",
+                    "images": [{"data": image_data}]
+                }),
+                content_type="application/json"
+            )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "mime type" in data["error"].lower()
+
+    @pytest.mark.unit
+    def test_generate_rejects_invalid_base64_image_data(self, client):
+        """POST with invalid base64 image data should return 400."""
+        with patch("web_app.check_for_pii", return_value=self._clean_pii_result()):
+            response = client.post(
+                "/api/generate/stream",
+                data=json.dumps({
+                    "notes": "Some test notes",
+                    "images": [{"type": "image/png", "data": "not base64!"}]
+                }),
+                content_type="application/json"
+            )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "invalid base64" in data["error"].lower()
 
 
 # =============================================================================
