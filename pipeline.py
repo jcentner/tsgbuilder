@@ -1855,11 +1855,9 @@ def run_pipeline(
     except (json.JSONDecodeError, IOError) as e:
         raise ValueError(f"Failed to load agent info: {e}") from e
     
-    # Helper to extract agent name from v1 (string ID) or v2 (dict with 'name') format
     def get_agent_name(agent_info):
         if isinstance(agent_info, dict):
             return agent_info.get("name")
-        # v1 format: return None, caller must handle
         return None
     
     researcher_name = get_agent_name(agent_data.get("researcher"))
@@ -1869,9 +1867,6 @@ def run_pipeline(
     if not all([researcher_name, writer_name, reviewer_name]):
         raise ValueError("Incomplete agent configuration (v2 format with names required). Re-run Setup wizard.")
     
-    bing_connection_id = os.getenv("BING_CONNECTION_NAME")
-    if bing_connection_id:
-        print("\u26a0\ufe0f  BING_CONNECTION_NAME is set but no longer used. Web search is now managed automatically.")
     model_name = os.getenv("MODEL_DEPLOYMENT_NAME")
     
     pipeline = TSGPipeline(

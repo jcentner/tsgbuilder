@@ -21,6 +21,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 AGENT_IDS_FILE = Path(".agent_ids.json")
+AGENT_ROLES = ("researcher", "writer", "reviewer")
+AGENT_REQUIRED_FIELDS = ("name", "version", "id")
 
 
 def delete_agents(skip_confirm: bool = False) -> bool:
@@ -56,16 +58,25 @@ def delete_agents(skip_confirm: bool = False) -> bool:
     if not agents:
         print("No agent info found in .agent_ids.json. Nothing to delete.")
         return True
+
+    for role in AGENT_ROLES:
+        agent_info = data.get(role)
+        if not agent_info:
+            print(f"Incomplete .agent_ids.json: missing {role} agent info. Use Setup to recreate agents.")
+            return False
+        if not isinstance(agent_info, dict):
+            print("Legacy .agent_ids.json format detected. Use Setup to recreate agents.")
+            return False
+        missing_fields = [field for field in AGENT_REQUIRED_FIELDS if not agent_info.get(field)]
+        if missing_fields:
+            print(f"Incomplete {role} agent info in .agent_ids.json. Use Setup to recreate agents.")
+            return False
     
     # Show what will be deleted
     name_prefix = data.get("name_prefix", "TSG")
     print(f"\nAgents to delete (prefix: {name_prefix}):")
     for role, agent_info in agents.items():
-        # Handle both v1 (string ID) and v2 (dict with name/version) formats
-        if isinstance(agent_info, dict):
-            print(f"  - {role}: {agent_info.get('name')} (version {agent_info.get('version')})")
-        else:
-            print(f"  - {role}: {agent_info} (v1 format)")
+        print(f"  - {role}: {agent_info.get('name')} (version {agent_info.get('version')})")
     
     # Confirm unless --yes flag
     if not skip_confirm:

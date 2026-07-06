@@ -177,12 +177,8 @@ async function createAgent() {
             status.textContent = isRecreating ? '✓ Agents recreated!' : '✓ Agents created!';
             status.style.color = 'var(--success)';
             
-            // Handle v2 format (object with name/version) or v1 format (string ID)
             const getAgentDisplay = (agent) => {
-                if (typeof agent === 'object' && agent.name) {
-                    return agent.name.substring(0, 20);
-                }
-                return String(agent).substring(0, 8);
+                return agent.name.substring(0, 20);
             };
             
             agentStatusDiv.innerHTML = `
@@ -259,10 +255,10 @@ async function updateSetupOverallStatus() {
             `;
             // Agent staleness warning
             if (data.agents.agents_stale) {
-                const createdVer = data.agents.agents_created_version || 'unknown';
+                const reasons = (data.agents.agents_stale_reasons || []).join('; ') || `created with v${data.agents.agents_created_version || 'unknown'}`;
                 agentHtml += `
                     <div style="margin-top: 8px; padding: 8px 12px; background: var(--warning-bg, #fff3cd); border: 1px solid var(--warning-border, #ffc107); border-radius: 6px; font-size: 13px; color: var(--warning-text, #856404);">
-                        ⚠️ Agents were created with v${createdVer} — recreate them to get the latest improvements.
+                        ⚠️ Recreate agents to use the current setup (${reasons}).
                     </div>
                 `;
             }

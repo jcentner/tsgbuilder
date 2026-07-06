@@ -7,6 +7,7 @@ Provides an easy-to-use web interface for generating TSGs from notes.
 
 from __future__ import annotations
 
+import hashlib
 import sys
 
 # --- Immediate startup feedback for compiled executable ---
@@ -61,6 +62,10 @@ if getattr(sys, 'frozen', False):
 
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
+
+AGENT_DEFINITION_CONTRACT_VERSION = "2026-07-06.1"
+AGENT_ROLES = ("researcher", "writer", "reviewer")
+AGENT_REQUIRED_FIELDS = ("name", "version", "id")
 
 # ---------------------------------------------------------------------------
 # Version check (background, fail-silent)
@@ -337,29 +342,144 @@ def get_agent_ids() -> dict:
     
     data = json.loads(agent_ids_file.read_text(encoding="utf-8"))
     
-    required = ["researcher", "writer", "reviewer"]
-    missing = [k for k in required if not data.get(k)]
+    missing = [role for role in AGENT_ROLES if not data.get(role)]
     if missing:
         raise ValueError(f"Missing agent IDs: {', '.join(missing)}. Use Setup to recreate agents.")
+
+    for role in AGENT_ROLES:
+        agent_info = data.get(role)
+        if not isinstance(agent_info, dict):
+            raise ValueError("Legacy agent configuration detected. Use Setup to recreate agents.")
+        missing_fields = [field for field in AGENT_REQUIRED_FIELDS if not agent_info.get(field)]
+        if missing_fields:
+            raise ValueError(
+                f"Incomplete {role} agent configuration. Use Setup to recreate agents."
+            )
     
     return data
 
 
-def get_agent_id(agent_info) -> str | None:
-    """Extract agent ID from v1 (string) or v2 (dict with 'id') format.
-    
-    Args:
-        agent_info: Either a string (v1) or dict with 'id' key (v2)
-    
-    Returns:
-        The agent ID string, or None if not found
-    """
-    if isinstance(agent_info, dict):
-        return agent_info.get("id")
-    return agent_info  # v1 format: direct string ID
+def get_agent_definition_signature(model_deployment_name: str, underlying_model_name: str | None = None) -> str:
+    """Return the deterministic signature for the persisted agent definition."""
+    payload = {
+        "contract_version": AGENT_DEFINITION_CONTRACT_VERSION,
+        "model_deployment_name": model_deployment_name or "",
+        "underlying_model_name": underlying_model_name or "",
+        "learn_mcp_url": LEARN_MCP_URL,
+        "stages": {
+            "researcher": {
+                "instructions": RESEARCH_STAGE_INSTRUCTIONS,
+                "temperature": 0,
+                "tools": [
+                    {"type": "mcp", "server_label": "learn", "require_approval": "never"},
+                    {"type": "web_search_preview", "search_context_size": "high"},
+                ],
+            },
+            "writer": {
+                "instructions": WRITER_STAGE_INSTRUCTIONS,
+                "temperature": 0,
+                "tools": [],
+            },
+            "reviewer": {
+                "instructions": REVIEW_STAGE_INSTRUCTIONS,
+                "temperature": 0,
+                "tools": [],
+            },
+        },
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
-def save_agent_ids(researcher: dict, writer: dict, reviewer: dict, name_prefix: str):
+def _agent_metadata(model_deployment_name: str | None, underlying_model_name: str | None) -> dict[str, str]:
+    """Build persisted metadata for setup-created agents."""
+    model_name = model_deployment_name or ""
+    underlying = underlying_model_name or ""
+    return {
+        "model_deployment_name": model_name,
+        "underlying_model_name": underlying,
+        "agent_definition_signature": get_agent_definition_signature(model_name, underlying),
+    }
+
+
+def _get_agent_readiness(
+    agent_ids: dict,
+    current_model_deployment_name: str | None = None,
+    current_underlying_model_name: str | None = None,
+) -> dict[str, Any]:
+    """Compare persisted agent metadata with the current setup."""
+    current_model = current_model_deployment_name or os.getenv("MODEL_DEPLOYMENT_NAME", "")
+    metadata_keys = ("model_deployment_name", "underlying_model_name", "agent_definition_signature")
+    missing_metadata = [key for key in metadata_keys if not str(agent_ids.get(key, "")).strip()]
+    stored_model = str(agent_ids.get("model_deployment_name", "")).strip()
+    stored_underlying = str(agent_ids.get("underlying_model_name", "")).strip()
+    stored_signature = str(agent_ids.get("agent_definition_signature", "")).strip()
+    signature_underlying = stored_underlying if current_underlying_model_name is None else current_underlying_model_name
+
+    reasons: list[str] = []
+    if missing_metadata:
+        reasons.append("agent metadata is missing")
+    model_changed = False
+    if stored_model and current_model and stored_model != current_model:
+        model_changed = True
+        reasons.append(f"model changed from {stored_model} to {current_model}")
+    if not missing_metadata and not model_changed:
+        expected_signature = get_agent_definition_signature(current_model, signature_underlying)
+        if stored_signature != expected_signature:
+            reasons.append("agent definition changed")
+
+    stale = bool(reasons)
+    return {
+        "ready": not stale,
+        "stale": stale,
+        "reasons": reasons,
+        "agents_created_version": (agent_ids.get("app_version") or "unknown") if stale else None,
+        "app_version": agent_ids.get("app_version"),
+        "model_deployment_name": stored_model,
+        "underlying_model_name": stored_underlying,
+        "current_model_deployment_name": current_model,
+    }
+
+
+def _format_agent_recreate_message(readiness: dict[str, Any]) -> str:
+    reason_items = readiness.get("reasons") or readiness.get("agents_stale_reasons") or []
+    reasons = "; ".join(reason_items) or "agent setup changed"
+    return f"Recreate agents to use the current setup ({reasons})."
+
+
+def _get_generation_agent_blocker() -> str | None:
+    """Return an error message when generation must not use persisted agents."""
+    try:
+        agent_ids = get_agent_ids()
+    except ValueError as exc:
+        return str(exc)
+
+    current_model = os.getenv("MODEL_DEPLOYMENT_NAME", "")
+    try:
+        with get_project_client() as project:
+            deployment = project.deployments.get(name=current_model)
+            current_model = deployment.name
+            current_underlying_model = getattr(deployment, "model_name", None) or ""
+            classification = classify_model(current_underlying_model, deployment.name)
+            if classification.tier == ModelTier.BLOCKED:
+                return classification.message
+    except Exception as exc:
+        return f"Could not verify current model deployment before generation: {str(exc)[:120]}"
+
+    readiness = _get_agent_readiness(agent_ids, current_model, current_underlying_model)
+    if not readiness["ready"]:
+        return _format_agent_recreate_message(readiness)
+    return None
+
+
+def save_agent_ids(
+    researcher: dict,
+    writer: dict,
+    reviewer: dict,
+    name_prefix: str,
+    model_deployment_name: str | None = None,
+    underlying_model_name: str | None = None,
+):
     """Save all pipeline agent info to JSON file (v2 format with name/version/id)."""
     data = {
         "researcher": researcher,
@@ -367,6 +487,7 @@ def save_agent_ids(researcher: dict, writer: dict, reviewer: dict, name_prefix: 
         "reviewer": reviewer,
         "name_prefix": name_prefix,
         "app_version": APP_VERSION,
+        **_agent_metadata(model_deployment_name or os.getenv("MODEL_DEPLOYMENT_NAME", ""), underlying_model_name),
     }
     _get_agent_ids_file().write_text(json.dumps(data, indent=2), encoding="utf-8")
 
@@ -425,23 +546,20 @@ def api_status():
     try:
         agent_ids = get_agent_ids()
         result["agents"]["configured"] = True
-        # Handle v2 format (dict with name/version) vs v1 format (string ID)
         for role in ["researcher", "writer", "reviewer"]:
             agent_info = agent_ids.get(role, "")
-            if isinstance(agent_info, dict):
-                result["agents"][role] = agent_info.get("name", "")[:20] + "..."
-            else:
-                result["agents"][role] = str(agent_info)[:8] + "..."
+            result["agents"][role] = agent_info.get("name", "")[:20] + "..."
         result["agents"]["name_prefix"] = agent_ids.get("name_prefix")
-        # Agent staleness detection: compare stored version to current
-        stored_version = agent_ids.get("app_version")
-        if stored_version != APP_VERSION:
-            result["agents"]["agents_stale"] = True
-            result["agents"]["agents_created_version"] = stored_version or "unknown"
-        else:
-            result["agents"]["agents_stale"] = False
-    except ValueError:
+        readiness = _get_agent_readiness(agent_ids, model)
+        result["agents"]["agents_stale"] = readiness["stale"]
+        result["agents"]["agents_ready"] = readiness["ready"]
+        result["agents"]["agents_stale_reasons"] = readiness["reasons"]
+        result["agents"]["agents_created_version"] = readiness["agents_created_version"]
+        result["agents"]["model_deployment_name"] = readiness["model_deployment_name"]
+        result["agents"]["current_model_deployment_name"] = readiness["current_model_deployment_name"]
+    except ValueError as exc:
         result["agents"]["configured"] = False
+        result["agents"]["error"] = str(exc)
     
     # Determine overall status
     config_complete = all([
@@ -449,11 +567,15 @@ def api_status():
         result["config"]["has_model"],
     ])
     
-    if config_complete and result["agents"]["configured"]:
+    agents_ready = result["agents"].get("configured") and result["agents"].get("agents_ready", True)
+    if config_complete and agents_ready:
         result["ready"] = True
     elif not config_complete:
         result["needs_setup"] = True
         result["error"] = "Configuration incomplete. Please configure your Azure settings."
+    elif result["agents"].get("agents_stale"):
+        result["needs_setup"] = True
+        result["error"] = _format_agent_recreate_message(result["agents"])
     else:
         result["needs_setup"] = True
         result["error"] = "Agents not created. Please run Setup to create agents."
@@ -595,6 +717,7 @@ def api_validate():
     # 5. Check model deployment exists and validate model compatibility
     # Uses shared classify_model() from error_utils for consistent tier logic.
     deployment_name = os.getenv("MODEL_DEPLOYMENT_NAME", "")
+    validated_underlying_model = None
     if project_client and deployment_name:
         try:
             # Re-open project client for deployment check
@@ -603,6 +726,7 @@ def api_validate():
             with AIProjectClient(endpoint=os.getenv("PROJECT_ENDPOINT"), credential=DefaultAzureCredential()) as project:
                 deployment = project.deployments.get(name=deployment_name)
                 underlying_model = getattr(deployment, "model_name", None) or ""
+                validated_underlying_model = underlying_model
 
                 classification = classify_model(underlying_model, deployment.name)
 
@@ -646,28 +770,31 @@ def api_validate():
     # 6. Check agent IDs (not critical) + staleness detection
     agents_stale = False
     agents_created_version = None
+    pipeline_agents_ready = False
+    agent_stale_reasons: list[str] = []
     try:
         agent_ids = get_agent_ids()
         prefix = agent_ids.get("name_prefix", "TSG")
-        stored_version = agent_ids.get("app_version")
-        if stored_version != APP_VERSION:
-            agents_stale = True
-            agents_created_version = stored_version or "unknown"
-            message = f"3 agents configured ({prefix}) — created with v{agents_created_version}, current is v{APP_VERSION}"
-        else:
-            message = f"3 agents configured ({prefix})"
+        readiness = _get_agent_readiness(agent_ids, deployment_name, validated_underlying_model)
+        agents_stale = readiness["stale"]
+        pipeline_agents_ready = readiness["ready"]
+        agents_created_version = readiness["agents_created_version"]
+        agent_stale_reasons = readiness["reasons"]
+        message = f"3 agents configured ({prefix})"
+        if agents_stale:
+            message += f" — {_format_agent_recreate_message(readiness)}"
         checks.append({
             "name": "Pipeline Agents",
-            "passed": True,
+            "passed": pipeline_agents_ready,
             "message": message,
             "critical": False,
             "warning": agents_stale,
         })
-    except ValueError:
+    except ValueError as exc:
         checks.append({
             "name": "Pipeline Agents",
             "passed": False,
-            "message": "Not found. Create agents to continue.",
+            "message": str(exc),
             "critical": False,
         })
     
@@ -679,8 +806,10 @@ def api_validate():
         "checks": checks,
         "all_passed": all_passed,
         "ready_for_agent": all_critical_passed,
+        "ready_for_generation": all_critical_passed and pipeline_agents_ready,
         "agents_stale": agents_stale,
         "agents_created_version": agents_created_version,
+        "agent_stale_reasons": agent_stale_reasons,
     })
 
 
@@ -746,10 +875,6 @@ def api_create_agent():
             "success": False,
             "error": f"Missing required configuration: {', '.join(missing)}",
         }), 400
-    
-    # Log deprecation warning if old BING_CONNECTION_NAME is still set
-    if os.getenv("BING_CONNECTION_NAME"):
-        print("⚠️  BING_CONNECTION_NAME is set but no longer used. Web search is now managed automatically via WebSearchPreviewTool.")
     
     try:
         from azure.identity import DefaultAzureCredential
@@ -830,6 +955,8 @@ def api_create_agent():
             writer=created_agents["writer"],
             reviewer=created_agents["reviewer"],
             name_prefix=agent_name,
+            model_deployment_name=model,
+            underlying_model_name=underlying_model,
         )
         
         # Telemetry: setup_completed
@@ -1155,6 +1282,10 @@ def api_generate_stream():
             # Default type to png if not specified
             if "type" not in img:
                 img["type"] = "image/png"
+
+    agent_blocker = _get_generation_agent_blocker()
+    if agent_blocker:
+        return jsonify({"error": agent_blocker}), 400
     
     return Response(
         stream_with_context(generate_pipeline_sse_events(notes, images=images)),
@@ -1204,6 +1335,10 @@ def api_answer_stream():
         return jsonify({"error": "PII detected in answers", "findings": pii_result["findings"]}), 400
     
     notes = sessions[thread_id].get("notes", "")
+
+    agent_blocker = _get_generation_agent_blocker()
+    if agent_blocker:
+        return jsonify({"error": agent_blocker}), 400
     
     return Response(
         stream_with_context(generate_pipeline_sse_events(notes, thread_id, answers)),

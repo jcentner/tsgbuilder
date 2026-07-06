@@ -14,7 +14,7 @@ Research → Write → Review. Each stage is a separate Azure AI Foundry agent. 
 
 **Purpose**: Gather public references as internal material for the Writer. Output never appears in the final TSG.
 
-**Tools**: `WebSearchPreviewTool` (Microsoft-managed), Microsoft Learn MCP. `BING_CONNECTION_NAME` is deprecated.
+**Tools**: `WebSearchPreviewTool` (Microsoft-managed), Microsoft Learn MCP.
 
 Expected behavior:
 - Verify and summarize URLs from user notes first
