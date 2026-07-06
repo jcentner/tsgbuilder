@@ -194,7 +194,7 @@ Current state: `updateSetupOverallStatus()` (line ~228) fetches `/api/status` an
 
 ### 3B. CI — build installer (`build.yml`)
 
-Historical note: the snippet below was the implementation checklist. Current CI strips the leading `v` from the tag before passing `AppVersion` to Inno Setup.
+Historical note: the snippet below was the original implementation checklist. Current CI reads `APP_VERSION` from `version.py` before passing `AppVersion` to Inno Setup.
 
 Current state: Windows build creates `dist/tsg-builder-windows/` folder, zips it.
 
@@ -204,7 +204,7 @@ Current state: Windows build creates `dist/tsg-builder-windows/` folder, zips it
     if: matrix.platform == 'windows'
     run: |
       choco install innosetup -y --no-progress
-      & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss /DAppVersion=${{ github.ref_name }}
+      & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss /DAppVersion=${{ steps.app_version.outputs.version }}
     shell: pwsh
   ```
 - [x] Upload the installer as a separate artifact:

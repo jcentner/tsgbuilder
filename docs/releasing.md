@@ -40,6 +40,7 @@ Tags containing `-` are automatically marked as pre-releases.
 1. Ensure all changes are committed and pushed to `main`
 2. **Update `APP_VERSION` in `version.py`** to match the new version (e.g., `APP_VERSION = "1.1.0"`)
 3. Verify tests pass: `make test`
+4. If prompts, tools, model policy, or agent-definition signature inputs changed, plan a release-note reminder to recreate agents
 
 ### 2. Create and Push Tag
 
@@ -85,7 +86,10 @@ Build takes approximately 3-5 minutes per platform.
 | Trigger | When | Creates Release |
 |---------|------|-----------------|
 | Push tag `v*` | `git push origin v1.0.0` | Yes (draft) |
-| Manual dispatch | Actions → Run workflow | Optional |
+| Manual dispatch, `create_release=false` | Actions → Run workflow | No, build artifacts only |
+| Manual dispatch, `create_release=true` | Actions → Run workflow | Yes (draft for `v{APP_VERSION}`) |
+
+Release and installer versions are read from `APP_VERSION` in `version.py`. If a pushed tag does not match `v{APP_VERSION}`, the workflow fails before packaging.
 
 ### Build Matrix
 
@@ -196,7 +200,9 @@ For testing without creating a tag:
 
 1. Go to **Actions** → **Build Executables**
 2. Click **Run workflow**
-3. Optionally check "Create a draft release"
+3. Leave **Create a draft release** unchecked for a build-only dry run
+
+If you check **Create a draft release**, select the `main` branch. The release is created as `v{APP_VERSION}` from `version.py`; the workflow fails if you select any other branch. Confirm `APP_VERSION` is correct first.
 
 ---
 
