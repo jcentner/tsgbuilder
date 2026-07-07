@@ -68,10 +68,11 @@ stream_response = openai_client.responses.create(**stream_kwargs)
 
 ## Streaming Events
 
-- Terminal/success: `response.completed` — read `response.output_text`, `response.conversation_id`, `response.id`, and `response.usage.input_tokens` / `.output_tokens`.
+- Session start: `response.created` — this is where the code captures `conversation_id` (`conv_*`) and falls back to `response.id` (`resp_*`) for stateful continuation.
+- Terminal/success: `response.completed` — read `response.output_text` and accumulate `response.usage.input_tokens` / `.output_tokens` (agents with tool calls can emit multiple `response.completed` events per stage, so usage is summed).
 - Failure: `error` events and `response.failed` (parsed by `_extract_stream_error`).
 - Tool activity: `web_search_call` (current) — `bing_grounding_call` is the legacy name still handled for back-compat.
-- Timeouts (`pipeline.py`): per-tool ~90s (`TOOL_TIMEOUT`; Bing <30s, MCP <60s typical) and `STREAM_IDLE_TIMEOUT = 120s` for a hung stream.
+- Timeouts (`pipeline.py`): per-tool `TOOL_CALL_TIMEOUT = 90` (Bing <30s, MCP <60s typical) and `STREAM_IDLE_TIMEOUT = 120` for a hung stream.
 
 ## Model Policy
 
