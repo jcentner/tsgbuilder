@@ -470,6 +470,9 @@ class TestSetupCompletedEvent:
         assert response.status_code == 200
         data = json.loads(response.data)
         assert data["success"] is True
+        definitions = [call.kwargs["definition"] for call in mock_project.agents.create_version.call_args_list]
+        assert len(definitions) == 3
+        assert all(getattr(definition, "temperature", None) is None for definition in definitions)
 
         setup_calls = [c for c in mock_track.call_args_list if c[0][0] == "setup_completed"]
         assert len(setup_calls) == 1

@@ -65,7 +65,7 @@ if getattr(sys, 'frozen', False):
 # Microsoft Learn MCP URL for agent creation
 LEARN_MCP_URL = "https://learn.microsoft.com/api/mcp"
 
-AGENT_DEFINITION_CONTRACT_VERSION = "2026-07-06.1"
+AGENT_DEFINITION_CONTRACT_VERSION = "2026-07-07.1"
 AGENT_ROLES = ("researcher", "writer", "reviewer")
 AGENT_REQUIRED_FIELDS = ("name", "version", "id")
 MAX_IMAGES_PER_REQUEST = 10
@@ -407,7 +407,6 @@ def get_agent_definition_signature(model_deployment_name: str, underlying_model_
         "stages": {
             "researcher": {
                 "instructions": RESEARCH_STAGE_INSTRUCTIONS,
-                "temperature": 0,
                 "tools": [
                     {"type": "mcp", "server_label": "learn", "require_approval": "never"},
                     {"type": "web_search_preview", "search_context_size": "high"},
@@ -415,12 +414,10 @@ def get_agent_definition_signature(model_deployment_name: str, underlying_model_
             },
             "writer": {
                 "instructions": WRITER_STAGE_INSTRUCTIONS,
-                "temperature": 0,
                 "tools": [],
             },
             "reviewer": {
                 "instructions": REVIEW_STAGE_INSTRUCTIONS,
-                "temperature": 0,
                 "tools": [],
             },
         },
@@ -960,7 +957,6 @@ def api_create_agent():
                     model=model,
                     instructions=RESEARCH_STAGE_INSTRUCTIONS,
                     tools=research_tools,
-                    temperature=0,
                 ),
             )
             created_agents["researcher"] = {"name": researcher.name, "version": researcher.version, "id": researcher.id}
@@ -971,7 +967,6 @@ def api_create_agent():
                 definition=PromptAgentDefinition(
                     model=model,
                     instructions=WRITER_STAGE_INSTRUCTIONS,
-                    temperature=0,
                 ),
             )
             created_agents["writer"] = {"name": writer.name, "version": writer.version, "id": writer.id}
@@ -982,7 +977,6 @@ def api_create_agent():
                 definition=PromptAgentDefinition(
                     model=model,
                     instructions=REVIEW_STAGE_INSTRUCTIONS,
-                    temperature=0,
                 ),
             )
             created_agents["reviewer"] = {"name": reviewer.name, "version": reviewer.version, "id": reviewer.id}
