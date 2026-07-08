@@ -15,6 +15,7 @@
 let currentThreadId = null;
 let currentTSG = '';
 let currentSessionId = null;
+let sessionPersisted = false;
 let eventSource = null;
 let isMarkdownPreview = localStorage.getItem('tsgPreviewMode') === 'true';
 
@@ -47,6 +48,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (notesInput) {
         notesInput.addEventListener('input', () => {
             document.getElementById('saveSessionBtn').disabled = notesInput.value.trim().length === 0 && !currentTSG;
+            // Edits diverge from any saved state until saved/regenerated again.
+            sessionPersisted = false;
         });
     }
 });
@@ -639,7 +642,7 @@ async function generateTSG() {
         // Reset follow-up round on new generation
         followUpRound = 0;
         displayTSG(data.tsg);
-        onSessionAutoSaved();
+        onSessionAutoSaved(data.session_saved);
 
         // Check if we need feedback (MISSING items or review notes)
         const hasQuestions = data.questions && !data.complete;
@@ -691,7 +694,7 @@ async function submitAnswers() {
         // Increment follow-up round on each answer submission
         followUpRound++;
         displayTSG(data.tsg);
-        onSessionAutoSaved();
+        onSessionAutoSaved(data.session_saved);
 
         // Check if we need more feedback (MISSING items or review notes)
         const hasQuestions = data.questions && !data.complete;
@@ -752,6 +755,7 @@ async function clearSession() {
     currentThreadId = null;
     currentTSG = '';
     currentSessionId = null;
+    sessionPersisted = false;
     followUpRound = 0;
     
     // Reset UI - clear input notes, output, and questions
@@ -996,6 +1000,7 @@ function clearInput() {
     currentThreadId = null;
     currentTSG = '';
     currentSessionId = null;
+    sessionPersisted = false;
     followUpRound = 0;
     hideQualityFeedback();
     document.getElementById('saveSessionBtn').disabled = true;
@@ -1009,14 +1014,6 @@ function clearInput() {
 
 function _collectImagesForSave() {
     return uploadedImages.map(img => ({ data: img.data, type: img.type, name: img.name }));
-}
-
-function escapeAttr(text) {
-    // Safe for embedding in a single-quoted JS string inside a double-quoted HTML attribute.
-    return String(text)
-        .replace(/\\/g, '\\\\')
-        .replace(/'/g, "\\'")
-        .replace(/"/g, '&quot;');
 }
 
 async function saveSession() {
@@ -1042,6 +1039,7 @@ async function saveSession() {
             return;
         }
         currentSessionId = data.session_id;
+        sessionPersisted = true;
         showSuccess(`Session saved: "${data.label}"`);
         setTimeout(() => hideMessages(), 3000);
     } catch (e) {
@@ -1049,10 +1047,17 @@ async function saveSession() {
     }
 }
 
-function onSessionAutoSaved() {
-    // A completed pipeline run auto-saves server-side; reflect it in the UI.
-    document.getElementById('saveSessionBtn').disabled = false;
-    showToast('💾 Session saved');
+function onSessionAutoSaved(saved) {
+    // A completed pipeline run auto-saves server-side (best-effort). Only reflect
+    // success in the UI when persistence actually succeeded, so we never suppress
+    // the unsaved-work warning for work that wasn't written to disk.
+    if (saved) {
+        sessionPersisted = true;
+        document.getElementById('saveSessionBtn').disabled = false;
+        showToast('💾 Session saved');
+    } else {
+        sessionPersisted = false;
+    }
 }
 
 function showToast(message) {
@@ -1094,9 +1099,10 @@ async function loadSessionsList() {
                 ? (s.follow_up_round > 0 ? 'Iterating' : 'Generated')
                 : 'Draft';
             const when = s.updated_at ? new Date(s.updated_at).toLocaleString() : '';
+            // session_id is a server-validated UUID, safe as an attribute value.
             return `
-                <div class="session-item">
-                    <div class="session-item-main" onclick="loadSession('${s.session_id}')">
+                <div class="session-item" data-session-id="${s.session_id}">
+                    <div class="session-item-main" data-action="load">
                         <div class="session-item-label">${escapeHtml(s.label)}</div>
                         <div class="session-item-meta">
                             <span class="session-badge">${status}</span>
@@ -1104,12 +1110,27 @@ async function loadSessionsList() {
                         </div>
                     </div>
                     <div class="session-item-actions">
-                        <button class="btn btn-secondary" title="Rename" onclick="renameSession('${s.session_id}', '${escapeAttr(s.label)}')">✏️</button>
-                        <button class="btn btn-secondary" title="Delete" onclick="deleteSession('${s.session_id}')">🗑️</button>
+                        <button class="btn btn-secondary" data-action="rename" title="Rename">✏️</button>
+                        <button class="btn btn-secondary" data-action="delete" title="Delete">🗑️</button>
                     </div>
                 </div>
             `;
         }).join('');
+        // One delegated handler avoids inline handlers / attribute-escaping pitfalls.
+        container.onclick = (e) => {
+            const item = e.target.closest('.session-item');
+            if (!item) return;
+            const sid = item.dataset.sessionId;
+            const actionEl = e.target.closest('[data-action]');
+            const action = actionEl ? actionEl.dataset.action : 'load';
+            if (action === 'delete') {
+                deleteSession(sid);
+            } else if (action === 'rename') {
+                renameSession(sid, item.querySelector('.session-item-label').textContent);
+            } else {
+                loadSession(sid);
+            }
+        };
     } catch (e) {
         container.innerHTML = '<p class="error-message">Failed to load sessions.</p>';
     }
@@ -1126,6 +1147,7 @@ async function loadSession(sessionId) {
 
         // Restore client state
         currentSessionId = record.session_id;
+        sessionPersisted = true;
         currentThreadId = record.thread_id || null;
         followUpRound = record.follow_up_round || 0;
         document.getElementById('notesInput').value = record.notes || '';
@@ -1202,10 +1224,10 @@ async function renameSession(sessionId, currentLabel) {
     }
 }
 
-// Warn before leaving with unsaved work (notes/TSG present but nothing saved).
+// Warn before leaving with unsaved work (notes/TSG present but not persisted).
 window.addEventListener('beforeunload', (e) => {
     const hasNotes = document.getElementById('notesInput').value.trim().length > 0;
-    if ((hasNotes || currentTSG) && !currentSessionId) {
+    if ((hasNotes || currentTSG) && !sessionPersisted) {
         e.preventDefault();
         e.returnValue = '';
     }

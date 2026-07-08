@@ -397,7 +397,15 @@ def _is_valid_session_id(session_id: Any) -> bool:
 
 
 def _session_path(session_id: str) -> Path:
-    return _get_sessions_dir() / f"{session_id}.json"
+    # Normalize to canonical UUID form so case/format variants map to one file.
+    return _get_sessions_dir() / f"{uuid.UUID(str(session_id))}.json"
+
+
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    """Write JSON atomically (temp file + os.replace) to avoid corruption on crash."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(payload), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def _derive_label(notes: str) -> str:
@@ -428,8 +436,11 @@ def _persist_session(session_id: str, client_state: dict, server_state: dict) ->
             existing = {}
 
     notes = client_state.get("notes", existing.get("notes", ""))
-    images = client_state.get("images")
-    if not images:
+    # Distinguish "images omitted" (preserve existing, e.g. follow-up auto-save)
+    # from "images present but empty" (user removed all — replace with []).
+    if "images" in client_state:
+        images = client_state.get("images") or []
+    else:
         images = existing.get("images", [])
 
     label = client_state.get("label") or existing.get("label") or _derive_label(notes)
@@ -450,7 +461,7 @@ def _persist_session(session_id: str, client_state: dict, server_state: dict) ->
         "questions": server_state.get("questions", existing.get("questions")),
         "warnings": server_state.get("warnings", existing.get("warnings", [])),
     }
-    path.write_text(json.dumps(record), encoding="utf-8")
+    _atomic_write_json(path, record)
     return {"session_id": session_id, "label": label, "updated_at": now}
 
 
@@ -1337,10 +1348,16 @@ def generate_pipeline_sse_events(
 
             # Auto-save the completed session to disk (best-effort, never blocks).
             # Work is never silently lost once a pipeline run finishes.
+            session_saved = False
             try:
+                # Omit the images key on follow-ups (which don't resend images) so
+                # the persisted originals are preserved by the merge.
+                client_state = {"notes": notes}
+                if images:
+                    client_state["images"] = images
                 _persist_session(
                     session_id,
-                    {"notes": notes, "images": images or []},
+                    client_state,
                     {
                         "thread_id": result.thread_id,
                         "follow_up_round": follow_up_round,
@@ -1351,10 +1368,11 @@ def generate_pipeline_sse_events(
                         "warnings": review_warnings,
                     },
                 )
+                session_saved = True
             except Exception:
-                pass
+                session_saved = False
 
-            yield f"data: {json.dumps({'type': 'result', 'data': {'thread_id': result.thread_id, 'session_id': session_id, 'tsg': result.tsg_content, 'questions': result.questions_content if has_questions else None, 'complete': not has_questions, 'stages_completed': [s.value for s in result.stages_completed], 'retries': result.retry_count, 'warnings': review_warnings, 'follow_up_round': follow_up_round}})}\n\n"
+            yield f"data: {json.dumps({'type': 'result', 'data': {'thread_id': result.thread_id, 'session_id': session_id, 'session_saved': session_saved, 'tsg': result.tsg_content, 'questions': result.questions_content if has_questions else None, 'complete': not has_questions, 'stages_completed': [s.value for s in result.stages_completed], 'retries': result.retry_count, 'warnings': review_warnings, 'follow_up_round': follow_up_round}})}\n\n"
             
             # Telemetry: tsg_generated
             missing_sections = _extract_missing_sections(result.questions_content)
@@ -1668,7 +1686,7 @@ def api_session_rename(session_id):
     label = label[:80]
     record["label"] = label
     record["updated_at"] = _utcnow_iso()
-    _session_path(session_id).write_text(json.dumps(record), encoding="utf-8")
+    _atomic_write_json(_session_path(session_id), record)
     return jsonify({"success": True, "label": label})
 
 

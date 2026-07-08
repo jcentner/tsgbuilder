@@ -72,19 +72,32 @@ class TestPersistAndLoad:
         assert _load_session_record("22222222-2222-2222-2222-222222222222") is None
 
     @pytest.mark.unit
-    def test_followup_preserves_images(self):
-        """A follow-up save that sends no images keeps the originals."""
+    def test_followup_preserves_images_when_omitted(self):
+        """A follow-up save that omits the images key keeps the originals."""
         sid = "33333333-3333-3333-3333-333333333333"
         _persist_session(
             sid,
             {"notes": "n", "images": [{"data": "img1", "type": "image/png"}]},
             {"thread_id": "t1"},
         )
-        # Follow-up: no images sent
-        _persist_session(sid, {"notes": "n", "images": []}, {"thread_id": "t1", "follow_up_round": 1})
+        # Follow-up: images key omitted entirely
+        _persist_session(sid, {"notes": "n"}, {"thread_id": "t1", "follow_up_round": 1})
         record = _load_session_record(sid)
         assert record["images"][0]["data"] == "img1"
         assert record["follow_up_round"] == 1
+
+    @pytest.mark.unit
+    def test_explicit_empty_images_clears_them(self):
+        """An explicit save with images:[] (user removed all) replaces the originals."""
+        sid = "3a333333-3333-3333-3333-333333333333"
+        _persist_session(
+            sid,
+            {"notes": "n", "images": [{"data": "img1", "type": "image/png"}]},
+            {"thread_id": "t1"},
+        )
+        _persist_session(sid, {"notes": "n", "images": []}, {"thread_id": "t1"})
+        record = _load_session_record(sid)
+        assert record["images"] == []
 
     @pytest.mark.unit
     def test_preserves_created_at_and_custom_label(self):
