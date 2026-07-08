@@ -37,6 +37,7 @@ These instructions apply when editing the web UI (HTML, JS, CSS).
 - **Sessions modal** (📂): `GET /api/sessions` list; `loadSession()` restores notes, images, TSG, warnings, and iteration state via `GET /api/sessions/<id>`; delete/rename via `DELETE` / `PUT /api/sessions/<id>/label`.
 - **Unsaved-work guard**: `beforeunload` warns when notes/TSG exist but `currentSessionId` is null.
 - Persisted-session endpoints are plural (`/api/sessions`), distinct from the in-memory `DELETE /api/session/<thread_id>` cleanup.
+- **No native dialogs**: rename uses an inline editable field and delete uses a two-click confirm — `prompt()`/`confirm()` throw "not supported" in some embedded browser contexts.
 
 ## Conventions
 

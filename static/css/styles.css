@@ -624,6 +624,16 @@ textarea:focus {
     text-overflow: ellipsis;
 }
 
+.session-rename-input {
+    width: 100%;
+    padding: 4px 8px;
+    font-size: 14px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--card-bg);
+    color: var(--text);
+}
+
 .session-item-meta {
     display: flex;
     align-items: center;

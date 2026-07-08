@@ -1124,9 +1124,23 @@ async function loadSessionsList() {
             const actionEl = e.target.closest('[data-action]');
             const action = actionEl ? actionEl.dataset.action : 'load';
             if (action === 'delete') {
-                deleteSession(sid);
+                // Two-click inline confirm (native confirm() is blocked in some browsers).
+                if (actionEl.dataset.confirm === '1') {
+                    deleteSession(sid);
+                } else {
+                    actionEl.dataset.confirm = '1';
+                    actionEl.textContent = '✓?';
+                    actionEl.title = 'Click again to confirm delete';
+                    setTimeout(() => {
+                        if (actionEl.isConnected) {
+                            actionEl.dataset.confirm = '';
+                            actionEl.textContent = '🗑️';
+                            actionEl.title = 'Delete';
+                        }
+                    }, 3000);
+                }
             } else if (action === 'rename') {
-                renameSession(sid, item.querySelector('.session-item-label').textContent);
+                startInlineRename(item, sid);
             } else {
                 loadSession(sid);
             }
@@ -1193,26 +1207,55 @@ async function loadSession(sessionId) {
 }
 
 async function deleteSession(sessionId) {
-    if (!confirm('Delete this saved session? This cannot be undone.')) return;
     try {
         await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
-        if (sessionId === currentSessionId) currentSessionId = null;
+        if (sessionId === currentSessionId) {
+            currentSessionId = null;
+            sessionPersisted = false;
+        }
         loadSessionsList();
     } catch (e) {
         showError('Failed to delete session.');
     }
 }
 
-async function renameSession(sessionId, currentLabel) {
-    const label = prompt('Rename session:', currentLabel || '');
-    if (label === null) return;
-    const trimmed = label.trim();
-    if (!trimmed) return;
+function startInlineRename(item, sessionId) {
+    const labelEl = item.querySelector('.session-item-label');
+    if (!labelEl) return;
+    const current = labelEl.textContent;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = current;
+    input.maxLength = 80;
+    input.className = 'session-rename-input';
+    labelEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let done = false;
+    const commit = async () => {
+        if (done) return;
+        done = true;
+        const label = input.value.trim();
+        if (label && label !== current) {
+            await renameSession(sessionId, label);
+        } else {
+            loadSessionsList();
+        }
+    };
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        else if (e.key === 'Escape') { done = true; loadSessionsList(); }
+    });
+    input.addEventListener('blur', commit);
+}
+
+async function renameSession(sessionId, label) {
     try {
         const resp = await fetch(`/api/sessions/${sessionId}/label`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ label: trimmed }),
+            body: JSON.stringify({ label }),
         });
         if (!resp.ok) {
             showError('Failed to rename session.');
