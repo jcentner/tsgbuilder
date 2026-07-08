@@ -9,7 +9,7 @@ These instructions apply when editing the web UI (HTML, JS, CSS).
 ## Architecture
 
 - **`templates/index.html`** — Single-page Flask template. Contains the full HTML structure rendered by `web_app.py`.
-- **`static/js/main.js`** — Core UI logic: SSE streaming from `/api/generate/stream` and `/api/answer/stream`, TSG rendering via `marked` + `DOMPurify`, copy/download, PII modal, warning banners, image handling.
+- **`static/js/main.js`** — Core UI logic: SSE streaming from `/api/generate/stream` and `/api/answer/stream`, TSG rendering via `marked` + `DOMPurify`, copy/download, PII modal, warning banners, image handling, quality feedback, and session save/load.
 - **`static/js/setup.js`** — Setup wizard: configuration form, validation via `/api/validate`, agent creation via `POST /api/create-agent`.
 - **`static/css/styles.css`** — CSS custom properties for theming, component styles for the setup modal, TSG display, warnings, and PII modal.
 
@@ -29,6 +29,14 @@ These instructions apply when editing the web UI (HTML, JS, CSS).
 ### Setup Wizard
 - Opens automatically if agents not configured (checked via `/api/status`)
 - Validates config, creates agents via `POST /api/create-agent` JSON response, stores IDs in `.agent_ids.json`
+
+### Session Save/Load
+- **Persisted sessions** use a `session_id` (UUID) distinct from the pipeline `thread_id`. Client stores `currentSessionId` and sends it in generate/answer requests; the server echoes it back in the `result` SSE event.
+- **Auto-save**: every successful run persists server-side; `onSessionAutoSaved()` shows a brief toast.
+- **Explicit save** (💾): `saveSession()` → `POST /api/sessions` with notes + images (+ thread_id).
+- **Sessions modal** (📂): `GET /api/sessions` list; `loadSession()` restores notes, images, TSG, warnings, and iteration state via `GET /api/sessions/<id>`; delete/rename via `DELETE` / `PUT /api/sessions/<id>/label`.
+- **Unsaved-work guard**: `beforeunload` warns when notes/TSG exist but `currentSessionId` is null.
+- Persisted-session endpoints are plural (`/api/sessions`), distinct from the in-memory `DELETE /api/session/<thread_id>` cleanup.
 
 ## Conventions
 

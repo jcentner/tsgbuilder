@@ -10,6 +10,9 @@ _build_config.py
 # Pipeline agent IDs (created per-deployment)
 .agent_ids.json
 
+# Persisted sessions (contain raw user notes and images)
+.sessions/
+
 # Python cache
 __pycache__/
 *.pyc

@@ -23,6 +23,7 @@ import threading
 import queue
 import uuid
 import webbrowser
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Generator
 
@@ -360,6 +361,134 @@ def _is_valid_thread_id(thread_id: str) -> bool:
     if not thread_id:
         return False
     return thread_id.replace("-", "").replace("_", "").isalnum()
+
+
+# =============================================================================
+# SESSION PERSISTENCE (save/load in-progress TSG work)
+# =============================================================================
+# Persisted sessions survive server restarts as JSON files under `.sessions/`
+# (alongside .agent_ids.json). A persisted session is keyed by a `session_id`
+# (UUID) that is distinct from the pipeline `thread_id`. Files hold raw user
+# notes and images — the same local trust boundary as `.env`/.agent_ids.json —
+# and are never sent to telemetry.
+# =============================================================================
+
+SESSION_SCHEMA_VERSION = 1
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _get_sessions_dir() -> Path:
+    """Directory holding persisted session files (created on demand)."""
+    sessions_dir = _get_app_dir() / ".sessions"
+    sessions_dir.mkdir(exist_ok=True)
+    return sessions_dir
+
+
+def _is_valid_session_id(session_id: Any) -> bool:
+    """Validate a persisted session id (UUID format)."""
+    try:
+        uuid.UUID(str(session_id))
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
+def _session_path(session_id: str) -> Path:
+    return _get_sessions_dir() / f"{session_id}.json"
+
+
+def _derive_label(notes: str) -> str:
+    """Derive a human-readable label from the first meaningful line of notes."""
+    for line in (notes or "").splitlines():
+        stripped = line.strip().lstrip("#").strip()
+        if stripped:
+            return stripped[:80]
+    return "Untitled session"
+
+
+def _persist_session(session_id: str, client_state: dict, server_state: dict) -> dict:
+    """Merge client + server state into a v1 record, write it, return metadata.
+
+    Merge rules preserve data across follow-up iterations (which do not resend
+    images) and preserve a user-set label and original creation time:
+      - images: use client's if non-empty, else keep existing file's images
+      - label: client's if provided, else existing file's, else derived from notes
+      - created_at: preserved from the existing file
+    """
+    path = _session_path(session_id)
+    now = _utcnow_iso()
+    existing: dict = {}
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+
+    notes = client_state.get("notes", existing.get("notes", ""))
+    images = client_state.get("images")
+    if not images:
+        images = existing.get("images", [])
+
+    label = client_state.get("label") or existing.get("label") or _derive_label(notes)
+
+    record = {
+        "schema_version": SESSION_SCHEMA_VERSION,
+        "session_id": session_id,
+        "label": label,
+        "created_at": existing.get("created_at", now),
+        "updated_at": now,
+        "notes": notes,
+        "images": images,
+        "thread_id": server_state.get("thread_id", existing.get("thread_id")),
+        "follow_up_round": server_state.get("follow_up_round", existing.get("follow_up_round", 0)),
+        "current_tsg": server_state.get("current_tsg", existing.get("current_tsg")),
+        "research_report": server_state.get("research_report", existing.get("research_report")),
+        "review_result": server_state.get("review_result", existing.get("review_result")),
+        "questions": server_state.get("questions", existing.get("questions")),
+        "warnings": server_state.get("warnings", existing.get("warnings", [])),
+    }
+    path.write_text(json.dumps(record), encoding="utf-8")
+    return {"session_id": session_id, "label": label, "updated_at": now}
+
+
+def _load_session_record(session_id: str) -> dict | None:
+    """Load a full persisted session record, or None if missing/corrupt."""
+    path = _session_path(session_id)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _list_session_records() -> list[dict]:
+    """List session metadata, newest first. Corrupt files are skipped."""
+    records = []
+    for path in _get_sessions_dir().glob("*.json"):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        records.append({
+            "session_id": record.get("session_id", path.stem),
+            "label": record.get("label", "Untitled session"),
+            "created_at": record.get("created_at"),
+            "updated_at": record.get("updated_at"),
+            "follow_up_round": record.get("follow_up_round", 0),
+            "has_tsg": bool(record.get("current_tsg")),
+        })
+    records.sort(key=lambda r: r.get("updated_at") or "", reverse=True)
+    return records
+
+
+def _delete_session_record(session_id: str) -> None:
+    """Delete a persisted session file (idempotent)."""
+    _session_path(session_id).unlink(missing_ok=True)
+
 
 
 def get_project_client() -> "AIProjectClient":
@@ -1049,6 +1178,7 @@ def generate_pipeline_sse_events(
     answers: str | None = None,
     images: list[dict] | None = None,
     run_id: str | None = None,
+    session_id: str | None = None,
 ) -> Generator[str, None, None]:
     """Generator that yields SSE events during multi-stage pipeline execution.
     
@@ -1063,7 +1193,12 @@ def generate_pipeline_sse_events(
         answers: Optional answers to follow-up questions
         images: Optional list of image dicts with 'data' (base64) and 'type' (mime type)
         run_id: Unique identifier for this run (for cancellation support)
+        session_id: Optional persisted-session id; auto-saved to disk on success.
     """
+    # Ensure a persisted-session id so completed work is never silently lost.
+    if not _is_valid_session_id(session_id):
+        session_id = str(uuid.uuid4())
+
     # Determine follow-up round (0 = initial generation)
     follow_up_round = 0
     if thread_id and thread_id in sessions:
@@ -1199,8 +1334,27 @@ def generate_pipeline_sse_events(
                     result.review_result.get("accuracy_issues", []) +
                     result.review_result.get("suggestions", [])
                 )
-            
-            yield f"data: {json.dumps({'type': 'result', 'data': {'thread_id': result.thread_id, 'tsg': result.tsg_content, 'questions': result.questions_content if has_questions else None, 'complete': not has_questions, 'stages_completed': [s.value for s in result.stages_completed], 'retries': result.retry_count, 'warnings': review_warnings, 'follow_up_round': follow_up_round}})}\n\n"
+
+            # Auto-save the completed session to disk (best-effort, never blocks).
+            # Work is never silently lost once a pipeline run finishes.
+            try:
+                _persist_session(
+                    session_id,
+                    {"notes": notes, "images": images or []},
+                    {
+                        "thread_id": result.thread_id,
+                        "follow_up_round": follow_up_round,
+                        "current_tsg": result.tsg_content,
+                        "research_report": result.research_report,
+                        "review_result": result.review_result,
+                        "questions": result.questions_content if has_questions else None,
+                        "warnings": review_warnings,
+                    },
+                )
+            except Exception:
+                pass
+
+            yield f"data: {json.dumps({'type': 'result', 'data': {'thread_id': result.thread_id, 'session_id': session_id, 'tsg': result.tsg_content, 'questions': result.questions_content if has_questions else None, 'complete': not has_questions, 'stages_completed': [s.value for s in result.stages_completed], 'retries': result.retry_count, 'warnings': review_warnings, 'follow_up_round': follow_up_round}})}\n\n"
             
             # Telemetry: tsg_generated
             missing_sections = _extract_missing_sections(result.questions_content)
@@ -1287,6 +1441,7 @@ def api_generate_stream():
     data = request.get_json()
     notes = data.get("notes", "").strip()
     images = data.get("images", None)  # List of {data: base64, type: mime_type}
+    session_id = data.get("session_id")  # Optional persisted-session id for auto-save
     
     if not notes:
         return jsonify({"error": "No notes provided"}), 400
@@ -1318,7 +1473,7 @@ def api_generate_stream():
         return jsonify({"error": agent_blocker}), 400
     
     return Response(
-        stream_with_context(generate_pipeline_sse_events(notes, images=images)),
+        stream_with_context(generate_pipeline_sse_events(notes, images=images, session_id=session_id)),
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -1333,6 +1488,7 @@ def api_answer_stream():
     data = request.get_json()
     thread_id = data.get("thread_id")
     answers = data.get("answers", "").strip()
+    session_id = data.get("session_id")  # Optional persisted-session id for auto-save
     
     if not thread_id:
         return jsonify({"error": "No session ID provided"}), 400
@@ -1371,7 +1527,7 @@ def api_answer_stream():
         return jsonify({"error": agent_blocker}), 400
     
     return Response(
-        stream_with_context(generate_pipeline_sse_events(notes, thread_id, answers)),
+        stream_with_context(generate_pipeline_sse_events(notes, thread_id, answers, session_id=session_id)),
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -1410,6 +1566,111 @@ def api_delete_session(thread_id):
     if thread_id in sessions:
         del sessions[thread_id]
     return jsonify({"success": True})
+
+
+# --- Persisted session save/load (survives server restart) ---
+
+@app.route("/api/sessions", methods=["GET"])
+def api_sessions_list():
+    """List persisted sessions (metadata only), newest first."""
+    return jsonify({"sessions": _list_session_records()})
+
+
+@app.route("/api/sessions", methods=["POST"])
+def api_session_save():
+    """Save or update a persisted session.
+
+    Merges client state (notes, images) with any server-side in-memory pipeline
+    state (research, review, TSG) for the linked thread. Returns the session
+    metadata, including a server-generated id for brand-new sessions.
+    """
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid payload"}), 400
+
+    session_id = data.get("session_id")
+    if not _is_valid_session_id(session_id):
+        session_id = str(uuid.uuid4())
+
+    images = data.get("images") or []
+    if images:
+        image_error = _validate_images(images)
+        if image_error:
+            return jsonify({"error": image_error}), 400
+
+    thread_id = data.get("thread_id")
+    server_state: dict = {}
+    if thread_id and thread_id in sessions:
+        mem = sessions[thread_id]
+        server_state = {
+            "thread_id": thread_id,
+            "follow_up_round": mem.get("follow_up_round", 0),
+            "current_tsg": mem.get("current_tsg"),
+            "research_report": mem.get("research_report"),
+            "review_result": mem.get("review_result"),
+            "questions": mem.get("questions"),
+        }
+    elif thread_id:
+        server_state = {"thread_id": thread_id}
+
+    client_state = {"notes": data.get("notes", ""), "images": images}
+    if data.get("label"):
+        client_state["label"] = str(data["label"])[:80]
+
+    meta = _persist_session(session_id, client_state, server_state)
+    return jsonify({"success": True, **meta})
+
+
+@app.route("/api/sessions/<session_id>", methods=["GET"])
+def api_session_load(session_id):
+    """Load a full persisted session and restore it for iteration continuity."""
+    if not _is_valid_session_id(session_id):
+        return jsonify({"error": "Invalid session ID format"}), 400
+    record = _load_session_record(session_id)
+    if record is None:
+        return jsonify({"error": "Session not found"}), 404
+
+    # Restore in-memory session so follow-up iteration continues seamlessly.
+    thread_id = record.get("thread_id")
+    if thread_id and _is_valid_thread_id(thread_id):
+        sessions[thread_id] = {
+            "notes": record.get("notes", ""),
+            "current_tsg": record.get("current_tsg"),
+            "questions": record.get("questions"),
+            "research_report": record.get("research_report"),
+            "review_result": record.get("review_result"),
+            "follow_up_round": record.get("follow_up_round", 0),
+        }
+    return jsonify(record)
+
+
+@app.route("/api/sessions/<session_id>", methods=["DELETE"])
+def api_session_delete(session_id):
+    """Delete a persisted session file (idempotent)."""
+    if not _is_valid_session_id(session_id):
+        return jsonify({"error": "Invalid session ID format"}), 400
+    _delete_session_record(session_id)
+    return jsonify({"success": True})
+
+
+@app.route("/api/sessions/<session_id>/label", methods=["PUT"])
+def api_session_rename(session_id):
+    """Rename a persisted session's label."""
+    if not _is_valid_session_id(session_id):
+        return jsonify({"error": "Invalid session ID format"}), 400
+    data = request.get_json(silent=True) or {}
+    label = (data.get("label") or "").strip() if isinstance(data, dict) else ""
+    if not label:
+        return jsonify({"error": "Label required"}), 400
+    record = _load_session_record(session_id)
+    if record is None:
+        return jsonify({"error": "Session not found"}), 404
+    label = label[:80]
+    record["label"] = label
+    record["updated_at"] = _utcnow_iso()
+    _session_path(session_id).write_text(json.dumps(record), encoding="utf-8")
+    return jsonify({"success": True, "label": label})
+
 
 
 @app.route("/api/telemetry/copied", methods=["POST"])

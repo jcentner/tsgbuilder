@@ -202,3 +202,14 @@ TSG Builder sends user-provided notes to external services (Foundry Agents, Bing
 - **No bypass** — There is no "proceed anyway" option. Users must edit their notes or accept the API's automatic redaction before generation can continue.
 - **Curated categories** — Only categories relevant to support scenarios are detected (emails, phone numbers, IP addresses, credentials, etc.). `Organization` is intentionally excluded to avoid false positives on Azure service names.
 - **Defense-in-depth** — The frontend checks before sending, and the backend re-checks at the `/api/generate/stream` and `/api/answer/stream` endpoints to prevent bypass.
+
+### Session Persistence
+
+In-progress work can be saved and resumed across server restarts. Sessions are stored as JSON files under `.sessions/` in the app directory (alongside `.agent_ids.json`), one file per session keyed by a `session_id` (UUID) that is distinct from the pipeline `thread_id`.
+
+- **Auto-save** — every successful pipeline run persists the session (notes, images, TSG, research, review, and iteration state), so completed work is never silently lost. Best-effort: persistence failures never block the pipeline.
+- **Explicit save** — the 💾 Save button persists the current client state (notes + images) even before generation, so input can be saved and resumed later.
+- **Merge-aware** — a follow-up save that doesn't resend images preserves the originals; a user-set label and the original creation time are preserved across auto-saves.
+- **Restore** — loading a session repopulates both client state and the in-memory `sessions` map so follow-up iteration continues seamlessly.
+- **Local trust boundary** — session files contain raw notes and images. They live only on the user's disk (same boundary as `.env`/`.agent_ids.json`), are gitignored, and never enter telemetry. Persisted-session REST operations live under `/api/sessions` (plural), distinct from the in-memory `/api/session/<thread_id>` cleanup endpoint.
+

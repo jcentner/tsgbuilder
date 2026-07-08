@@ -27,7 +27,13 @@
         <div class="status-bar">
             <div class="status-indicator" id="statusIndicator"></div>
             <span id="statusText">Checking agent status...</span>
-            <button class="btn btn-secondary" id="clearSessionBtn" onclick="clearSession()" disabled title="Clear current session and start fresh" style="margin-left: auto; padding: 6px 12px; font-size: 12px;">
+            <button class="btn btn-secondary" id="sessionsBtn" onclick="openSessions()" title="Save and resume in-progress work" style="margin-left: auto; padding: 6px 12px; font-size: 12px;">
+                📂 Sessions
+            </button>
+            <button class="btn btn-secondary" id="saveSessionBtn" onclick="saveSession()" disabled title="Save current notes and TSG to resume later" style="padding: 6px 12px; font-size: 12px;">
+                💾 Save
+            </button>
+            <button class="btn btn-secondary" id="clearSessionBtn" onclick="clearSession()" disabled title="Clear current session and start fresh" style="padding: 6px 12px; font-size: 12px;">
                 🗑️ Clear Session
             </button>
             <button class="btn btn-secondary" id="setupBtn" onclick="openSetup()" style="padding: 6px 12px; font-size: 12px;">
@@ -181,6 +187,24 @@ Address any missing information and review notes above. You can also suggest cor
                         </div>
                         <div id="qualityFeedbackThanks" class="quality-feedback-thanks hidden">Thanks for the feedback!</div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sessions Modal -->
+    <div id="sessionsModal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>📂 Saved Sessions</h2>
+                <button class="modal-close" onclick="closeSessions()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
+                    Resume in-progress work — notes, images, generated TSG, and iteration state are saved locally.
+                </p>
+                <div id="sessionsList" class="sessions-list">
+                    <p style="color: var(--text-secondary);">Loading…</p>
                 </div>
             </div>
         </div>

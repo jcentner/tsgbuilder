@@ -14,6 +14,7 @@
 
 let currentThreadId = null;
 let currentTSG = '';
+let currentSessionId = null;
 let eventSource = null;
 let isMarkdownPreview = localStorage.getItem('tsgPreviewMode') === 'true';
 
@@ -41,6 +42,13 @@ document.addEventListener('DOMContentLoaded', () => {
     checkStatus();
     initImageUpload();
     initPreviewToggle();
+    // Enable Save once there are notes to save.
+    const notesInput = document.getElementById('notesInput');
+    if (notesInput) {
+        notesInput.addEventListener('input', () => {
+            document.getElementById('saveSessionBtn').disabled = notesInput.value.trim().length === 0 && !currentTSG;
+        });
+    }
 });
 
 /* ==========================================================================
@@ -446,6 +454,7 @@ function handleStreamEvent(event, resolve, reject) {
             currentRunId = null;  // Clear run ID on success
             currentThreadId = event.data.thread_id;
             currentTSG = event.data.tsg;
+            if (event.data.session_id) currentSessionId = event.data.session_id;
             resolve(event.data);
             break;
             
@@ -614,6 +623,7 @@ async function generateTSG() {
     try {
         // Prepare request body with notes and images
         const requestBody = { notes };
+        if (currentSessionId) requestBody.session_id = currentSessionId;
         
         // Include images if any were uploaded
         if (uploadedImages.length > 0) {
@@ -629,6 +639,7 @@ async function generateTSG() {
         // Reset follow-up round on new generation
         followUpRound = 0;
         displayTSG(data.tsg);
+        onSessionAutoSaved();
 
         // Check if we need feedback (MISSING items or review notes)
         const hasQuestions = data.questions && !data.complete;
@@ -673,12 +684,14 @@ async function submitAnswers() {
     try {
         const data = await generateTSGWithStreaming('/api/answer/stream', {
             thread_id: currentThreadId,
-            answers
+            answers,
+            session_id: currentSessionId
         });
 
         // Increment follow-up round on each answer submission
         followUpRound++;
         displayTSG(data.tsg);
+        onSessionAutoSaved();
 
         // Check if we need more feedback (MISSING items or review notes)
         const hasQuestions = data.questions && !data.complete;
@@ -738,6 +751,7 @@ async function clearSession() {
     // Reset local state
     currentThreadId = null;
     currentTSG = '';
+    currentSessionId = null;
     followUpRound = 0;
     
     // Reset UI - clear input notes, output, and questions
@@ -746,6 +760,7 @@ async function clearSession() {
     document.getElementById('copyBtn').disabled = true;
     document.getElementById('downloadBtn').disabled = true;
     document.getElementById('clearSessionBtn').disabled = true;
+    document.getElementById('saveSessionBtn').disabled = true;
     document.getElementById('questionsPanel').classList.add('hidden');
     document.getElementById('answersInput').value = '';
     hideQualityFeedback();
@@ -772,6 +787,7 @@ function displayTSG(tsg) {
     document.getElementById('copyBtn').disabled = false;
     document.getElementById('downloadBtn').disabled = false;
     document.getElementById('clearSessionBtn').disabled = false;
+    document.getElementById('saveSessionBtn').disabled = false;
 }
 
 function showQuestions(questions) {
@@ -979,15 +995,226 @@ function clearInput() {
     hideMessages();
     currentThreadId = null;
     currentTSG = '';
+    currentSessionId = null;
     followUpRound = 0;
     hideQualityFeedback();
+    document.getElementById('saveSessionBtn').disabled = true;
     // Also clear uploaded images
     clearImages();
 }
 
+/* ==========================================================================
+   Session Save/Load (persist and resume in-progress work)
+   ========================================================================== */
+
+function _collectImagesForSave() {
+    return uploadedImages.map(img => ({ data: img.data, type: img.type, name: img.name }));
+}
+
+function escapeAttr(text) {
+    // Safe for embedding in a single-quoted JS string inside a double-quoted HTML attribute.
+    return String(text)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/"/g, '&quot;');
+}
+
+async function saveSession() {
+    const notes = document.getElementById('notesInput').value;
+    if (!notes.trim() && !currentTSG) {
+        showError('Nothing to save yet — add notes or generate a TSG first.');
+        return;
+    }
+    try {
+        const resp = await fetch('/api/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: currentSessionId,
+                notes,
+                images: _collectImagesForSave(),
+                thread_id: currentThreadId,
+            }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            showError(data.error || 'Failed to save session.');
+            return;
+        }
+        currentSessionId = data.session_id;
+        showSuccess(`Session saved: "${data.label}"`);
+        setTimeout(() => hideMessages(), 3000);
+    } catch (e) {
+        showError('Failed to save session.');
+    }
+}
+
+function onSessionAutoSaved() {
+    // A completed pipeline run auto-saves server-side; reflect it in the UI.
+    document.getElementById('saveSessionBtn').disabled = false;
+    showToast('💾 Session saved');
+}
+
+function showToast(message) {
+    let toast = document.getElementById('sessionToast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'sessionToast';
+        toast.className = 'session-toast';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add('visible');
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(() => toast.classList.remove('visible'), 2500);
+}
+
+function openSessions() {
+    document.getElementById('sessionsModal').classList.remove('hidden');
+    loadSessionsList();
+}
+
+function closeSessions() {
+    document.getElementById('sessionsModal').classList.add('hidden');
+}
+
+async function loadSessionsList() {
+    const container = document.getElementById('sessionsList');
+    container.innerHTML = '<p style="color: var(--text-secondary);">Loading…</p>';
+    try {
+        const resp = await fetch('/api/sessions');
+        const data = await resp.json();
+        const items = data.sessions || [];
+        if (items.length === 0) {
+            container.innerHTML = '<p style="color: var(--text-secondary);">No saved sessions yet.</p>';
+            return;
+        }
+        container.innerHTML = items.map(s => {
+            const status = s.has_tsg
+                ? (s.follow_up_round > 0 ? 'Iterating' : 'Generated')
+                : 'Draft';
+            const when = s.updated_at ? new Date(s.updated_at).toLocaleString() : '';
+            return `
+                <div class="session-item">
+                    <div class="session-item-main" onclick="loadSession('${s.session_id}')">
+                        <div class="session-item-label">${escapeHtml(s.label)}</div>
+                        <div class="session-item-meta">
+                            <span class="session-badge">${status}</span>
+                            <span>${escapeHtml(when)}</span>
+                        </div>
+                    </div>
+                    <div class="session-item-actions">
+                        <button class="btn btn-secondary" title="Rename" onclick="renameSession('${s.session_id}', '${escapeAttr(s.label)}')">✏️</button>
+                        <button class="btn btn-secondary" title="Delete" onclick="deleteSession('${s.session_id}')">🗑️</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } catch (e) {
+        container.innerHTML = '<p class="error-message">Failed to load sessions.</p>';
+    }
+}
+
+async function loadSession(sessionId) {
+    try {
+        const resp = await fetch(`/api/sessions/${sessionId}`);
+        if (!resp.ok) {
+            showError('Failed to load session.');
+            return;
+        }
+        const record = await resp.json();
+
+        // Restore client state
+        currentSessionId = record.session_id;
+        currentThreadId = record.thread_id || null;
+        followUpRound = record.follow_up_round || 0;
+        document.getElementById('notesInput').value = record.notes || '';
+
+        // Restore images
+        clearImages();
+        (record.images || []).forEach(img => {
+            uploadedImages.push({
+                data: img.data,
+                type: img.type,
+                name: img.name || 'image',
+                preview: `data:${img.type};base64,${img.data}`,
+            });
+        });
+        updateImagePreviews();
+
+        // Restore TSG output
+        currentTSG = record.current_tsg || '';
+        if (currentTSG) {
+            displayTSG(currentTSG);
+        } else {
+            document.getElementById('tsgOutput').innerHTML =
+                '<span style="color: var(--text-secondary);">Your generated TSG will appear here...</span>';
+        }
+
+        // Restore warnings / questions panel
+        const warnings = record.warnings || [];
+        const questions = record.questions || null;
+        if (questions || warnings.length > 0) {
+            showFeedbackPanel(questions, warnings);
+        } else {
+            document.getElementById('questionsPanel').classList.add('hidden');
+        }
+
+        document.getElementById('saveSessionBtn').disabled = false;
+        document.getElementById('clearSessionBtn').disabled = false;
+        closeSessions();
+        showSuccess(`Loaded session: "${record.label}"`);
+        setTimeout(() => hideMessages(), 3000);
+    } catch (e) {
+        showError('Failed to load session.');
+    }
+}
+
+async function deleteSession(sessionId) {
+    if (!confirm('Delete this saved session? This cannot be undone.')) return;
+    try {
+        await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+        if (sessionId === currentSessionId) currentSessionId = null;
+        loadSessionsList();
+    } catch (e) {
+        showError('Failed to delete session.');
+    }
+}
+
+async function renameSession(sessionId, currentLabel) {
+    const label = prompt('Rename session:', currentLabel || '');
+    if (label === null) return;
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    try {
+        const resp = await fetch(`/api/sessions/${sessionId}/label`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label: trimmed }),
+        });
+        if (!resp.ok) {
+            showError('Failed to rename session.');
+            return;
+        }
+        loadSessionsList();
+    } catch (e) {
+        showError('Failed to rename session.');
+    }
+}
+
+// Warn before leaving with unsaved work (notes/TSG present but nothing saved).
+window.addEventListener('beforeunload', (e) => {
+    const hasNotes = document.getElementById('notesInput').value.trim().length > 0;
+    if ((hasNotes || currentTSG) && !currentSessionId) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});
+
+
 async function copyTSG() {
     if (!currentTSG) return;
-    
+
     try {
         await navigator.clipboard.writeText(currentTSG);
         const btn = document.getElementById('copyBtn');

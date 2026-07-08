@@ -116,7 +116,8 @@ The setup wizard opens automatically to guide you through configuration.
 - 📝 Paste notes directly in the browser
 - 🖼️ **Image support** — Attach screenshots via drag-and-drop or file picker
 - 🔄 Interactive follow-up questions
-- 📋 One-click copy to clipboard
+- � **Save & resume** — Persist in-progress work (notes, images, TSG, iteration state) and pick it back up later, even after restarting
+- �📋 One-click copy to clipboard
 - 👁️ **Raw/Preview toggle** — Switch between raw markdown and rendered preview
 - 📊 Real-time status indicators
 - 💡 Load example input with one click
