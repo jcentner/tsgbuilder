@@ -537,6 +537,58 @@ textarea:focus {
     margin-bottom: 12px;
 }
 
+/* Quality Feedback Strip */
+.quality-feedback {
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+.quality-feedback-prompt {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.quality-feedback-outcomes,
+.quality-feedback-detail {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.quality-feedback-detail {
+    margin-top: 12px;
+}
+
+.quality-feedback-detail label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.quality-feedback-detail select {
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--card-bg);
+    color: var(--text);
+    font-size: 13px;
+}
+
+.quality-feedback-thanks {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
 /* Feedback Panel Sections */
 .feedback-section {
     margin-bottom: 16px;

@@ -144,6 +144,43 @@ Address any missing information and review notes above. You can also suggest cor
                             </button>
                         </div>
                     </div>
+
+                    <!-- Quality Feedback Strip -->
+                    <div id="qualityFeedback" class="quality-feedback hidden">
+                        <div class="quality-feedback-prompt">
+                            <span>How did this TSG turn out?</span>
+                            <div class="quality-feedback-outcomes">
+                                <button type="button" class="btn btn-secondary" onclick="chooseOutcome('published')">✅ Published as-is</button>
+                                <button type="button" class="btn btn-secondary" onclick="chooseOutcome('published_after_edits')">✏️ Published after edits</button>
+                                <button type="button" class="btn btn-secondary" onclick="chooseOutcome('discarded')">🗑️ Discarded</button>
+                            </div>
+                        </div>
+                        <div id="qualityFeedbackDetail" class="quality-feedback-detail hidden">
+                            <label>
+                                What needed fixing?
+                                <select id="feedbackPrimaryFix">
+                                    <option value="none">Nothing major</option>
+                                    <option value="missing_steps">Missing steps</option>
+                                    <option value="wrong_command">Wrong command / code</option>
+                                    <option value="structure">Structure / formatting</option>
+                                    <option value="tone">Tone / wording</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </label>
+                            <label>
+                                Time saved
+                                <select id="feedbackMinutesSaved">
+                                    <option value="">—</option>
+                                    <option value="0">None</option>
+                                    <option value="15">~15 min</option>
+                                    <option value="30">~30 min</option>
+                                    <option value="60">~1 hr+</option>
+                                </select>
+                            </label>
+                            <button type="button" class="btn btn-primary" onclick="submitQualityFeedback()">Send</button>
+                        </div>
+                        <div id="qualityFeedbackThanks" class="quality-feedback-thanks hidden">Thanks for the feedback!</div>
+                    </div>
                 </div>
             </div>
         </div>

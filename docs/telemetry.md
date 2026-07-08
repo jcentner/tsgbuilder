@@ -155,6 +155,25 @@ Emitted when the user copies or downloads the generated TSG.
 
 ---
 
+### `tsg_feedback`
+
+Emitted when the user reports how a generated TSG turned out (trust/adoption signal).
+
+| Field | Kind | Description |
+|-------|------|-------------|
+| `version` | property | App version |
+| `outcome` | property | Closed enum: `published`, `published_after_edits`, `discarded`, `regenerated` |
+| `primary_fix` | property | Closed enum: `none`, `missing_steps`, `wrong_command`, `structure`, `tone`, `other` |
+| `follow_up_round` | property | Which generation round produced the rated TSG (`"0"` for initial) |
+| `warnings_shown` | measurement | Count of review warnings shown for the rated TSG |
+| `minutes_saved_estimate` | measurement | Optional self-reported bucket: `0`, `15`, `30`, or `60` |
+
+**PII boundary**: Every field is a closed enum, count, or coarse numeric bucket. The `POST /api/feedback` endpoint validates `outcome` and `primary_fix` against [`quality_taxonomy.py`](../quality_taxonomy.py) and rejects anything out-of-enum (HTTP 400) **server-side**, so free-form text or PII can never reach telemetry — even from a modified client. `minutes_saved` outside the allowed buckets is silently dropped.
+
+**Trigger**: User picks an outcome in the quality-feedback strip → `chooseOutcome()` / `submitQualityFeedback()` in [`main.js`](../static/js/main.js) → fire-and-forget `POST /api/feedback` → `api_feedback()` in `web_app.py`. The endpoint returns 204 on success regardless of telemetry state. The enum vocabulary is shared with the offline eval harness.
+
+---
+
 ## What Is Never Collected
 
 - Notes, TSG content, or any user-authored text
@@ -241,8 +260,9 @@ customEvents
 | File | Role |
 |------|------|
 | [`telemetry.py`](../telemetry.py) | Core module: init, track_event, opt-out, install_id, connection string cascade |
-| [`web_app.py`](../web_app.py) | All instrumentation points (6 events emitted from here) |
-| [`static/js/main.js`](../static/js/main.js) | Client-side `tsg_copied` trigger (`POST /api/telemetry/copied`) |
+| [`web_app.py`](../web_app.py) | All instrumentation points (8 events emitted from here) |
+| [`quality_taxonomy.py`](../quality_taxonomy.py) | Closed-enum vocabulary for `tsg_feedback` (shared with the eval harness) |
+| [`static/js/main.js`](../static/js/main.js) | Client-side `tsg_copied` trigger (`POST /api/telemetry/copied`) and `tsg_feedback` trigger (`POST /api/feedback`) |
 | [`pipeline.py`](../pipeline.py) | `PipelineResult` telemetry fields, token accumulation in `process_pipeline_v2_stream()`, error metadata |
 | [`build_exe.py`](../build_exe.py) | `generate_build_config()` — writes `_build_config.py` with connection string |
 | [`.github/workflows/build.yml`](../.github/workflows/build.yml) | Passes `APPINSIGHTS_CONNECTION_STRING` secret to build step |

@@ -28,6 +28,10 @@ let currentRunId = null;
 // Telemetry: tracks follow-up iteration round (0 = initial generation)
 let followUpRound = 0;
 
+// Quality feedback state
+let lastWarningsShown = 0;
+let pendingOutcome = null;
+
 /* ==========================================================================
    Initialization
    ========================================================================== */
@@ -628,11 +632,15 @@ async function generateTSG() {
         // Check if we need feedback (MISSING items or review notes)
         const hasQuestions = data.questions && !data.complete;
         const hasWarnings = data.warnings && data.warnings.length > 0;
-        
+        lastWarningsShown = hasWarnings ? data.warnings.length : 0;
+
         if (hasQuestions || hasWarnings) {
             showFeedbackPanel(hasQuestions ? data.questions : null, data.warnings);
-        } else {
-            showSuccess('TSG generated successfully!');
+        }
+        if (!hasQuestions) {
+            // TSG is complete/usable — capture quality feedback
+            if (!hasWarnings) showSuccess('TSG generated successfully!');
+            showQualityFeedback();
         }
 
     } catch (error) {
@@ -674,13 +682,18 @@ async function submitAnswers() {
         // Check if we need more feedback (MISSING items or review notes)
         const hasQuestions = data.questions && !data.complete;
         const hasWarnings = data.warnings && data.warnings.length > 0;
-        
+        lastWarningsShown = hasWarnings ? data.warnings.length : 0;
+
         if (hasQuestions || hasWarnings) {
             showFeedbackPanel(hasQuestions ? data.questions : null, data.warnings);
             document.getElementById('answersInput').value = '';
         } else {
             document.getElementById('questionsPanel').classList.add('hidden');
             showSuccess('TSG updated and complete!');
+        }
+        if (!hasQuestions) {
+            // TSG is complete/usable — capture quality feedback
+            showQualityFeedback();
         }
 
     } catch (error) {
@@ -734,6 +747,7 @@ async function clearSession() {
     document.getElementById('clearSessionBtn').disabled = true;
     document.getElementById('questionsPanel').classList.add('hidden');
     document.getElementById('answersInput').value = '';
+    hideQualityFeedback();
     hideMessages();
     
     // Clear uploaded images
@@ -813,6 +827,8 @@ function showLoading(show) {
     if (show) {
         loading.classList.remove('hidden');
         btn.disabled = true;
+        // Hide any prior quality feedback strip for the new run
+        hideQualityFeedback();
         // Disable feedback buttons during generation
         if (submitBtn) submitBtn.disabled = true;
         if (skipBtn) skipBtn.disabled = true;
@@ -1035,6 +1051,64 @@ function downloadTSG() {
     // Show success message with filename
     showSuccess(`TSG downloaded as "${filename}"`);
     setTimeout(() => hideMessages(), 4000);
+}
+
+/* ==========================================================================
+   Quality Feedback (trust/adoption signal)
+   ========================================================================== */
+
+function showQualityFeedback() {
+    if (!currentTSG) return;
+    pendingOutcome = null;
+    document.getElementById('qualityFeedbackDetail').classList.add('hidden');
+    document.getElementById('qualityFeedbackThanks').classList.add('hidden');
+    document.querySelector('.quality-feedback-prompt').classList.remove('hidden');
+    document.getElementById('feedbackPrimaryFix').value = 'none';
+    document.getElementById('feedbackMinutesSaved').value = '';
+    document.getElementById('qualityFeedback').classList.remove('hidden');
+}
+
+function hideQualityFeedback() {
+    document.getElementById('qualityFeedback').classList.add('hidden');
+    pendingOutcome = null;
+}
+
+function chooseOutcome(outcome) {
+    if (outcome === 'published') {
+        // Happy path: one click, no detail needed.
+        sendFeedback({ outcome });
+        return;
+    }
+    // Edited or discarded: reveal the optional detail row before sending.
+    pendingOutcome = outcome;
+    document.querySelector('.quality-feedback-prompt').classList.add('hidden');
+    document.getElementById('qualityFeedbackDetail').classList.remove('hidden');
+}
+
+function submitQualityFeedback() {
+    if (!pendingOutcome) return;
+    const primaryFix = document.getElementById('feedbackPrimaryFix').value;
+    const minutesRaw = document.getElementById('feedbackMinutesSaved').value;
+    const payload = { outcome: pendingOutcome, primary_fix: primaryFix };
+    if (minutesRaw !== '') payload.minutes_saved = parseInt(minutesRaw, 10);
+    sendFeedback(payload);
+}
+
+function sendFeedback(payload) {
+    // Fire-and-forget — never block the user.
+    fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            follow_up_round: followUpRound,
+            warnings_shown: lastWarningsShown,
+            ...payload,
+        }),
+    }).catch(() => {});
+
+    document.querySelector('.quality-feedback-prompt').classList.add('hidden');
+    document.getElementById('qualityFeedbackDetail').classList.add('hidden');
+    document.getElementById('qualityFeedbackThanks').classList.remove('hidden');
 }
 
 /* ==========================================================================

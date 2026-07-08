@@ -579,6 +579,99 @@ class TestTsgCopiedEvent:
 
 
 # =============================================================================
+# TSG_FEEDBACK EVENT
+# =============================================================================
+
+class TestTsgFeedbackEvent:
+    """/api/feedback captures trust/quality signal with a strict PII boundary."""
+
+    @pytest.mark.unit
+    def test_valid_published_returns_204_and_emits(self, client, monkeypatch):
+        mock_track = MagicMock()
+        monkeypatch.setattr("telemetry.track_event", mock_track)
+
+        response = client.post("/api/feedback", json={"outcome": "published"})
+        assert response.status_code == 204
+
+        calls = [c for c in mock_track.call_args_list if c[0][0] == "tsg_feedback"]
+        assert len(calls) == 1
+        props = calls[0][1]["properties"]
+        assert props["outcome"] == "published"
+        assert props["primary_fix"] == "none"
+        assert props["version"]
+
+    @pytest.mark.unit
+    def test_full_payload_emits_measurements(self, client, monkeypatch):
+        mock_track = MagicMock()
+        monkeypatch.setattr("telemetry.track_event", mock_track)
+
+        client.post(
+            "/api/feedback",
+            json={
+                "outcome": "published_after_edits",
+                "primary_fix": "missing_steps",
+                "follow_up_round": 2,
+                "warnings_shown": 3,
+                "minutes_saved": 30,
+            },
+        )
+        calls = [c for c in mock_track.call_args_list if c[0][0] == "tsg_feedback"]
+        assert len(calls) == 1
+        props = calls[0][1]["properties"]
+        meas = calls[0][1]["measurements"]
+        assert props["outcome"] == "published_after_edits"
+        assert props["primary_fix"] == "missing_steps"
+        assert props["follow_up_round"] == "2"
+        assert meas["warnings_shown"] == 3
+        assert meas["minutes_saved_estimate"] == 30
+
+    @pytest.mark.unit
+    def test_invalid_outcome_rejected(self, client, monkeypatch):
+        mock_track = MagicMock()
+        monkeypatch.setattr("telemetry.track_event", mock_track)
+
+        response = client.post("/api/feedback", json={"outcome": "totally-made-up"})
+        assert response.status_code == 400
+        assert not [c for c in mock_track.call_args_list if c[0][0] == "tsg_feedback"]
+
+    @pytest.mark.unit
+    def test_freeform_primary_fix_rejected(self, client, monkeypatch):
+        """PII boundary: arbitrary text in an enum field is rejected, not emitted."""
+        mock_track = MagicMock()
+        monkeypatch.setattr("telemetry.track_event", mock_track)
+
+        response = client.post(
+            "/api/feedback",
+            json={"outcome": "discarded", "primary_fix": "customer john@contoso.com said..."},
+        )
+        assert response.status_code == 400
+        assert not [c for c in mock_track.call_args_list if c[0][0] == "tsg_feedback"]
+
+    @pytest.mark.unit
+    def test_out_of_bucket_minutes_dropped(self, client, monkeypatch):
+        """A non-bucket minutes value is silently dropped, not emitted."""
+        mock_track = MagicMock()
+        monkeypatch.setattr("telemetry.track_event", mock_track)
+
+        client.post(
+            "/api/feedback",
+            json={"outcome": "published", "minutes_saved": 999},
+        )
+        calls = [c for c in mock_track.call_args_list if c[0][0] == "tsg_feedback"]
+        assert len(calls) == 1
+        assert "minutes_saved_estimate" not in calls[0][1]["measurements"]
+
+    @pytest.mark.unit
+    def test_missing_outcome_rejected(self, client, monkeypatch):
+        mock_track = MagicMock()
+        monkeypatch.setattr("telemetry.track_event", mock_track)
+
+        response = client.post("/api/feedback", json={})
+        assert response.status_code == 400
+        assert not [c for c in mock_track.call_args_list if c[0][0] == "tsg_feedback"]
+
+
+# =============================================================================
 # FOLLOW-UP ROUND TRACKING
 # =============================================================================
 

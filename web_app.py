@@ -57,6 +57,11 @@ from pipeline import (
 from error_utils import classify_azure_sdk_error, classify_model, ModelTier
 from pii_check import check_for_pii
 from version import APP_VERSION, GITHUB_URL, GITHUB_API_LATEST
+from quality_taxonomy import (
+    is_valid_outcome,
+    is_valid_failure_mode,
+    coerce_minutes_saved,
+)
 import telemetry
 
 if getattr(sys, 'frozen', False):
@@ -1429,6 +1434,56 @@ def api_telemetry_copied():
             "follow_up_round": str(follow_up_round),
             "action": action,
         },
+    )
+    return "", 204
+
+
+@app.route("/api/feedback", methods=["POST"])
+def api_feedback():
+    """Record user feedback on a generated TSG (trust/quality signal).
+
+    Privacy boundary: only closed-enum values, counts, and coarse numeric
+    buckets are accepted. Free-form text is rejected server-side so user notes
+    or PII can never reach telemetry, even from a modified client. Always
+    returns 204 regardless of telemetry state.
+    """
+    data = request.get_json(silent=True) or {}
+
+    outcome = data.get("outcome")
+    if not is_valid_outcome(outcome):
+        return jsonify({"error": "Invalid outcome"}), 400
+
+    # primary_fix is optional; default to "none" and reject unknown values.
+    primary_fix = data.get("primary_fix", "none")
+    if not is_valid_failure_mode(primary_fix):
+        return jsonify({"error": "Invalid primary_fix"}), 400
+
+    try:
+        follow_up_round = max(0, min(int(data.get("follow_up_round", 0)), 20))
+    except (TypeError, ValueError):
+        follow_up_round = 0
+
+    try:
+        warnings_shown = max(0, min(int(data.get("warnings_shown", 0)), 50))
+    except (TypeError, ValueError):
+        warnings_shown = 0
+
+    properties = {
+        "version": APP_VERSION,
+        "outcome": outcome,
+        "primary_fix": primary_fix,
+        "follow_up_round": str(follow_up_round),
+    }
+    measurements: dict[str, float | int] = {"warnings_shown": warnings_shown}
+
+    minutes_saved = coerce_minutes_saved(data.get("minutes_saved"))
+    if minutes_saved is not None:
+        measurements["minutes_saved_estimate"] = minutes_saved
+
+    telemetry.track_event(
+        "tsg_feedback",
+        properties=properties,
+        measurements=measurements,
     )
     return "", 204
 
