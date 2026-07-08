@@ -1,0 +1,10 @@
+{
+    "label": "Foundry agents cannot see connected AOAI deployments (capability host workaround)",
+    "output_file": "../../../examples/capability-host-expected.md",
+    "expects_missing": false,
+    "expected_snippet_tokens": [
+        "capabilityHost",
+        "aiServicesConnections",
+        "DefaultAzureCredential"
+    ]
+}

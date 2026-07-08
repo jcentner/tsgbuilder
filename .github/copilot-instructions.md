@@ -34,6 +34,7 @@ make test           # Run full pytest suite
 make test-unit      # Fast: unit tests only (-m unit)
 make test-quick     # Skip dep reinstall
 make test-cov       # With coverage report
+make eval           # Run offline deterministic TSG evals (no Azure)
 make lint           # py_compile syntax check
 make build          # PyInstaller standalone executable
 make clean          # Remove .venv, caches, agent IDs

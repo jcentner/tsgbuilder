@@ -123,7 +123,7 @@ lint:
 	@echo "Syntax check passed."
 
 # Testing
-.PHONY: test test-verbose test-cov test-unit test-quick
+.PHONY: test test-verbose test-cov test-unit test-quick eval
 
 test: install-dev
 	@echo "Running tests..."
@@ -131,6 +131,14 @@ test: install-dev
 		.venv/bin/pytest tests/ -v; \
 	else \
 		pytest tests/ -v; \
+	fi
+
+eval:
+	@echo "Running offline TSG evals..."
+	@if [ -d ".venv" ]; then \
+		.venv/bin/python evals/run_evals.py; \
+	else \
+		$(PYTHON) evals/run_evals.py; \
 	fi
 
 test-verbose: install-dev

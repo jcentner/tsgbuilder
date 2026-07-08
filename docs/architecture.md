@@ -100,6 +100,8 @@ The Reviewer agent validates the draft:
 
 **Deterministic diagnosis-line guarantee**: The mandatory line `Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM.` is enforced by a model-independent post-process (`ensure_required_diagnosis_line()`) after the review loop, so it is present in the Diagnosis section of every generated TSG that has a `# **Diagnosis**` heading. (If the heading itself is missing — a structural failure the review retry loop owns — the post-process defers rather than masking it.)
 
+**Offline eval harness**: `evals/` holds a deterministic, no-network quality guardrail (`make eval`) that scores captured TSG outputs for publication-blocking failure modes — template compliance, MISSING hygiene, code-token fidelity, and source-attribution leakage. Scorer failure modes share the `quality_taxonomy.py` vocabulary with in-product `tsg_feedback` telemetry so offline and real-world signals are comparable. See [evals/README.md](../evals/README.md).
+
 ## Output Format
 
 The pipeline outputs structured markers for parsing:

@@ -22,6 +22,9 @@ output.md
 # Test/pipeline output files (may contain user input and raw API responses)
 **/test_output*.json
 
+# Eval run artifacts (generated; may reflect scored output)
+evals/results/
+
 # Verbose logs and error logs (may contain API response details)
 logs/
 errors.log
