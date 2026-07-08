@@ -39,12 +39,12 @@ QUALITY_FAILURE_MODES = frozenset(
 MINUTES_SAVED_BUCKETS = frozenset({0, 15, 30, 60})
 
 
-def is_valid_outcome(value: str | None) -> bool:
-    return value in FEEDBACK_OUTCOMES
+def is_valid_outcome(value: object) -> bool:
+    return isinstance(value, str) and value in FEEDBACK_OUTCOMES
 
 
-def is_valid_failure_mode(value: str | None) -> bool:
-    return value in QUALITY_FAILURE_MODES
+def is_valid_failure_mode(value: object) -> bool:
+    return isinstance(value, str) and value in QUALITY_FAILURE_MODES
 
 
 def coerce_minutes_saved(value: object) -> int | None:

@@ -1448,6 +1448,8 @@ def api_feedback():
     returns 204 regardless of telemetry state.
     """
     data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid payload"}), 400
 
     outcome = data.get("outcome")
     if not is_valid_outcome(outcome):

@@ -31,6 +31,7 @@ let followUpRound = 0;
 // Quality feedback state
 let lastWarningsShown = 0;
 let pendingOutcome = null;
+let feedbackSent = false;
 
 /* ==========================================================================
    Initialization
@@ -979,6 +980,7 @@ function clearInput() {
     currentThreadId = null;
     currentTSG = '';
     followUpRound = 0;
+    hideQualityFeedback();
     // Also clear uploaded images
     clearImages();
 }
@@ -1060,6 +1062,7 @@ function downloadTSG() {
 function showQualityFeedback() {
     if (!currentTSG) return;
     pendingOutcome = null;
+    feedbackSent = false;
     document.getElementById('qualityFeedbackDetail').classList.add('hidden');
     document.getElementById('qualityFeedbackThanks').classList.add('hidden');
     document.querySelector('.quality-feedback-prompt').classList.remove('hidden');
@@ -1074,6 +1077,7 @@ function hideQualityFeedback() {
 }
 
 function chooseOutcome(outcome) {
+    if (feedbackSent) return;
     if (outcome === 'published') {
         // Happy path: one click, no detail needed.
         sendFeedback({ outcome });
@@ -1086,7 +1090,7 @@ function chooseOutcome(outcome) {
 }
 
 function submitQualityFeedback() {
-    if (!pendingOutcome) return;
+    if (feedbackSent || !pendingOutcome) return;
     const primaryFix = document.getElementById('feedbackPrimaryFix').value;
     const minutesRaw = document.getElementById('feedbackMinutesSaved').value;
     const payload = { outcome: pendingOutcome, primary_fix: primaryFix };
@@ -1095,6 +1099,8 @@ function submitQualityFeedback() {
 }
 
 function sendFeedback(payload) {
+    if (feedbackSent) return;
+    feedbackSent = true;
     // Fire-and-forget — never block the user.
     fetch('/api/feedback', {
         method: 'POST',

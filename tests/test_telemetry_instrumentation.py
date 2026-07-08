@@ -670,6 +670,31 @@ class TestTsgFeedbackEvent:
         assert response.status_code == 400
         assert not [c for c in mock_track.call_args_list if c[0][0] == "tsg_feedback"]
 
+    @pytest.mark.unit
+    def test_non_string_enum_values_rejected_not_500(self, client, monkeypatch):
+        """Unhashable/list enum values must 400, never 500 (no TypeError leak)."""
+        mock_track = MagicMock()
+        monkeypatch.setattr("telemetry.track_event", mock_track)
+
+        for bad in ([], {}, 5, True):
+            response = client.post("/api/feedback", json={"outcome": bad})
+            assert response.status_code == 400
+        assert not [c for c in mock_track.call_args_list if c[0][0] == "tsg_feedback"]
+
+    @pytest.mark.unit
+    def test_top_level_non_dict_rejected(self, client, monkeypatch):
+        """A non-object JSON body must 400, not raise AttributeError."""
+        mock_track = MagicMock()
+        monkeypatch.setattr("telemetry.track_event", mock_track)
+
+        response = client.post(
+            "/api/feedback",
+            data="[1, 2, 3]",
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert not [c for c in mock_track.call_args_list if c[0][0] == "tsg_feedback"]
+
 
 # =============================================================================
 # FOLLOW-UP ROUND TRACKING
