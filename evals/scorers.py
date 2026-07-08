@@ -51,13 +51,22 @@ class ScoreResult:
 
 
 def score_template_compliance(tsg: str) -> ScoreResult:
-    """All required headings, the TOC, the title, and the diagnosis line present."""
+    """All required headings, the TOC, the title, and the diagnosis line present.
+
+    Headings are matched as whole Markdown heading lines (anchored to line start),
+    not bare substrings, so a heading mentioned inside prose or a code fence does
+    not falsely satisfy the check. Heading *order* is intentionally not enforced
+    in this deterministic v1.
+    """
     problems: list[str] = []
     if REQUIRED_TOC not in tsg:
         problems.append("missing TOC")
     if not re.search(r"\[\[_TOC_\]\]\s*\n+\s*# \*\*[^*]+\*\*", tsg):
         problems.append("missing title heading")
-    missing_headings = [h for h in REQUIRED_TSG_HEADINGS if h not in tsg]
+    missing_headings = [
+        h for h in REQUIRED_TSG_HEADINGS
+        if not re.search(rf"^{re.escape(h)}\s*$", tsg, re.MULTILINE)
+    ]
     if missing_headings:
         problems.append("missing headings: " + ", ".join(missing_headings))
     if REQUIRED_DIAGNOSIS_LINE not in tsg:
@@ -78,7 +87,13 @@ def score_missing_hygiene(tsg: str, rubric: dict) -> ScoreResult:
 
 
 def score_code_fidelity(tsg: str, rubric: dict) -> ScoreResult:
-    """Expected code/command tokens survived into the TSG (case-insensitive)."""
+    """Expected code/command tokens survived into the TSG (case-insensitive).
+
+    v1 limitation: this is a whole-document substring check, so it confirms a
+    token is present somewhere but not that it appears inside a code block or in
+    an affirmative context. Choose distinctive tokens (API versions, exact
+    identifiers) to keep false positives low.
+    """
     tokens = rubric.get("expected_snippet_tokens", [])
     if not tokens:
         return ScoreResult("code_fidelity", True, "no tokens specified")

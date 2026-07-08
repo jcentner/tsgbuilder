@@ -1,5 +1,5 @@
 {
-    "label": "Foundry agents cannot see connected AOAI deployments (capability host workaround)",
+    "label": "[smoke] Foundry agents cannot see connected AOAI deployments (capability host)",
     "output_file": "../../../examples/capability-host-expected.md",
     "expects_missing": false,
     "expected_snippet_tokens": [

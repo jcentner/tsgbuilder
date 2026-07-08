@@ -52,28 +52,36 @@ def _load_cases() -> list[tuple[str, dict, Path]]:
 
 def run() -> int:
     parser = argparse.ArgumentParser(description="Offline TSG eval runner")
-    parser.add_argument("--strict", action="store_true", help="Exit non-zero on any failure")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit non-zero on any scorer failure, harness error, or empty case set (CI gate)",
+    )
     args = parser.parse_args()
 
     cases = _load_cases()
     if not cases:
         print("No eval cases found under evals/cases/.")
-        return 0
+        # In strict mode, an empty/broken case set is a failure, not a pass.
+        return 1 if args.strict else 0
 
     all_results = []
     total = 0
     failed = 0
+    errors = 0  # harness problems (missing/invalid config), distinct from scorer failures
 
     print(f"{'CASE':<28} {'SCORER':<24} {'RESULT':<6} DETAIL")
     print("-" * 90)
     for name, rubric, case_dir in cases:
         output_file = rubric.get("output_file")
         if not output_file:
-            print(f"{name:<28} {'(skipped)':<24} {'-':<6} no output_file in rubric")
+            errors += 1
+            print(f"{name:<28} {'(error)':<24} {'ERR':<6} no output_file in rubric")
             continue
         output_path = (case_dir / output_file).resolve()
         if not output_path.exists():
-            print(f"{name:<28} {'(skipped)':<24} {'-':<6} output not found: {output_path}")
+            errors += 1
+            print(f"{name:<28} {'(error)':<24} {'ERR':<6} output not found: {output_path}")
             continue
 
         tsg = output_path.read_text(encoding="utf-8")
@@ -91,13 +99,15 @@ def run() -> int:
     print("-" * 90)
     passed = total - failed
     print(f"{passed}/{total} scorer checks passed across {len(cases)} case(s).")
+    if errors:
+        print(f"{errors} case(s) could not be scored (harness errors).")
 
     RESULTS_DIR.mkdir(exist_ok=True)
     (RESULTS_DIR / "results.json").write_text(
         json.dumps(all_results, indent=2), encoding="utf-8"
     )
 
-    if args.strict and failed:
+    if args.strict and (failed or errors or total == 0):
         return 1
     return 0
 

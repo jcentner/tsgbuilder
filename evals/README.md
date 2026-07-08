@@ -31,7 +31,22 @@ make eval                    # score all offline cases, print a table
 python evals/run_evals.py --strict   # exit non-zero on any failure (CI gate)
 ```
 
-Results are written to `evals/results/results.json`.
+`--strict` fails on scorer failures **and** harness errors (missing/invalid
+rubric or output file) **and** an empty case set — so a broken eval config can't
+silently pass CI. Results are written to `evals/results/results.json`.
+
+## What green means (and doesn't)
+
+The scorers catch publication-blocking defects **in a given TSG**. Two distinct
+things give confidence:
+
+- **Scorer unit tests** (`tests/test_eval_scorers.py`) prove the scorers actually
+  *fail* on missing headings, stray MISSING placeholders, dropped code tokens,
+  and attribution leakage — i.e. that a green run is meaningful.
+- **Eval cases** score real captured outputs. The seed `capability-host` case
+  reuses a human ground-truth TSG and is therefore a **scorer smoke test**, not
+  proof the live pipeline still produces publishable output. To catch pipeline
+  regressions, add cases built from **captured real pipeline outputs**.
 
 ## Adding a case
 
