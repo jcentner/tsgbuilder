@@ -37,8 +37,8 @@ Tags containing `-` are automatically marked as pre-releases.
 
 ### 1. Prepare the Release
 
-1. Open a pull request that **updates `APP_VERSION` in `version.py`** to the new version (e.g., `APP_VERSION = "1.2.0"`), and merge it to `main` (direct pushes to `main` are blocked by branch protection)
-2. Verify tests pass: `make test`
+1. Open a pull request that **updates `APP_VERSION` in `version.py`** to the new version (e.g., `APP_VERSION = "1.2.0"`), and ensure tests pass in the PR: `make test`
+2. Merge the PR to `main` (direct pushes to `main` are blocked by branch protection)
 3. If prompts, tools, model policy, or agent-definition signature inputs changed, plan a release-note reminder to recreate agents
 
 ### 2. Create and Push Tag
