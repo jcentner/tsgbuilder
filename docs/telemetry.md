@@ -266,6 +266,6 @@ customEvents
 | [`pipeline.py`](../pipeline.py) | `PipelineResult` telemetry fields, token accumulation in `process_pipeline_v2_stream()`, error metadata |
 | [`build_exe.py`](../build_exe.py) | `generate_build_config()` — writes `_build_config.py` with connection string |
 | [`.github/workflows/build.yml`](../.github/workflows/build.yml) | Passes `APPINSIGHTS_CONNECTION_STRING` secret to build step |
-| [`tests/test_telemetry.py`](../tests/test_telemetry.py) | Core module unit tests (34 tests) |
-| [`tests/test_pipeline_telemetry.py`](../tests/test_pipeline_telemetry.py) | Pipeline plumbing tests (16 tests) |
-| [`tests/test_telemetry_instrumentation.py`](../tests/test_telemetry_instrumentation.py) | Instrumentation point integration tests (29 tests) |
+| [`tests/test_telemetry.py`](../tests/test_telemetry.py) | Core module unit tests |
+| [`tests/test_pipeline_telemetry.py`](../tests/test_pipeline_telemetry.py) | Pipeline plumbing tests |
+| [`tests/test_telemetry_instrumentation.py`](../tests/test_telemetry_instrumentation.py) | Instrumentation point integration tests (includes `tsg_feedback`) |

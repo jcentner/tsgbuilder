@@ -47,20 +47,24 @@ Always run `make test` before submitting changes. Tests live in `tests/` with sh
 
 ```
 ├── pipeline.py          # Pipeline orchestration, error classification, retry logic
-├── tsg_constants.py     # TSG template, stage prompts, REQUIRED_TSG_HEADINGS, validate_tsg_output()
-├── web_app.py           # Flask server, SSE streaming, setup/iteration endpoints
+├── tsg_constants.py     # TSG template, stage prompts, REQUIRED_TSG_HEADINGS, validate_tsg_output(), ensure_required_diagnosis_line()
+├── web_app.py           # Flask server, SSE streaming, setup/iteration/session/feedback endpoints
 ├── pii_check.py         # PII detection gate (Azure AI Language)
+├── model_policy.py      # Supported-model classifier (dependency-free)
 ├── error_utils.py       # Shared Azure SDK error classification
+├── error_messages.py    # Shared error hint/message constants
+├── quality_taxonomy.py  # Shared enums for feedback + evals (outcomes, failure modes)
 ├── telemetry.py         # Anonymous usage telemetry
 ├── version.py           # Single source of truth: APP_VERSION, GITHUB_URL, TSG_SIGNATURE
 ├── validate_setup.py    # CLI environment validation
 ├── build_exe.py         # PyInstaller build (bundles templates/ + static/)
 ├── delete_agents.py     # Agent cleanup utility
 ├── templates/index.html # Web UI HTML
-├── static/js/main.js    # Core UI logic (SSE, rendering, copy/download, PII modal)
+├── static/js/main.js    # Core UI logic (SSE, rendering, copy/download, PII modal, feedback, sessions)
 ├── static/js/setup.js   # Setup wizard client logic
 ├── static/css/styles.css# CSS custom properties + component styles
 ├── tests/               # Pytest suite (conftest.py has shared fixtures)
+├── evals/               # Offline deterministic TSG eval harness (make eval)
 ├── docs/                # architecture.md, telemetry.md, releasing.md
 └── examples/            # Test inputs and expected outputs
 ```
@@ -96,5 +100,5 @@ Always run `make test` before submitting changes. Tests live in `tests/` with sh
 
 ## Version Management
 
-Update `APP_VERSION` in `version.py`, tag `v{version}`, push tag to trigger the CI release workflow (`.github/workflows/build.yml`).
+Changes land on `main` through pull requests (branch protection requires it). To release: open a PR that updates `APP_VERSION` in `version.py`, merge it, then tag `v{version}` on `main` and push the tag to trigger the CI release workflow (`.github/workflows/build.yml`). See `docs/releasing.md`.
 

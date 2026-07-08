@@ -146,19 +146,24 @@ When the TSG has missing information:
 | `pipeline.py` | Multi-stage pipeline orchestration, error classification |
 | `tsg_constants.py` | TSG template, agent instructions, and stage prompts |
 | `pii_check.py` | PII detection via Azure AI Language API (pre-flight gate) |
+| `model_policy.py` | Supported-model classifier (dependency-free) |
 | `error_utils.py` | Shared Azure SDK error classification utilities |
+| `error_messages.py` | Shared error hint/message constants |
+| `quality_taxonomy.py` | Shared enums for feedback + evals (outcomes, failure modes) |
 | `telemetry.py` | Anonymous usage telemetry (see [docs/telemetry.md](telemetry.md)) |
 | `version.py` | Single source of truth for version, GitHub URL, and TSG signature |
-| `web_app.py` | Flask web UI + agent creation |
+| `web_app.py` | Flask web UI, agent creation, session persistence, feedback |
 | `build_exe.py` | PyInstaller build script (bundles templates/, static/) |
 | `validate_setup.py` | Validate environment configuration (CLI troubleshooting) |
 | `delete_agents.py` | Delete agents from Azure (used by `make clean DELETE_AGENTS=1`) |
-| `Makefile` | Common operations (setup, ui, test, build, clean) |
+| `Makefile` | Common operations (setup, ui, test, build, eval, clean) |
 | `templates/index.html` | Web UI HTML structure |
 | `static/css/styles.css` | Web UI styles |
-| `static/js/main.js` | Core application logic (streaming, TSG display, images, PII modal) |
+| `static/js/main.js` | Core application logic (streaming, TSG display, images, PII modal, feedback, sessions) |
 | `static/js/setup.js` | Setup modal functionality |
 | `.agent_ids.json` | Stores agent IDs after creation |
+| `.sessions/` | Persisted session store (gitignored; raw notes/images stay local) |
+| `evals/` | Offline deterministic TSG eval harness (`make eval`) |
 | `tests/` | Pytest test suite |
 | `tests/conftest.py` | Shared fixtures and test utilities |
 | `docs/archive/error-handling-plan.md` | Error handling implementation plan (archived) |

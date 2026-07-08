@@ -4,10 +4,10 @@ This document covers the release process and build infrastructure for TSG Builde
 
 ## Quick Reference
 
-> Remember to update the version in version.py first
+> Changes reach `main` through a pull request (branch protection requires it). Update `version.py` in that PR, merge it, then tag.
 
 ```bash
-# Create and push a release tag
+# After the version-bump PR is merged to main, from an up-to-date main:
 git tag v1.0.0
 git push origin v1.0.0
 
@@ -37,10 +37,9 @@ Tags containing `-` are automatically marked as pre-releases.
 
 ### 1. Prepare the Release
 
-1. Ensure all changes are committed and pushed to `main`
-2. **Update `APP_VERSION` in `version.py`** to match the new version (e.g., `APP_VERSION = "1.1.0"`)
-3. Verify tests pass: `make test`
-4. If prompts, tools, model policy, or agent-definition signature inputs changed, plan a release-note reminder to recreate agents
+1. Open a pull request that **updates `APP_VERSION` in `version.py`** to the new version (e.g., `APP_VERSION = "1.2.0"`), and merge it to `main` (direct pushes to `main` are blocked by branch protection)
+2. Verify tests pass: `make test`
+3. If prompts, tools, model policy, or agent-definition signature inputs changed, plan a release-note reminder to recreate agents
 
 ### 2. Create and Push Tag
 
