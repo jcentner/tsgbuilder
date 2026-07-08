@@ -116,8 +116,9 @@ The setup wizard opens automatically to guide you through configuration.
 - 📝 Paste notes directly in the browser
 - 🖼️ **Image support** — Attach screenshots via drag-and-drop or file picker
 - 🔄 Interactive follow-up questions
-- � **Save & resume** — Persist in-progress work (notes, images, TSG, iteration state) and pick it back up later, even after restarting
-- �📋 One-click copy to clipboard
+- 💾 **Save & resume** — Persist in-progress work (notes, images, TSG, iteration state) and pick it back up later, even after restarting
+- 👍 **Quality feedback** — Optionally record how each TSG turned out (anonymous; no note content collected)
+- 📋 One-click copy to clipboard
 - 👁️ **Raw/Preview toggle** — Switch between raw markdown and rendered preview
 - 📊 Real-time status indicators
 - 💡 Load example input with one click
@@ -223,7 +224,7 @@ TSG Builder collects **anonymous usage telemetry** to help improve the tool. Tel
 
 ### What Is Collected
 
-- **Counts and enums** — event names (e.g. "TSG generated", "setup completed"), stage names, error classifications
+- **Counts and enums** — event names (e.g. "TSG generated", "setup completed", "TSG feedback"), stage names, error classifications
 - **Durations** — pipeline and per-stage wall-clock times
 - **Token counts** — per-stage input/output token usage (aggregate numbers, never content)
 - **Version and platform** — app version, OS platform, Python version, run mode (source/executable)
@@ -292,6 +293,7 @@ This creates executables in `dist/`:
 | `make test-cov` | Run tests with coverage report |
 | `make test-unit` | Run only unit tests (fast) |
 | `make test-quick` | Skip dep install (fastest) |
+| `make eval` | Run offline deterministic TSG evals (no Azure) |
 | `make help` | Show all commands |
 
 ### Architecture
