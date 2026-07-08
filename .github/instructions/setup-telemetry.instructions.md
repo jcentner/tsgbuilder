@@ -21,5 +21,5 @@ These instructions apply when editing setup validation, model policy, agent meta
 
 - Telemetry is anonymous and fail-silent.
 - Never collect note content, generated TSG content, follow-up answers, file paths, resource names, project endpoints, agent names, secrets, or raw exception text.
-- For user-submitted signals (e.g. the `tsg_feedback` event), validate every field against a closed enum server-side and reject anything out-of-enum — this is the PII boundary. Shared feedback/eval enums live in `quality_taxonomy.py`.
+- For user-submitted signals (e.g. the `tsg_feedback` event), validate enum fields server-side against a closed vocabulary and reject out-of-enum values; clamp or drop numeric buckets to prevent high-cardinality dimensions — this is the PII boundary. Shared feedback/eval enums live in `quality_taxonomy.py`.
 - Document any event or property changes in `docs/telemetry.md` and test them.
