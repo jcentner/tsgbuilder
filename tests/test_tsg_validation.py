@@ -422,6 +422,22 @@ class TestEnsureRequiredDiagnosisLine:
         assert ensure_required_diagnosis_line(content) == content
 
     @pytest.mark.unit
+    def test_line_in_wrong_section_still_inserts_under_diagnosis(self):
+        """Presence is scoped to the Diagnosis section — a stray copy elsewhere doesn't count."""
+        content = (
+            f"{REQUIRED_TOC}\n\n# **Sample Title**\n\n"
+            f"# **Diagnosis**\n\nRun the diagnostic query.\n\n"
+            f"# **Cause**\n\n{REQUIRED_DIAGNOSIS_LINE}\n"
+        )
+        result = ensure_required_diagnosis_line(content)
+        # Now present in BOTH the Diagnosis section and the stray Cause location.
+        assert result.count(REQUIRED_DIAGNOSIS_LINE) == 2
+        diag_idx = result.index("# **Diagnosis**")
+        cause_idx = result.index("# **Cause**")
+        first_line_idx = result.index(REQUIRED_DIAGNOSIS_LINE)
+        assert diag_idx < first_line_idx < cause_idx
+
+    @pytest.mark.unit
     def test_empty_content_returns_unchanged(self):
         """Empty input is returned unchanged (no crash)."""
         assert ensure_required_diagnosis_line("") == ""

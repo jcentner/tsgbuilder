@@ -98,7 +98,7 @@ The Reviewer agent validates the draft:
 
 **Output**: Validated TSG + review notes/warnings.
 
-**Deterministic diagnosis-line guarantee**: The mandatory line `Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM.` is enforced by a model-independent post-process (`ensure_required_diagnosis_line()`) after the review loop, so it is present on every generated TSG regardless of model behavior.
+**Deterministic diagnosis-line guarantee**: The mandatory line `Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM.` is enforced by a model-independent post-process (`ensure_required_diagnosis_line()`) after the review loop, so it is present in the Diagnosis section of every generated TSG that has a `# **Diagnosis**` heading. (If the heading itself is missing — a structural failure the review retry loop owns — the post-process defers rather than masking it.)
 
 ## Output Format
 
