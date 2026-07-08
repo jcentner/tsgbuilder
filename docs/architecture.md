@@ -98,6 +98,8 @@ The Reviewer agent validates the draft:
 
 **Output**: Validated TSG + review notes/warnings.
 
+**Deterministic diagnosis-line guarantee**: The mandatory line `Don't Remove This Text: Results of the Diagnosis should be attached in the Case notes/ICM.` is enforced by a model-independent post-process (`ensure_required_diagnosis_line()`) after the review loop, so it is present on every generated TSG regardless of model behavior.
+
 ## Output Format
 
 The pipeline outputs structured markers for parsing:

@@ -60,6 +60,8 @@ Expected behavior:
 - Keep QUESTIONS markers outside and after TSG block
 - `approved: true` for structurally valid TSGs (even with warnings); `approved: false` only for structural failures
 
+**Deterministic diagnosis-line guarantee**: After the review loop resolves, `ensure_required_diagnosis_line()` re-inserts `REQUIRED_DIAGNOSIS_LINE` under `# **Diagnosis**` if the model dropped it. This is a model-independent post-process (all paths: approved, corrected, skip-review, last-retry). If the Diagnosis heading itself is missing, it defers to the structural retry loop and returns the content unchanged.
+
 Output contract:
 ```json
 {

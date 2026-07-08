@@ -38,6 +38,7 @@ from tsg_constants import (
     build_review_prompt,
     # Validation
     validate_tsg_output,
+    ensure_required_diagnosis_line,
     extract_research_block,
     extract_review_block,
 )
@@ -1755,6 +1756,9 @@ Please fix these issues and regenerate the TSG with correct format.
                             start = final_tsg.find(TSG_BEGIN) + len(TSG_BEGIN)
                             end = final_tsg.find(TSG_END)
                             tsg_content = final_tsg[start:end].strip()
+                            # Deterministic guarantee: the mandatory diagnosis line
+                            # must always be present, independent of reviewer behavior.
+                            tsg_content = ensure_required_diagnosis_line(tsg_content)
                             # Append signature for usage tracking
                             tsg_content = tsg_content + TSG_SIGNATURE
                         

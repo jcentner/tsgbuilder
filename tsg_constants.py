@@ -150,6 +150,30 @@ def validate_tsg_output(response_text: str) -> dict:
     }
 
 
+def ensure_required_diagnosis_line(tsg_content: str) -> str:
+    """Guarantee the mandatory diagnosis line is present under the Diagnosis heading.
+
+    The reviewer occasionally drops ``REQUIRED_DIAGNOSIS_LINE``. This deterministic
+    post-process re-inserts it as the first paragraph of the Diagnosis section when
+    it is missing, so the guarantee does not depend on model behavior.
+
+    If the ``# **Diagnosis**`` heading is absent (a structural failure already owned
+    by the review retry loop), the content is returned unchanged. The early presence
+    check makes this idempotent.
+    """
+    if not tsg_content or REQUIRED_DIAGNOSIS_LINE in tsg_content:
+        return tsg_content
+
+    diagnosis_heading = "# **Diagnosis**"
+    lines = tsg_content.split("\n")
+    for i, line in enumerate(lines):
+        if line.strip() == diagnosis_heading:
+            lines[i + 1:i + 1] = ["", REQUIRED_DIAGNOSIS_LINE, ""]
+            return "\n".join(lines)
+
+    return tsg_content
+
+
 # =============================================================================
 # MULTI-STAGE PIPELINE PROMPTS
 # =============================================================================

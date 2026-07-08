@@ -9,6 +9,7 @@ Run with: pytest tests/test_tsg_validation.py -v
 import pytest
 from tsg_constants import (
     validate_tsg_output,
+    ensure_required_diagnosis_line,
     TSG_BEGIN,
     TSG_END,
     QUESTIONS_BEGIN,
@@ -366,3 +367,74 @@ NO_MISSING
         result = validate_tsg_output(response)
         assert result["questions_content"] == "NO_MISSING"
         assert result["valid"] is True
+
+
+# =============================================================================
+# TESTS: ensure_required_diagnosis_line() — deterministic #32 enforcement
+# =============================================================================
+
+class TestEnsureRequiredDiagnosisLine:
+    """Tests for the deterministic diagnosis-line guarantee."""
+
+    def _tsg_with_diagnosis_body(self, body: str) -> str:
+        """Build minimal TSG content with a Diagnosis section containing `body`."""
+        return (
+            f"{REQUIRED_TOC}\n\n# **Sample Title**\n\n"
+            "# **Issue Description / Symptoms**\n\nSymptoms.\n\n"
+            f"# **Diagnosis**\n\n{body}\n\n"
+            "# **Cause**\n\nCause.\n"
+        )
+
+    @pytest.mark.unit
+    def test_line_present_returns_unchanged(self):
+        """When the line already exists, content is returned byte-for-byte unchanged."""
+        content = self._tsg_with_diagnosis_body(REQUIRED_DIAGNOSIS_LINE)
+        assert ensure_required_diagnosis_line(content) == content
+
+    @pytest.mark.unit
+    def test_line_missing_is_inserted_under_diagnosis(self):
+        """When missing, the line is inserted inside the Diagnosis section."""
+        content = self._tsg_with_diagnosis_body("Run the diagnostic query.")
+        assert REQUIRED_DIAGNOSIS_LINE not in content
+
+        result = ensure_required_diagnosis_line(content)
+
+        assert REQUIRED_DIAGNOSIS_LINE in result
+        # The line must sit between the Diagnosis heading and the next heading.
+        diag_idx = result.index("# **Diagnosis**")
+        line_idx = result.index(REQUIRED_DIAGNOSIS_LINE)
+        cause_idx = result.index("# **Cause**")
+        assert diag_idx < line_idx < cause_idx
+
+    @pytest.mark.unit
+    def test_insertion_is_idempotent(self):
+        """Running twice inserts the line exactly once."""
+        content = self._tsg_with_diagnosis_body("Run the diagnostic query.")
+        once = ensure_required_diagnosis_line(content)
+        twice = ensure_required_diagnosis_line(once)
+        assert once == twice
+        assert once.count(REQUIRED_DIAGNOSIS_LINE) == 1
+
+    @pytest.mark.unit
+    def test_missing_diagnosis_heading_returns_unchanged(self):
+        """No Diagnosis heading → defer to the structural retry loop; return unchanged."""
+        content = f"{REQUIRED_TOC}\n\n# **Sample Title**\n\n# **Cause**\n\nCause.\n"
+        assert ensure_required_diagnosis_line(content) == content
+
+    @pytest.mark.unit
+    def test_empty_content_returns_unchanged(self):
+        """Empty input is returned unchanged (no crash)."""
+        assert ensure_required_diagnosis_line("") == ""
+
+    @pytest.mark.unit
+    def test_result_passes_validation_for_the_diagnosis_line(self):
+        """After enforcement, validate_tsg_output no longer flags the missing line."""
+        content = self._tsg_with_diagnosis_body("Run the diagnostic query.")
+        fixed = ensure_required_diagnosis_line(content)
+        response = (
+            f"{TSG_BEGIN}\n{fixed}\n{TSG_END}\n\n"
+            f"{QUESTIONS_BEGIN}\nNO_MISSING\n{QUESTIONS_END}\n"
+        )
+        result = validate_tsg_output(response)
+        assert "Missing required diagnosis line" not in result["issues"]
+
